@@ -1,0 +1,17 @@
+#
+# This example encodes a simple counter program, which counts from 0 to 5.
+#
+
+# Counter: 0 → 5, then halt
+# 0: init
+    ZERO -> STASH_A.IN
+
+# 1 (loop): fetch + add 1
+loop:
+    STASH_A.OUT -> ARITH_A.LHS, CONST -> ARITH_A.RHS [imm=1]
+
+# 2: store + compare + gate (daisychain)
+    ARITH_A.ADD -> STASH_A.IN, ARITH_A.ADD -> CMP.LHS, CONST -> CMP.RHS, CMP.LT -> COND [imm=5]
+
+# 3: conditional jump back to 1
+    CONST -> PC [pred, imm=loop]
