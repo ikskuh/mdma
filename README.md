@@ -18,14 +18,13 @@ A friend once told me that he just figured out that the `MOV` instruction of man
 
 ## Instruction Encoding
 
-Instructions have 64 bit and subdivide them into 4 or 5 move operations as well as 3 configuration bits:
+Instructions have 64 bit and subdivide them into 4 or 5 move operations as well as 4 configuration bits:
 
 | Bit Range | Name           | Function                                                                                                     |
 | --------- | -------------- | ------------------------------------------------------------------------------------------------------------ |
-| [63]      | -              | *reserved for future use, must be 0*                                                                         |
-| [62]      | Predication    | If 1, the instruction is predicated.                                                                         |
-| [61]      | Synchronized   | If 1, all moves will happen synchronously, otherwise fire as soon as possible.                               |
-| [60]      | Immediate      | If 1, `{ Sink 4, Source 4 }` form a 12 bit immediate value instead of a moving pair.                         |
+| [63]      | Predication    | If 1, the instruction is predicated.                                                                         |
+| [62]      | Synchronized   | If 1, all moves will happen synchronously, otherwise fire as soon as possible.                               |
+| [61:60]   | Immediate      | Defines the value of the `CONST` source. See below for the different values.                                 |
 | [59:54]   | Sink 4 Offset  | Index offset of the sink FIFO for the fifth operation (*see below*) or upper 6 bits of the immediate value.. |
 | [53:48]   | Source 4 Index | Index of the source FIFO for the fifth operation or lower 6 bits of the immediate value.                     |
 | [47:42]   | Sink 3 Offset  | Index offset of the sink FIFO for the fourth operation (*see below*).                                        |
@@ -48,6 +47,27 @@ This means we have 5 movement pairs, each consisting of a 6 bit source and sink 
 Each of these additions saturate at 63, we can have each sink lower than 63 only exactly once in the encoding. This removes a fault state from the hardware.
 
 The semantics for what function is behind a source and sink FIFO index is defined through the functional units.
+
+### Immediate Configuration
+
+The *Immediate* field defines what value the `CONST` source will yield for this instruction.
+
+Four different values are possible:
+
+| Value | Name      | Description                                                                                    |
+|-------|-----------|------------------------------------------------------------------------------------------------|
+| 0     | One       | `CONST` yields `1` (default)                                                                   |
+| 1     | Extended  | `CONST` is the value of the next instruction word.                                             |
+| 2     | Unsigned  | `{ Sink 4, Source 4 }` form a 12 bit unsigned immediate value instead of a moving pair.        |
+| 3     | Signed    | `{ Sink 4, Source 4 }` form a 12 bit sign-extended immediate value instead of a moving pair.   |
+
+- If *Immediate* is *Unsigned* or *Signed*, the CPU will not execute the fourth moving pair (*Sink 4*, *Source 4*), but treat `[59:48]` as a 12 bit value.
+    - For both modes, `CONST[11:0]` will be set to `instr[59:48]`.
+    - When *Immediate* is *Unsigned*, all bits in `CONST[63:12]` will be set to `0` (zero extension).
+    - When *Immediate* is *Signed*, all bits in `CONST[63:12]` will be set to `instr[59]` (sign extension).
+- If *Immediate* is *Extended*, the CPU will fetch the instruction word (64 bit), and afterwards another word (64 bit) from the instruction bus, incrementing PC twice.
+
+This allows most instructions to be a single instruction word, but also gives us the ability to have full 64 bit immediates.
 
 ## Functional Units
 
@@ -76,7 +96,7 @@ label:
     FU1.SOURCE_A -> FU2.SINK_A                                          # a single move pair, the other four are ZERO -> DISCARD
     FU1.SOURCE_B -> FU2.SINK_B, FU3.SOURCE_C -> FU2.SOURCE_A            # two move pairs
     FU1.SOURCE_B -> FU2.SINK_B, FU3.SOURCE_C -> FU2.SOURCE_A [pred]     # two move pairs, sets *Predication* bit
-    FU1.SOURCE_B -> FU2.SINK_B, FU3.SOURCE_C -> FU2.SOURCE_A [imm=1234] # two move pairs, sets *Immediate* bit and writes bits [59:48] to 1234
+    FU1.SOURCE_B -> FU2.SINK_B, FU3.SOURCE_C -> FU2.SOURCE_A [imm=1234] # two move pairs, sets *Immediate* bits
     FU1.SOURCE_B -> FU2.SINK_B, FU3.SOURCE_C -> FU2.SOURCE_A [sync]     # two move pairs, sets *Synchronized* bit.
     SIMPLE_FU    -> FU.SINK_A,  FU.SOURCE_A  -> SIMPLE_FU               # functional units with a single sink/source can be used as a name directly
     
@@ -88,7 +108,9 @@ See [`docs/asm.md`](docs/asm.md) for a full reference.
 
 ## Design Decisions
 
-- The system uses 64 bit word size and a 64 bit bus.
+- The system uses 64 bit word size and two 64 bit busses.
+    - CPU instructions are fetched through the read-only *instruction bus*.
+    - Memory operations access the read-write *data bus*.
 - The 64 bit bus can only do full loads, but allows arbitrary byte-lane selection for stores.
 - Memory addresses need to be aligned to 8, which allows encoding a byte offset in the lower 3 bits.
 - Memory indexing is little endian.
