@@ -42,7 +42,7 @@ class FifoInfoBase(ABC):
 
     @property
     def full_name(self) -> str:
-        return self.name if self.is_sole_fifo() else f"{self.unit}.{self.name}"
+        return f"{self.unit}.{self.name}"
 
     @abstractmethod
     def is_sole_fifo(self) -> bool: ...
@@ -66,16 +66,20 @@ class SourceInfo(FifoInfoBase):
         return len(self.unit.unit.sources) == 1
 
 
-__CPU = FunctionUnit(name="CPU", sinks=("LHS", "RHS"), sources=("ADD", "SUB"))
+__CPU = FunctionUnit(
+    name="CPU",
+    sinks=("PC", *(f"*Reserved[{index}]*" for index in range(52, 62)), "COND", "DISCARD"),
+    sources=("ZERO", "CONST", "PC_NEXT"),
+).singleton()
 
 __ARITH = FunctionUnit(name="ARITH", sinks=("LHS", "RHS"), sources=("ADD", "SUB"))
-__LOGIC = FunctionUnit(name="ARITH", sinks=("LHS", "RHS"), sources=("AND", "OR", "XOR"))
+__LOGIC = FunctionUnit(name="LOGIC", sinks=("LHS", "RHS"), sources=("AND", "OR", "XOR"))
 
-__SHIFT = FunctionUnit(name="SHIFT", sinks=("LHS", "RHS"), sources=("LSL", "LSR", "ASR", "ROL", "ROR"))
-__UOP = FunctionUnit(name="UOP", sinks=("VALUE",), sources=("NEG", "NOT", "BSWAP"))
+__SHIFT = FunctionUnit(name="SHIFT", sinks=("VAL", "CNT"), sources=("LSL", "LSR", "ASR", "ROL", "ROR"))
+__UOP = FunctionUnit(name="UOP", sinks=("IN",), sources=("NEG", "NOT", "BSW"))
 __SEL = FunctionUnit(name="SEL", sinks=("COND", "TRUE", "FALSE"), sources=("OUT",))
 __STASH = FunctionUnit(name="STASH", sinks=("IN",), sources=("OUT",))
-__STACK = FunctionUnit(name="STACK", sinks=("PUSH",), sources=("POP",))
+__STACK = FunctionUnit(name="STACK", sinks=("PUSH",), sources=("TOP",))
 
 ARITH_A = __ARITH.new_instance("A")
 ARITH_B = __ARITH.new_instance("B")
@@ -84,17 +88,17 @@ LOGIC_B = __LOGIC.new_instance("B")
 SHIFT_A = __SHIFT.new_instance("A")
 SHIFT_B = __SHIFT.new_instance("B")
 CMP = FunctionUnit(name="CMP", sinks=("LHS", "RHS"), sources=("EQ", "LT", "LTS", "LTE", "LTES")).singleton()
-MUL = FunctionUnit(name="MUL", sinks=("LHS", "RHS"), sources=("LOW", "HIGH")).singleton()
-MULS = FunctionUnit(name="MULS", sinks=("LHS", "RHS"), sources=("LOW", "HIGH")).singleton()
-DIV = FunctionUnit(name="DIV", sinks=("LHS", "RHS"), sources=("QUOT", "REM")).singleton()
-DIVS = FunctionUnit(name="DIVS", sinks=("LHS", "RHS"), sources=("QUOT", "REM")).singleton()
+MUL = FunctionUnit(name="MUL", sinks=("LHS", "RHS"), sources=("LO", "HI")).singleton()
+MULS = FunctionUnit(name="MULS", sinks=("LHS", "RHS"), sources=("LO", "HI")).singleton()
+DIV = FunctionUnit(name="DIV", sinks=("LHS", "RHS"), sources=("QUO", "REM")).singleton()
+DIVS = FunctionUnit(name="DIVS", sinks=("LHS", "RHS"), sources=("QUO", "REM")).singleton()
 MASK = FunctionUnit(name="MASK", sinks=("N",), sources=("MASK", "BIT")).singleton()
-UOP_A = __UOP.new_instance("UOP_A")
-UOP_B = __UOP.new_instance("UOP_B")
-EXT = FunctionUnit(name="EXT", sinks=("VALUE",), sources=("ZEXT8", "ZEXT16", "SEXT8", "SEXT16")).singleton()
-BITCNT = FunctionUnit(name="BITCNT", sinks=("VALUE",), sources=("POPCNT", "CLZ", "CTZ")).singleton()
+UOP_A = __UOP.new_instance("A")
+UOP_B = __UOP.new_instance("B")
+EXT = FunctionUnit(name="EXT", sinks=("IN",), sources=("ZX8", "ZX16", "SX8", "SX16")).singleton()
+BITCNT = FunctionUnit(name="BITCNT", sinks=("IN",), sources=("POP", "CLZ", "CTZ")).singleton()
 SEL_A = __SEL.new_instance("A")
-SEL_B = __SEL.new_instance("A")
+SEL_B = __SEL.new_instance("B")
 LOAD = FunctionUnit(name="LOAD", sinks=("ADDR",), sources=("CHUNK",)).singleton()
 STORE = FunctionUnit(name="STORE", sinks=("ADDR", "CHUNK", "MASK"), sources=()).singleton()
 PACK = FunctionUnit(name="PACK", sinks=("ADDR", "VALUE", "SIZE"), sources=("CHUNK", "MASK")).singleton()
@@ -106,8 +110,6 @@ STASH_C = __STASH.new_instance("C")
 STASH_D = __STASH.new_instance("D")
 STACK_A = __STACK.new_instance("A")
 STACK_B = __STACK.new_instance("B")
-
-__CPU = None
 
 __sinks = (
     SinkInfo(index=0, unit=__CPU, name="PC"),

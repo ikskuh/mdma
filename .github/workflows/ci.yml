@@ -1,0 +1,27 @@
+name: CI
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Run Python tests
+        run: python -m unittest discover -s tests -v
+      - name: Assemble examples
+        shell: bash
+        run: |
+          set -eu
+          output_dir=$(mktemp -d)
+          trap 'rm -rf "$output_dir"' EXIT
+          for source in examples/*.mdma; do
+            python src/assembler/mdma_asm.py "$source" -o "$output_dir/$(basename "$source" .mdma).bin"
+          done
