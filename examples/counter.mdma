@@ -15,3 +15,6 @@ loop:
 
 # 3: conditional jump back to 1
     CONST -> PC [pred, imm=loop]
+
+# End the code sequence.
+    CONST -> PC [imm=-1]

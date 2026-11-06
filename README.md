@@ -115,3 +115,9 @@ See [`docs/asm.md`](docs/asm.md) for a full reference.
 - Memory addresses need to be aligned to 8, which allows encoding a byte offset in the lower 3 bits.
 - Memory indexing is little endian.
 - Store masks are inverted so a natural word store is not consuming an immediate value, but can use the `ZERO` source.
+
+## Simulator
+
+Run assembled binary images with `python src/simulator/simulator.py program.bin`.
+End programs with `CONST -> PC [imm=-1]`. See [the simulator reference](docs/simulator.md)
+for timing, memory, and CLI options.
