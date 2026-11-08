@@ -62,13 +62,27 @@ CONST -> PC [imm=start]
                 self.assertIsInstance(fifo.unit, FunctionUnitInstance)
                 self.assertEqual(name, f"{fifo.unit}.{fifo.name}")
         for short, full in (('ZERO -> STASH_A', 'CPU.ZERO -> STASH_A.IN'),
-                            ('STASH_A -> LOAD', 'STASH_A.OUT -> LOAD.ADDR'),
+                            ('MEM -> STASH_A', 'MEM.CHUNK -> STASH_A.IN'),
+                            ('UNPACK -> STASH_A', 'UNPACK.VALUE -> STASH_A.IN'),
                             ('CONST -> PC', 'CPU.CONST -> CPU.PC')):
             self.assertEqual(assemble(short), assemble(full))
         self.assertNotIn('STASH_A', SINK_BY_NAME)
         self.assertNotIn('ZERO', SOURCE_BY_NAME)
         with self.assertRaisesRegex(ValueError, 'unknown source'):
             assemble('ARITH_A -> PC')
+
+    def test_memory_port_encoding(self):
+        sinks = ('MEM.READ', 'MEM.WRITE', 'MEM.CHUNK', 'MEM.MASK',
+                 'PACK.ADDR', 'PACK.TYPE', 'PACK.VALUE', 'UNPACK.ADDR', 'UNPACK.TYPE', 'UNPACK.CHUNK')
+        for index, port in enumerate(sinks, 34):
+            self.assertEqual(decode(words(f'ZERO -> {port}')[0])[0], (0, index))
+        for index, port in [(38, 'MEM.CHUNK'), (39, 'PACK.CHUNK'), (40, 'PACK.MASK'),
+                            (41, 'UNPACK.VALUE'), (57, 'PACK.ADDR')]:
+            self.assertEqual(decode(words(f'{port} -> DISCARD')[0])[0], (index, 63))
+        for move in ('LOAD -> DISCARD', 'ZERO -> STORE.ADDR', 'ZERO -> PACK.SIZE',
+                     'EXTRACT -> DISCARD', 'EXT.SX8 -> DISCARD', 'ZERO -> EXT'):
+            with self.subTest(move=move), self.assertRaisesRegex(ValueError, 'unknown source|unknown sink'):
+                assemble(move)
 
     def test_errors(self):
         for source in ('a:\na:', '.word', '.word 1,', '.word missing', '.word 18446744073709551616',

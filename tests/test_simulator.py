@@ -23,10 +23,8 @@ def machine(source):
     return sim
 
 
-def evaluate(unit_class, inputs, memory=None):
+def evaluate(unit_class, inputs):
     unit = next(unit for unit in Simulator(b'').units if type(unit) is unit_class)
-    if isinstance(unit, units.MemoryUnit):
-        unit.memory = memory
     return unit.compute(*inputs)
 
 
@@ -140,25 +138,52 @@ STACK_A -> STASH_B''')
         self.assertEqual(result(sim, 'STASH_B.OUT'), 2)
 
     def test_memory_program(self):
-        sim = machine('''CONST -> LOAD [imm=data]
-LOAD -> ARITH_A.LHS, CONST -> ARITH_A.RHS [imm=1]
-CONST -> STORE.ADDR [imm=data]
-ARITH_A.ADD -> STORE.CHUNK, ZERO -> STORE.MASK
+        sim = machine('''CONST -> MEM.READ, CONST -> MEM.WRITE [imm=data]
+MEM -> ARITH_A.LHS, CONST -> ARITH_A.RHS
+ARITH_A.ADD -> MEM.CHUNK, ZERO -> MEM.MASK
 CONST -> PC [imm=-1]
 data: .word 123''')
         self.assertEqual(int.from_bytes(sim.memory[-16:-8], 'little'), 124)
 
-    def test_memory_units(self):
-        memory = bytearray(bytes(range(16)))
-        self.assertEqual(evaluate(units.LoadUnit, [3], memory)['CHUNK'], 0x0706050403020100)
-        evaluate(units.StoreUnit, [1, MASK, 0b11111101], memory)
-        self.assertEqual(memory[:8], bytes([0, 255, 2, 3, 4, 5, 6, 7]))
-        self.assertEqual(evaluate(units.PackUnit, [3, 0xab, 6], memory), {'CHUNK': 0xab000000, 'MASK': 0xf7})
-        self.assertEqual(evaluate(units.ExtractUnit, [3, 0xab000000, 7], memory), {'VALUE': -85})
-        for unit_class, values in [(units.LoadUnit, [16]), (units.StoreUnit, [16, 0, 0]),
-                             (units.PackUnit, [1, 0, 2]), (units.ExtractUnit, [0, 0, 8])]:
+    def test_memory_requests_preserve_order_while_busy(self):
+        sim = machine('''CONST -> MEM.READ [imm=data]
+CONST -> MEM.WRITE [imm=data]
+CONST -> MEM.CHUNK, ZERO -> MEM.MASK [imm=456]
+CONST -> MEM.READ [imm=data]
+MEM -> STASH_A
+MEM -> STASH_B
+CONST -> PC [imm=-1]
+data: .word 123''')
+        self.assertEqual(result(sim, 'STASH_A.OUT'), 123)
+        self.assertEqual(result(sim, 'STASH_B.OUT'), 456)
+
+    def test_typed_memory_swap(self):
+        source = '''CONST -> PACK.ADDR, CONST -> UNPACK.ADDR [imm=259]
+CONST -> PACK.TYPE, CONST -> UNPACK.TYPE
+CONST -> PACK.VALUE [imm=0x1fe]
+PACK.ADDR -> MEM.READ, PACK.ADDR -> MEM.WRITE, PACK.CHUNK -> MEM.CHUNK, PACK.MASK -> MEM.MASK [sync]
+MEM -> UNPACK.CHUNK
+UNPACK -> STASH_A'''
+        sim = Simulator(assemble(source + HALT), memory_size=264)
+        sim.memory[256:264] = bytes([1, 2, 3, 0xab, 5, 6, 7, 8])
+        sim.run()
+        self.assertEqual(result(sim, 'STASH_A.OUT'), (-85) & MASK)
+        self.assertEqual(sim.memory[256:264], bytes([1, 2, 3, 0xfe, 5, 6, 7, 8]))
+
+    def test_memory_types_and_faults(self):
+        for type_code, width in enumerate((1, 1, 2, 2, 4, 4, 8, 8)):
+            with self.subTest(type_code=type_code):
+                address = 16 - width
+                value = 1 << (width * 8 - 1)
+                chunk = 1 << 63
+                self.assertEqual(evaluate(units.PackUnit, [address, type_code, value]),
+                                 {'ADDR': address, 'CHUNK': chunk, 'MASK': (1 << (8 - width)) - 1})
+                expected = -value if type_code & 1 else value
+                self.assertEqual(evaluate(units.UnpackUnit, [address, type_code, chunk]), {'VALUE': expected})
+        for unit_class, values in [(units.MemoryUnit, [0, None]), (units.MemoryUnit, [None, (0, 0, 0)]),
+                                   (units.PackUnit, [1, 2, 0]), (units.UnpackUnit, [0, 8, 0])]:
             with self.subTest(unit=unit_class.__name__), self.assertRaises(SimulationError):
-                evaluate(unit_class, values, memory)
+                evaluate(unit_class, values)
 
     def test_arithmetic_units(self):
         cases = [
@@ -172,7 +197,6 @@ data: .word 123''')
             (units.SignedDivideUnit, [(-7) & MASK, 3], {'REM': MASK, 'QUO': MASK - 1}),
             (units.MaskUnit, [64], {'MASK': MASK, 'BIT': 0}),
             (units.UnaryUnit, [1], {'NEG': MASK, 'NOT': MASK - 1, 'BSW': 1 << 56}),
-            (units.ExtendUnit, [0xff80], {'ZX8': 128, 'ZX16': 65408, 'SX8': (-128) & MASK, 'SX16': (-128) & MASK}),
             (units.BitCountUnit, [0], {'POP': 0, 'CLZ': 64, 'CTZ': 64}),
             (units.SelectUnit, [0, 4, 5], {'OUT': 5}),
             (units.SwizzleUnit, [0x0807060504030201, sum((7 - i) << (3 * i) for i in range(8))],
@@ -180,10 +204,10 @@ data: .word 123''')
         ]
         for unit_class, values, expected in cases:
             with self.subTest(unit=unit_class.__name__):
-                actual = {name: int(value) & MASK for name, value in evaluate(unit_class, values, None).items()}
+                actual = {name: int(value) & MASK for name, value in evaluate(unit_class, values).items()}
                 self.assertEqual(actual, expected)
         with self.assertRaisesRegex(SimulationError, 'division by zero'):
-            evaluate(units.DivideUnit, [1, 0], None)
+            evaluate(units.DivideUnit, [1, 0])
 
     def test_latency_and_independent_units(self):
         source = ('CONST -> MUL.LHS, CONST -> MUL.RHS, '
@@ -243,26 +267,25 @@ data: .word 123''')
         sim.tick()
         self.assertTrue(sim.halted)
         self.assertEqual(int.from_bytes(sim.memory[16:24], 'little'), 123)
-        # LOAD observes memory at completion, rather than at issue.
-        load = next(unit for unit in sim.units if type(unit) is units.LoadUnit)
-        load.inputs['ADDR'].write(16)
-        load.execute()
-        self.assertFalse(load.results)
+        # MEM samples the read address at issue and reads memory at completion.
+        mem = sim.state.sources[38].unit
+        mem.inputs['READ'].write(16)
+        mem.execute()
+        self.assertFalse(mem.results)
         sim.memory[16] = 42
-        load.execute()
-        self.assertFalse(load.results)
-        load.execute()
-        self.assertEqual(load.results[0]['CHUNK'], 42)
+        mem.execute()
+        self.assertFalse(mem.results)
+        mem.execute()
+        self.assertEqual(mem.results[0]['CHUNK'], 42)
 
     def test_latency_configuration(self):
-        sim = Simulator(b'', latencies={'ARITH': 2, 'ARITH_A': 5, 'MEM': 6, 'LOAD': 3})
+        sim = Simulator(b'', latencies={'ARITH': 2, 'ARITH_A': 5, 'MEM': 6})
         self.assertEqual(sim.state.sources[3].unit.latency, 5)
         self.assertEqual(sim.state.sources[5].unit.latency, 2)
         self.assertEqual(sim.state.sources[28].unit.latency, 2)
         self.assertEqual(sim.state.sources[30].unit.latency, 2)
         self.assertEqual(sim.state.sources[32].unit.latency, 7)
-        self.assertEqual(sim.state.sources[38].unit.latency, 3)
-        self.assertEqual(next(unit.latency for unit in sim.units if type(unit) is units.StoreUnit), 6)
+        self.assertEqual(sim.state.sources[38].unit.latency, 6)
         for overrides in ({'MUL': 0}, {'MUL': -1}, {'MUL': 1.5}, {'MUL': True}, {'TYPO': 3}):
             with self.subTest(overrides=overrides), self.assertRaises(SimulationError):
                 Simulator(b'', latencies=overrides)
@@ -272,6 +295,12 @@ data: .word 123''')
                 units.parse_latency(argument)
 
     def test_errors_and_limits(self):
+        for index in (58, 59, 60):
+            word = (63 << 6) | index  # Reserved source routed to DISCARD.
+            with self.subTest(index=index), self.assertRaisesRegex(SimulationError, 'reserved source'):
+                Simulator(word.to_bytes(8, 'little')).tick()
+        with self.assertRaisesRegex(SimulationError, 'reserved sink'):
+            Simulator((26 << 6).to_bytes(8, 'little')).tick()
         for binary, message in [(b'\0' * 7, 'memory access'),
                                 (assemble('CONST -> PC [imm=3]'), 'unaligned'),
                                 (assemble('CONST -> PC [imm=0]'), 'tick limit'),

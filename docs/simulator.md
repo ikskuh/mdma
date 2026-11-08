@@ -25,17 +25,17 @@ Options:
 - `--memory-size N`: memory size in bytes, default the binary's length. Additional
   bytes are zero-filled; a size smaller than the image is rejected.
 - `--latency UNIT=TICKS`: override a unit's latency; repeat for multiple units.
-  Use a family name (`ARITH`), instance (`ARITH_A`), or `MEM` for LOAD and STORE.
-  Instance overrides take precedence over family overrides; LOAD/STORE override
-  MEM. Repeated overrides for the same name use the last value.
+  Use a unit name (`MEM`), family name (`ARITH`), or instance name (`ARITH_A`).
+  Instance overrides take precedence over family overrides. Repeated overrides
+  for the same name use the last value.
 - `--trace`: print tick and PC to stderr.
 - `--dump-memory FILE`: save final memory after successful halt.
 
 The binary initializes memory starting at byte address zero. PC starts at zero;
 words are little-endian. Fetches must be eight-byte aligned and accesses must fit
-inside memory. LOAD/STORE align their addresses down to an eight-byte beat;
-PACK/EXTRACT require natural alignment for the selected width. Store mask bits
-of one preserve their byte lanes.
+inside memory. MEM aligns its read and write addresses down to an eight-byte
+beat. PACK and UNPACK require natural alignment for the selected type. Store
+mask bits of one preserve their byte lanes.
 
 ## Execution
 
@@ -45,9 +45,8 @@ readiness and read/write operations. Functional units own their queues and outpu
 retirement. Concrete `Unit` subclasses implement `compute()`; shared execution
 handles readiness and queues, while `StackUnit` overrides result retirement
 for LIFO ordering. Architecture names select subclasses only at initialization.
-The external `BinaryStream` owns instruction fetching and CPU
-endpoints; `Simulator` owns memory and the execution loop. The architecture
-metadata in `mdma.py` remains unchanged.
+The external `BinaryStream` owns instruction fetching and CPU endpoints.
+`Simulator` owns memory and the execution loop.
 
 Each tick:
 
@@ -84,7 +83,7 @@ Default latencies (ticks):
 | ARITH and all other units not listed | 1 |
 | MUL, MULS | 2 |
 | DIV, DIVS | 7 |
-| LOAD, STORE (`MEM`) | 4 |
+| MEM | 4 |
 
 For example:
 
@@ -98,15 +97,18 @@ Overrides must name known units and contain positive integer tick counts.
 Subclasses specify their own `default_latency`; the shared execution loop handles
 countdown and output capacity. `State` still contains only endpoint arrays.
 
-LOAD reads memory at completion; STORE changes memory at completion. Instruction
-fetching is immediate and is not affected by MEM latency. This is a simple
-non-pipelined model with no shared memory-bus contention. STACK uses LIFO output
-ordering; STASH uses FIFO ordering.
+MEM queues a load when `READ` is available and queues a store when `WRITE`,
+`CHUNK`, and `MASK` are all available. Requests execute in the order they
+became ready, including requests queued while MEM was busy. A load and store
+that become ready in the same tick share one operation. At completion, MEM
+reads the old chunk before applying the store. Instruction fetching is
+immediate and independent of MEM latency. STACK uses LIFO output ordering and
+STASH uses FIFO ordering.
 
 Values wrap to 64 bits. Signed division truncates toward zero, with a remainder
 having the dividend's sign. Division by zero is an error. Shift and rotation
 counts use the low six bits. MASK yields all ones and BIT yields zero for N >= 64.
-Zero has CLZ=CTZ=64. Invalid sizes, misalignment, reserved sinks, and out-of-range
+Zero has CLZ=CTZ=64. Invalid types, misalignment, reserved ports, and out-of-range
 memory accesses raise errors. Counting down an in-flight operation counts as progress. A tick with no
 instruction or unit progress reports a stall; an active infinite loop is stopped by the tick limit.
 

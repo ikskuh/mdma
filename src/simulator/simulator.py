@@ -67,6 +67,9 @@ class Reserved:
     def writable(self):
         raise SimulationError('write to reserved sink')
 
+    def ready(self, staged):
+        raise SimulationError('read from reserved source')
+
 
 class Output:
     """A unit owns retirement of its output generations, including sibling outputs."""
@@ -180,18 +183,23 @@ class Unit(ABC):
     def busy(self):
         return self.pending is not None
 
+    def take_inputs(self):
+        if not all(queue.values for queue in self.inputs.values()):
+            return None
+        if self.outputs and len(self.results) >= DEPTH:
+            return None
+        return [queue.values.popleft() for queue in self.inputs.values()]
+
     def execute(self):
         if not self.busy:
-            if not all(queue.values for queue in self.inputs.values()):
+            self.pending = self.take_inputs()
+            if self.pending is None:
                 return False
-            if self.outputs and len(self.results) >= DEPTH:
-                return False
-            self.pending = [queue.values.popleft() for queue in self.inputs.values()]
             self.remaining = self.latency
         self.remaining -= 1
         if self.remaining == 0:
             results = self.compute(*self.pending)
-            if self.outputs:
+            if results:
                 self.results.append({name: int(value) & MASK for name, value in results.items()})
             self.pending = None
         return True
@@ -261,11 +269,6 @@ class UnaryUnit(Unit):
         return dict(NEG=-a, NOT=~a, BSW=int.from_bytes(a.to_bytes(8, 'little'), 'big'))
 
 
-class ExtendUnit(Unit):
-    def compute(self, a):
-        return dict(ZX8=a & 255, ZX16=a & 65535, SX8=signed(a, 8), SX16=signed(a, 16))
-
-
 class BitCountUnit(Unit):
     def compute(self, a):
         return dict(POP=a.bit_count(), CLZ=64 - a.bit_length(), CTZ=(a & -a).bit_length() - 1 if a else 64)
@@ -295,46 +298,72 @@ class MemoryUnit(Unit):
     def __init__(self, instance, state, memory, latency=None):
         super().__init__(instance, state, latency=latency)
         self.memory = memory
+        self.read_queue = self.inputs['READ'].values
+        self.store_queues = tuple(self.inputs[name].values for name in ('WRITE', 'CHUNK', 'MASK'))
+        self.requests = deque()
+        self.queued_reads = 0
+        self.queued_stores = 0
 
+    def execute(self):
+        # Record when requests become ready even while the memory unit is busy.
+        # Leave the tokens in their input FIFOs until execution can start.
+        reads = len(self.read_queue) - self.queued_reads
+        stores = min(map(len, self.store_queues)) - self.queued_stores
+        self.queued_reads += reads
+        self.queued_stores += stores
+        for index in range(max(reads, stores)):
+            self.requests.append((index < reads, index < stores))
+        return super().execute()
 
-class LoadUnit(MemoryUnit):
-    def compute(self, address):
-        return dict(CHUNK=read_word(self.memory, address & ~7))
+    def take_inputs(self):
+        if not self.requests:
+            return None
+        read, write = self.requests[0]
+        if read and len(self.results) >= DEPTH:
+            return None
+        self.requests.popleft()
+        self.queued_reads -= read
+        self.queued_stores -= write
+        address = self.read_queue.popleft() if read else None
+        store = tuple(queue.popleft() for queue in self.store_queues) if write else None
+        return address, store
 
+    def compute(self, address, store):
+        results = {}
+        if address is not None:
+            results['CHUNK'] = read_word(self.memory, address & ~7)
+        if store is not None:
+            write_address, chunk, mask = store
+            base = write_address & ~7
+            check_memory(self.memory, base)
+            for lane in range(8):
+                if not mask & (1 << lane):
+                    self.memory[base + lane] = (chunk >> (lane * 8)) & 255
+        return results
 
-class StoreUnit(MemoryUnit):
-    def compute(self, address, chunk, mask):
-        base = address & ~7
-        check_memory(self.memory, base)
-        for lane in range(8):
-            if not mask & (1 << lane):
-                self.memory[base + lane] = (chunk >> (lane * 8)) & 255
-        return {}
-
-
-def lane_layout(address, size, operation):
-    if size > 7:
-        raise SimulationError(f'invalid size {size}')
-    width = 8 >> (size // 2)
+def lane_layout(address, type_code, operation):
+    if not 0 <= type_code <= 7:
+        raise SimulationError(f'invalid type {type_code}')
+    width = 1 << (type_code // 2)
     if address % width:
         raise SimulationError(f'misaligned {operation} address {address:#x}')
     return width, (address & 7) * 8
 
 
 class PackUnit(Unit):
-    def compute(self, address, value, size):
-        width, shift = lane_layout(address, size, 'PACK')
+    def compute(self, address, type_code, value):
+        width, shift = lane_layout(address, type_code, 'PACK')
         value_mask = (1 << (width * 8)) - 1
-        return dict(CHUNK=(value & value_mask) << shift,
+        return dict(ADDR=address, CHUNK=(value & value_mask) << shift,
                     MASK=255 ^ (((1 << width) - 1) << (address & 7)))
 
 
-class ExtractUnit(Unit):
-    def compute(self, address, chunk, size):
-        width, shift = lane_layout(address, size, 'EXTRACT')
+class UnpackUnit(Unit):
+    def compute(self, address, type_code, chunk):
+        width, shift = lane_layout(address, type_code, 'UNPACK')
         bits = width * 8
         value = (chunk >> shift) & ((1 << bits) - 1)
-        return dict(VALUE=signed(value, bits) if size & 1 else value)
+        return dict(VALUE=signed(value, bits) if type_code & 1 else value)
 
 
 class SwizzleUnit(Unit):
@@ -348,10 +377,10 @@ UNIT_TYPES = {
     'ARITH': ArithmeticUnit, 'LOGIC': LogicUnit, 'SHIFT': ShiftUnit,
     'CMP': CompareUnit, 'MUL': MultiplyUnit, 'MULS': SignedMultiplyUnit,
     'DIV': DivideUnit, 'DIVS': SignedDivideUnit, 'MASK': MaskUnit,
-    'UOP': UnaryUnit, 'EXT': ExtendUnit, 'BITCNT': BitCountUnit,
+    'UOP': UnaryUnit, 'BITCNT': BitCountUnit,
     'SEL': SelectUnit, 'STASH': StashUnit, 'STACK': StackUnit,
-    'LOAD': LoadUnit, 'STORE': StoreUnit, 'PACK': PackUnit,
-    'EXTRACT': ExtractUnit, 'SWIZZLE8': SwizzleUnit,
+    'MEM': MemoryUnit, 'PACK': PackUnit, 'UNPACK': UnpackUnit,
+    'SWIZZLE8': SwizzleUnit,
 }
 
 
@@ -395,11 +424,11 @@ class Simulator:
             raise SimulationError('memory size is smaller than image')
         self.memory = bytearray(image)
         self.memory.extend(b'\0' * ((memory_size or len(image)) - len(image)))
-        self.state = State([Reserved() for _ in range(64)], [None] * 64)
+        self.state = State([Reserved() for _ in range(64)], [Reserved() for _ in range(64)])
         self.stream = BinaryStream(self.memory, self.state)
         instances = dict.fromkeys(info.unit for info in SINK_BY_INDEX.values() if info.unit.unit.name != 'CPU')
         latencies = {} if latencies is None else latencies
-        allowed = set(UNIT_TYPES) | {str(instance) for instance in instances} | {'MEM'}
+        allowed = set(UNIT_TYPES) | {str(instance) for instance in instances}
         for name, latency in latencies.items():
             if name not in allowed:
                 raise SimulationError(f'unknown unit latency override {name!r}')
@@ -408,9 +437,7 @@ class Simulator:
         self.units = []
         for instance in instances:
             unit_type = UNIT_TYPES[instance.unit.name]
-            latency = latencies.get('MEM') if issubclass(unit_type, MemoryUnit) else None
-            latency = latencies.get(instance.unit.name, latency)
-            latency = latencies.get(str(instance), latency)
+            latency = latencies.get(str(instance), latencies.get(instance.unit.name))
             self.units.append(unit_type(instance, self.state, self.memory, latency=latency))
         self.instruction = None
         self.ticks = 0
@@ -468,7 +495,7 @@ def main():
     parser.add_argument('--max-ticks', type=int, default=100000)
     parser.add_argument('--memory-size', type=int, help='zero-filled memory size in bytes (default: image size)')
     parser.add_argument('--latency', type=parse_latency, action='append', default=[], metavar='UNIT=TICKS',
-                        help='override unit/family latency; repeatable; MEM sets LOAD and STORE')
+                        help='override unit/family latency; repeatable')
     parser.add_argument('--trace', action='store_true')
     parser.add_argument('--dump-memory', type=Path, help='write final memory after successful halt')
     args = parser.parse_args()

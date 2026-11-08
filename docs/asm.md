@@ -23,7 +23,7 @@ data: .word 1, -2, 0xff, start
 Each instruction is one line with up to five comma-separated `SOURCE -> SINK`
 moves. Names come from the FIFO tables in `docs/functional-units.md`.
 Units with a single source or sink also accept their bare name (`STASH_A`,
-`LOAD`, etc.). CPU FIFOs accept bare names (`ZERO`, `CONST`, `PC`, etc.)
+`MEM` as a source, etc.). CPU FIFOs accept bare names (`ZERO`, `CONST`, `PC`, etc.)
 as well as qualified names such as `CPU.ZERO`. These shorthands are resolved
 by the assembler; the architecture tables contain only qualified names.
 Moves are sorted by sink for encoding; repeated sinks are

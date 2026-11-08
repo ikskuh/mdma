@@ -68,8 +68,8 @@ class SourceInfo(FifoInfoBase):
 
 __CPU = FunctionUnit(
     name="CPU",
-    sinks=("PC", *(f"*Reserved[{index}]*" for index in range(52, 62)), "COND", "DISCARD"),
-    sources=("ZERO", "CONST", "PC_NEXT"),
+    sinks=("PC", "*Reserved[26]*", *(f"*Reserved[{index}]*" for index in range(52, 62)), "COND", "DISCARD"),
+    sources=("ZERO", "CONST", "PC_NEXT", *(f"*Reserved[{index}]*" for index in range(58, 61))),
 ).singleton()
 
 __ARITH = FunctionUnit(name="ARITH", sinks=("LHS", "RHS"), sources=("ADD", "SUB"))
@@ -95,14 +95,12 @@ DIVS = FunctionUnit(name="DIVS", sinks=("LHS", "RHS"), sources=("QUO", "REM")).s
 MASK = FunctionUnit(name="MASK", sinks=("N",), sources=("MASK", "BIT")).singleton()
 UOP_A = __UOP.new_instance("A")
 UOP_B = __UOP.new_instance("B")
-EXT = FunctionUnit(name="EXT", sinks=("IN",), sources=("ZX8", "ZX16", "SX8", "SX16")).singleton()
 BITCNT = FunctionUnit(name="BITCNT", sinks=("IN",), sources=("POP", "CLZ", "CTZ")).singleton()
 SEL_A = __SEL.new_instance("A")
 SEL_B = __SEL.new_instance("B")
-LOAD = FunctionUnit(name="LOAD", sinks=("ADDR",), sources=("CHUNK",)).singleton()
-STORE = FunctionUnit(name="STORE", sinks=("ADDR", "CHUNK", "MASK"), sources=()).singleton()
-PACK = FunctionUnit(name="PACK", sinks=("ADDR", "VALUE", "SIZE"), sources=("CHUNK", "MASK")).singleton()
-EXTRACT = FunctionUnit(name="EXTRACT", sinks=("ADDR", "CHUNK", "SIZE"), sources=("VALUE",)).singleton()
+MEM = FunctionUnit(name="MEM", sinks=("READ", "WRITE", "CHUNK", "MASK"), sources=("CHUNK",)).singleton()
+PACK = FunctionUnit(name="PACK", sinks=("ADDR", "TYPE", "VALUE"), sources=("ADDR", "CHUNK", "MASK")).singleton()
+UNPACK = FunctionUnit(name="UNPACK", sinks=("ADDR", "TYPE", "CHUNK"), sources=("VALUE",)).singleton()
 SWIZZLE8 = FunctionUnit(name="SWIZZLE8", sinks=("VALUE", "PATTERN"), sources=("VALUE",)).singleton()
 STASH_A = __STASH.new_instance("A")
 STASH_B = __STASH.new_instance("B")
@@ -138,7 +136,7 @@ __sinks = (
     SinkInfo(index=23, unit=MASK, name="N"),
     SinkInfo(index=24, unit=UOP_A, name="IN"),
     SinkInfo(index=25, unit=UOP_B, name="IN"),
-    SinkInfo(index=26, unit=EXT, name="IN"),
+    SinkInfo(index=26, unit=__CPU, name="*Reserved[26]*"),
     SinkInfo(index=27, unit=BITCNT, name="IN"),
     SinkInfo(index=28, unit=SEL_A, name="COND"),
     SinkInfo(index=29, unit=SEL_A, name="TRUE"),
@@ -146,16 +144,16 @@ __sinks = (
     SinkInfo(index=31, unit=SEL_B, name="COND"),
     SinkInfo(index=32, unit=SEL_B, name="TRUE"),
     SinkInfo(index=33, unit=SEL_B, name="FALSE"),
-    SinkInfo(index=34, unit=LOAD, name="ADDR"),
-    SinkInfo(index=35, unit=STORE, name="ADDR"),
-    SinkInfo(index=36, unit=STORE, name="CHUNK"),
-    SinkInfo(index=37, unit=STORE, name="MASK"),
+    SinkInfo(index=34, unit=MEM, name="READ"),
+    SinkInfo(index=35, unit=MEM, name="WRITE"),
+    SinkInfo(index=36, unit=MEM, name="CHUNK"),
+    SinkInfo(index=37, unit=MEM, name="MASK"),
     SinkInfo(index=38, unit=PACK, name="ADDR"),
-    SinkInfo(index=39, unit=PACK, name="VALUE"),
-    SinkInfo(index=40, unit=PACK, name="SIZE"),
-    SinkInfo(index=41, unit=EXTRACT, name="ADDR"),
-    SinkInfo(index=42, unit=EXTRACT, name="CHUNK"),
-    SinkInfo(index=43, unit=EXTRACT, name="SIZE"),
+    SinkInfo(index=39, unit=PACK, name="TYPE"),
+    SinkInfo(index=40, unit=PACK, name="VALUE"),
+    SinkInfo(index=41, unit=UNPACK, name="ADDR"),
+    SinkInfo(index=42, unit=UNPACK, name="TYPE"),
+    SinkInfo(index=43, unit=UNPACK, name="CHUNK"),
     SinkInfo(index=44, unit=SWIZZLE8, name="VALUE"),
     SinkInfo(index=45, unit=SWIZZLE8, name="PATTERN"),
     SinkInfo(index=46, unit=STASH_A, name="IN"),
@@ -217,10 +215,10 @@ __sources = (
     SourceInfo(index=35, unit=DIVS, name="QUO"),
     SourceInfo(index=36, unit=SEL_A, name="OUT"),
     SourceInfo(index=37, unit=SEL_B, name="OUT"),
-    SourceInfo(index=38, unit=LOAD, name="CHUNK"),
+    SourceInfo(index=38, unit=MEM, name="CHUNK"),
     SourceInfo(index=39, unit=PACK, name="CHUNK"),
     SourceInfo(index=40, unit=PACK, name="MASK"),
-    SourceInfo(index=41, unit=EXTRACT, name="VALUE"),
+    SourceInfo(index=41, unit=UNPACK, name="VALUE"),
     SourceInfo(index=42, unit=SWIZZLE8, name="VALUE"),
     SourceInfo(index=43, unit=STASH_A, name="OUT"),
     SourceInfo(index=44, unit=STASH_B, name="OUT"),
@@ -236,10 +234,10 @@ __sources = (
     SourceInfo(index=54, unit=UOP_B, name="NEG"),
     SourceInfo(index=55, unit=UOP_B, name="NOT"),
     SourceInfo(index=56, unit=UOP_B, name="BSW"),
-    SourceInfo(index=57, unit=EXT, name="ZX8"),
-    SourceInfo(index=58, unit=EXT, name="ZX16"),
-    SourceInfo(index=59, unit=EXT, name="SX8"),
-    SourceInfo(index=60, unit=EXT, name="SX16"),
+    SourceInfo(index=57, unit=PACK, name="ADDR"),
+    SourceInfo(index=58, unit=__CPU, name="*Reserved[58]*"),
+    SourceInfo(index=59, unit=__CPU, name="*Reserved[59]*"),
+    SourceInfo(index=60, unit=__CPU, name="*Reserved[60]*"),
     SourceInfo(index=61, unit=BITCNT, name="POP"),
     SourceInfo(index=62, unit=BITCNT, name="CLZ"),
     SourceInfo(index=63, unit=BITCNT, name="CTZ"),
