@@ -1,0 +1,55 @@
+# CMP results are 0 or 1. Signed and unsigned ordering differ for a negative operand.
+# expect mem64 eq_false = 0
+# expect mem64 ne_true = 1
+# expect mem64 lt_unsigned = 0
+# expect mem64 lt_signed = 1
+# expect mem64 eq_true = 1
+# expect mem64 ne_false = 0
+# expect mem64 lte_unsigned = 1
+# expect mem64 lte_signed = 1
+
+CONST -> CMP.LHS [imm=-1]
+CONST -> CMP.RHS
+CONST -> MEM.WRITE [imm=eq_false]
+CMP.EQ -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+CONST -> CMP.LHS [imm=-1]
+CONST -> CMP.RHS
+CONST -> MEM.WRITE [imm=ne_true]
+CMP.NE -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+CONST -> CMP.LHS [imm=-1]
+CONST -> CMP.RHS
+CONST -> MEM.WRITE [imm=lt_unsigned]
+CMP.LT -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+CONST -> CMP.LHS [imm=-1]
+CONST -> CMP.RHS
+CONST -> MEM.WRITE [imm=lt_signed]
+CMP.LTS -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+CONST -> CMP.LHS [imm=1]
+CONST -> CMP.RHS
+CONST -> MEM.WRITE [imm=eq_true]
+CMP.EQ -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+CONST -> CMP.LHS [imm=1]
+CONST -> CMP.RHS
+CONST -> MEM.WRITE [imm=ne_false]
+CMP.NE -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+CONST -> CMP.LHS [imm=1]
+CONST -> CMP.RHS
+CONST -> MEM.WRITE [imm=lte_unsigned]
+CMP.LTE -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+CONST -> CMP.LHS [imm=1]
+CONST -> CMP.RHS
+CONST -> MEM.WRITE [imm=lte_signed]
+CMP.LTES -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> MEM.READ [imm=lte_signed]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+eq_false: .word 0xfeedfacefeedface
+ne_true: .word 0xfeedfacefeedface
+lt_unsigned: .word 0xfeedfacefeedface
+lt_signed: .word 0xfeedfacefeedface
+eq_true: .word 0xfeedfacefeedface
+ne_false: .word 0xfeedfacefeedface
+lte_unsigned: .word 0xfeedfacefeedface
+lte_signed: .word 0xfeedfacefeedface

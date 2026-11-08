@@ -1,0 +1,16 @@
+# A load copies a value initialized by an earlier store.
+# expect mem64 cell = 0x0123456789abcdef
+# expect mem64 copy = 0x0123456789abcdef
+
+CONST -> MEM.WRITE [imm=cell]
+CONST -> MEM.CHUNK, ZERO -> MEM.MASK [imm=0x0123456789abcdef]
+CONST -> MEM.READ [imm=cell]
+CONST -> MEM.WRITE [imm=copy]
+MEM.CHUNK -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> MEM.READ [imm=copy]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+cell: .word 0xfeedfacefeedface
+copy: .word 0xfeedfacefeedface

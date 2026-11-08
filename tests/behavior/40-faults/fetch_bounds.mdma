@@ -1,0 +1,2 @@
+# expect fault memory_bounds
+CONST -> PC [imm=-8]

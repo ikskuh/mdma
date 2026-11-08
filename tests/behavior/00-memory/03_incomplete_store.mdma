@@ -1,0 +1,15 @@
+# A pending store address alone must not block an independent load.
+# expect mem64 cell = 456
+
+CONST -> MEM.WRITE [imm=cell]
+CONST -> MEM.CHUNK, ZERO -> MEM.MASK [imm=123]
+CONST -> MEM.READ, CONST -> MEM.WRITE [imm=cell]
+# Wait for the read before supplying the remaining store inputs.
+MEM.CHUNK -> DISCARD
+CONST -> MEM.CHUNK, ZERO -> MEM.MASK [imm=456]
+
+CONST -> MEM.READ [imm=cell]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+cell: .word 0xfeedfacefeedface

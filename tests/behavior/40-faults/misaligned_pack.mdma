@@ -1,0 +1,4 @@
+# expect fault misaligned_typed_address
+CONST -> PACK.ADDR, CONST -> PACK.VALUE
+CONST -> PACK.TYPE [imm=2]
+PACK.CHUNK -> DISCARD

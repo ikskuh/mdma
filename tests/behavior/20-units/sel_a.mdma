@@ -1,0 +1,21 @@
+# SEL_A selects the false and true inputs for zero and nonzero conditions.
+# expect mem64 selected_false = 34
+# expect mem64 selected_true = 12
+
+CONST -> SEL_A.COND [imm=0]
+CONST -> SEL_A.TRUE [imm=12]
+CONST -> SEL_A.FALSE [imm=34]
+CONST -> MEM.WRITE [imm=selected_false]
+SEL_A -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+CONST -> SEL_A.COND [imm=9]
+CONST -> SEL_A.TRUE [imm=12]
+CONST -> SEL_A.FALSE [imm=34]
+CONST -> MEM.WRITE [imm=selected_true]
+SEL_A -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> MEM.READ [imm=selected_true]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+selected_false: .word 0xfeedfacefeedface
+selected_true: .word 0xfeedfacefeedface

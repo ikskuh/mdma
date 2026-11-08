@@ -1,0 +1,27 @@
+# LOGIC_B applies AND, OR, and XOR.
+# expect mem64 bit_and = 8
+# expect mem64 bit_or = 14
+# expect mem64 bit_xor = 6
+
+CONST -> LOGIC_B.LHS [imm=12]
+CONST -> LOGIC_B.RHS [imm=10]
+CONST -> MEM.WRITE [imm=bit_and]
+LOGIC_B.AND -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> LOGIC_B.LHS [imm=12]
+CONST -> LOGIC_B.RHS [imm=10]
+CONST -> MEM.WRITE [imm=bit_or]
+LOGIC_B.OR -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> LOGIC_B.LHS [imm=12]
+CONST -> LOGIC_B.RHS [imm=10]
+CONST -> MEM.WRITE [imm=bit_xor]
+LOGIC_B.XOR -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> MEM.READ [imm=bit_xor]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+bit_and: .word 0xfeedfacefeedface
+bit_or: .word 0xfeedfacefeedface
+bit_xor: .word 0xfeedfacefeedface

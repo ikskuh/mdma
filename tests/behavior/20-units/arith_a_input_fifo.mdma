@@ -1,0 +1,31 @@
+# Four left operands can wait for matching right operands in FIFO order.
+# expect mem64 sum_1 = 2
+# expect mem64 sum_2 = 3
+# expect mem64 sum_3 = 4
+# expect mem64 sum_4 = 5
+
+CONST -> ARITH_A.LHS [imm=1]
+CONST -> ARITH_A.LHS [imm=2]
+CONST -> ARITH_A.LHS [imm=3]
+CONST -> ARITH_A.LHS [imm=4]
+CONST -> ARITH_A.RHS
+CONST -> MEM.WRITE [imm=sum_1]
+ARITH_A.ADD -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+CONST -> ARITH_A.RHS
+CONST -> MEM.WRITE [imm=sum_2]
+ARITH_A.ADD -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+CONST -> ARITH_A.RHS
+CONST -> MEM.WRITE [imm=sum_3]
+ARITH_A.ADD -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+CONST -> ARITH_A.RHS
+CONST -> MEM.WRITE [imm=sum_4]
+ARITH_A.ADD -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> MEM.READ [imm=sum_4]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+sum_1: .word 0xfeedfacefeedface
+sum_2: .word 0xfeedfacefeedface
+sum_3: .word 0xfeedfacefeedface
+sum_4: .word 0xfeedfacefeedface

@@ -1,0 +1,7 @@
+# A store issued by the halt instruction must finish before halt is reported.
+# expect mem64 result = -1
+
+CONST -> MEM.WRITE [imm=result]
+CONST -> PC, CONST -> MEM.CHUNK, ZERO -> MEM.MASK [sync, imm=-1]
+
+result: .word 0xfeedfacefeedface

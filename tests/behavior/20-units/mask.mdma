@@ -1,0 +1,27 @@
+# MASK returns low bits and BIT selects one bit, with defined results for 64.
+# expect mem64 low_mask = 31
+# expect mem64 selected_bit = 32
+# expect mem64 full_mask = -1
+# expect mem64 out_of_range_bit = 0
+
+CONST -> MASK [imm=5]
+CONST -> MEM.WRITE [imm=low_mask]
+MASK.MASK -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+CONST -> MASK [imm=5]
+CONST -> MEM.WRITE [imm=selected_bit]
+MASK.BIT -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+CONST -> MASK [imm=64]
+CONST -> MEM.WRITE [imm=full_mask]
+MASK.MASK -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+CONST -> MASK [imm=64]
+CONST -> MEM.WRITE [imm=out_of_range_bit]
+MASK.BIT -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> MEM.READ [imm=out_of_range_bit]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+low_mask: .word 0xfeedfacefeedface
+selected_bit: .word 0xfeedfacefeedface
+full_mask: .word 0xfeedfacefeedface
+out_of_range_bit: .word 0xfeedfacefeedface

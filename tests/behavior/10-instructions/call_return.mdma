@@ -1,0 +1,16 @@
+# PC_NEXT supplies the address after the extended jump to a subroutine.
+# expect mem64 result = 17
+
+PC_NEXT -> STACK_B, CONST -> PC [imm=subroutine]
+CONST -> PC [imm=finish]
+subroutine:
+CONST -> MEM.WRITE [imm=result]
+CONST -> MEM.CHUNK, ZERO -> MEM.MASK [imm=17]
+STACK_B -> PC
+finish:
+
+CONST -> MEM.READ [imm=result]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+result: .word 0xfeedfacefeedface

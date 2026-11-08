@@ -1,0 +1,17 @@
+# A false predicate skips its jump. The next predicate takes its jump.
+# expect mem64 result = 17
+
+ZERO -> COND
+CONST -> PC [pred, imm=bad]
+CONST -> COND
+CONST -> PC [pred, imm=good]
+bad: CONST -> PC [imm=-1]
+good:
+CONST -> MEM.WRITE [imm=result]
+CONST -> MEM.CHUNK, ZERO -> MEM.MASK [imm=17]
+
+CONST -> MEM.READ [imm=result]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+result: .word 0xfeedfacefeedface

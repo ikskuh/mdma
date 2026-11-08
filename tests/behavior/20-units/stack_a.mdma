@@ -1,0 +1,47 @@
+# STACK_A retains 8 values and returns them in LIFO order.
+# expect mem64 pop_1 = 8
+# expect mem64 pop_2 = 7
+# expect mem64 pop_3 = 6
+# expect mem64 pop_4 = 5
+# expect mem64 pop_5 = 4
+# expect mem64 pop_6 = 3
+# expect mem64 pop_7 = 2
+# expect mem64 pop_8 = 1
+
+CONST -> STACK_A [imm=1]
+CONST -> STACK_A [imm=2]
+CONST -> STACK_A [imm=3]
+CONST -> STACK_A [imm=4]
+CONST -> STACK_A [imm=5]
+CONST -> STACK_A [imm=6]
+CONST -> STACK_A [imm=7]
+CONST -> STACK_A [imm=8]
+CONST -> MEM.WRITE [imm=pop_1]
+STACK_A -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+CONST -> MEM.WRITE [imm=pop_2]
+STACK_A -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+CONST -> MEM.WRITE [imm=pop_3]
+STACK_A -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+CONST -> MEM.WRITE [imm=pop_4]
+STACK_A -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+CONST -> MEM.WRITE [imm=pop_5]
+STACK_A -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+CONST -> MEM.WRITE [imm=pop_6]
+STACK_A -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+CONST -> MEM.WRITE [imm=pop_7]
+STACK_A -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+CONST -> MEM.WRITE [imm=pop_8]
+STACK_A -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> MEM.READ [imm=pop_8]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+pop_1: .word 0xfeedfacefeedface
+pop_2: .word 0xfeedfacefeedface
+pop_3: .word 0xfeedfacefeedface
+pop_4: .word 0xfeedfacefeedface
+pop_5: .word 0xfeedfacefeedface
+pop_6: .word 0xfeedfacefeedface
+pop_7: .word 0xfeedfacefeedface
+pop_8: .word 0xfeedfacefeedface

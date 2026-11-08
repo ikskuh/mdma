@@ -1,0 +1,31 @@
+# Nine STASH pushes force an input to wait behind eight output entries.
+# expect mem64 first = 1
+# expect mem64 last = 9
+
+CONST -> STASH_A [imm=1]
+CONST -> STASH_A [imm=2]
+CONST -> STASH_A [imm=3]
+CONST -> STASH_A [imm=4]
+CONST -> STASH_A [imm=5]
+CONST -> STASH_A [imm=6]
+CONST -> STASH_A [imm=7]
+CONST -> STASH_A [imm=8]
+CONST -> STASH_A [imm=9]
+
+CONST -> MEM.WRITE [imm=first]
+STASH_A -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+STASH_A -> DISCARD
+STASH_A -> DISCARD
+STASH_A -> DISCARD
+STASH_A -> DISCARD
+STASH_A -> DISCARD
+STASH_A -> DISCARD
+STASH_A -> DISCARD
+CONST -> MEM.WRITE [imm=last]
+STASH_A -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> MEM.READ [imm=last]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+first: .word 0
+last: .word 0

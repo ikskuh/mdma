@@ -1,0 +1,13 @@
+# One instruction consumes the same ADD result as both the store data and mask.
+# expect mem64 result = 0x300
+
+CONST -> ARITH_A.LHS [imm=0x100]
+CONST -> ARITH_A.RHS [imm=0x200]
+CONST -> MEM.WRITE [imm=result]
+# The sum's low byte is zero, so all lanes are written.
+ARITH_A.ADD -> MEM.CHUNK, ARITH_A.ADD -> MEM.MASK [sync]
+CONST -> MEM.READ [imm=result]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+result: .word 0xfeedfacefeedface

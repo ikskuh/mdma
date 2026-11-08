@@ -1,0 +1,13 @@
+# SWIZZLE8 reverses the bytes using a descending lane pattern.
+# expect mem64 swizzled = 0x0102030405060708
+
+CONST -> SWIZZLE8.VALUE [imm=0x0807060504030201]
+CONST -> SWIZZLE8.PATTERN [imm=0x053977]
+CONST -> MEM.WRITE [imm=swizzled]
+SWIZZLE8.VALUE -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> MEM.READ [imm=swizzled]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+swizzled: .word 0xfeedfacefeedface

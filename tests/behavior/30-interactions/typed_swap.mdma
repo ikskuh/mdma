@@ -1,0 +1,23 @@
+# PACK replaces lane 3 and UNPACK sign-extends the old byte returned by MEM.
+# expect mem64 cell = 0x01234567feabcdef
+# expect mem64 old_signed_byte = -119
+
+# The extended jump is two words, placing cell at 0x10 and lane 3 at 0x13.
+CONST -> PC [imm=start]
+cell: .word 0
+start:
+CONST -> MEM.WRITE [imm=cell]
+CONST -> MEM.CHUNK, ZERO -> MEM.MASK [imm=0x0123456789abcdef]
+CONST -> PACK.ADDR, CONST -> UNPACK.ADDR [imm=0x13]
+CONST -> PACK.TYPE, CONST -> UNPACK.TYPE
+CONST -> PACK.VALUE [imm=0x1fe]
+PACK.ADDR -> MEM.READ, PACK.ADDR -> MEM.WRITE, PACK.CHUNK -> MEM.CHUNK, PACK.MASK -> MEM.MASK [sync]
+MEM.CHUNK -> UNPACK.CHUNK
+CONST -> MEM.WRITE [imm=old_signed_byte]
+UNPACK -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> MEM.READ [imm=cell]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+old_signed_byte: .word 0xfeedfacefeedface

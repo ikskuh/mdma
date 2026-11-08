@@ -1,0 +1,2 @@
+# expect fault stall
+ARITH_A.ADD -> DISCARD

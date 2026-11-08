@@ -1,0 +1,14 @@
+# Only byte lane 2 is written when the other seven mask bits are set.
+# expect mem64 cell = 0x0123456789fecdef
+
+CONST -> MEM.WRITE [imm=cell]
+CONST -> MEM.CHUNK, ZERO -> MEM.MASK [imm=0x0123456789abcdef]
+CONST -> MEM.WRITE [imm=cell]
+CONST -> MEM.CHUNK [imm=0x00fe0000]
+CONST -> MEM.MASK [imm=0xfb]
+
+CONST -> MEM.READ [imm=cell]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+cell: .word 0xfeedfacefeedface

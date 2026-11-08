@@ -1,0 +1,19 @@
+# A store waits for the DIV-produced read address and the read sees the old value.
+# expect mem64 cell = 789
+# expect mem64 before_swap = 456
+
+CONST -> MEM.WRITE [imm=cell]
+CONST -> MEM.CHUNK, ZERO -> MEM.MASK [imm=456]
+CONST -> DIV.LHS [imm=cell]
+CONST -> DIV.RHS
+CONST -> MEM.CHUNK [imm=789]
+DIV.QUO -> MEM.READ, CONST -> MEM.WRITE, ZERO -> MEM.MASK [sync, imm=cell]
+CONST -> MEM.WRITE [imm=before_swap]
+MEM.CHUNK -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> MEM.READ [imm=cell]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+cell: .word 0xfeedfacefeedface
+before_swap: .word 0xfeedfacefeedface

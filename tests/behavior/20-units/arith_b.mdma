@@ -1,0 +1,20 @@
+# ARITH_B wraps the sum and computes left minus right.
+# expect mem64 sum = 1
+# expect mem64 difference = 3
+
+CONST -> ARITH_B.LHS [imm=2]
+CONST -> ARITH_B.RHS [imm=-1]
+CONST -> MEM.WRITE [imm=sum]
+ARITH_B.ADD -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> ARITH_B.LHS [imm=2]
+CONST -> ARITH_B.RHS [imm=-1]
+CONST -> MEM.WRITE [imm=difference]
+ARITH_B.SUB -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> MEM.READ [imm=difference]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+sum: .word 0xfeedfacefeedface
+difference: .word 0xfeedfacefeedface

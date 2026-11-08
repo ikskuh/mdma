@@ -1,0 +1,2 @@
+# expect fault stall
+CONST -> DISCARD [pred]

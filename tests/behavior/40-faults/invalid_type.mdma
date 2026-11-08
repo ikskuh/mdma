@@ -1,0 +1,4 @@
+# expect fault invalid_type
+CONST -> UNPACK.TYPE [imm=8]
+ZERO -> UNPACK.ADDR, ZERO -> UNPACK.CHUNK
+UNPACK -> DISCARD

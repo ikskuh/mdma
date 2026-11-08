@@ -1,0 +1,23 @@
+# Default, unsigned 12-bit, signed 12-bit, and extended constants.
+# expect mem64 default_one = 1
+# expect mem64 unsigned_12 = 4095
+# expect mem64 signed_12 = -2048
+# expect mem64 extended = 0x8000000000000003
+
+CONST -> MEM.WRITE [imm=default_one]
+CONST -> MEM.CHUNK, ZERO -> MEM.MASK [imm=1]
+CONST -> MEM.WRITE [imm=unsigned_12]
+CONST -> MEM.CHUNK, ZERO -> MEM.MASK [imm=4095]
+CONST -> MEM.WRITE [imm=signed_12]
+CONST -> MEM.CHUNK, ZERO -> MEM.MASK [imm=-2048]
+CONST -> MEM.WRITE [imm=extended]
+CONST -> MEM.CHUNK, ZERO -> MEM.MASK [imm=0x8000000000000003]
+
+CONST -> MEM.READ [imm=extended]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+default_one: .word 0xfeedfacefeedface
+unsigned_12: .word 0xfeedfacefeedface
+signed_12: .word 0xfeedfacefeedface
+extended: .word 0xfeedfacefeedface

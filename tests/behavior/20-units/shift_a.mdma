@@ -1,0 +1,41 @@
+# SHIFT_A shifts and rotates with a count reduced modulo 64.
+# expect mem64 lsl = 2
+# expect mem64 lsr = 0x4000000000000000
+# expect mem64 asr = 0xc000000000000000
+# expect mem64 rol = 3
+# expect mem64 ror = 0xc000000000000000
+
+CONST -> SHIFT_A.VAL [imm=0x8000000000000001]
+CONST -> SHIFT_A.CNT [imm=65]
+CONST -> MEM.WRITE [imm=lsl]
+SHIFT_A.LSL -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> SHIFT_A.VAL [imm=0x8000000000000001]
+CONST -> SHIFT_A.CNT [imm=65]
+CONST -> MEM.WRITE [imm=lsr]
+SHIFT_A.LSR -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> SHIFT_A.VAL [imm=0x8000000000000001]
+CONST -> SHIFT_A.CNT [imm=65]
+CONST -> MEM.WRITE [imm=asr]
+SHIFT_A.ASR -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> SHIFT_A.VAL [imm=0x8000000000000001]
+CONST -> SHIFT_A.CNT [imm=65]
+CONST -> MEM.WRITE [imm=rol]
+SHIFT_A.ROL -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> SHIFT_A.VAL [imm=0x8000000000000001]
+CONST -> SHIFT_A.CNT [imm=65]
+CONST -> MEM.WRITE [imm=ror]
+SHIFT_A.ROR -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> MEM.READ [imm=ror]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+lsl: .word 0xfeedfacefeedface
+lsr: .word 0xfeedfacefeedface
+asr: .word 0xfeedfacefeedface
+rol: .word 0xfeedfacefeedface
+ror: .word 0xfeedfacefeedface

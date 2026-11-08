@@ -1,0 +1,70 @@
+# UNPACK extracts every type from the highest naturally aligned lane and extends it.
+# expect mem64 u8 = 128
+# expect mem64 i8 = -128
+# expect mem64 u16 = 32768
+# expect mem64 i16 = -32768
+# expect mem64 u32 = 2147483648
+# expect mem64 i32 = -2147483648
+# expect mem64 u64 = 9223372036854775808
+# expect mem64 i64 = -9223372036854775808
+
+CONST -> UNPACK.ADDR [imm=7]
+CONST -> UNPACK.TYPE [imm=0]
+CONST -> UNPACK.CHUNK [imm=0x80ffffffffffffff]
+CONST -> MEM.WRITE [imm=u8]
+UNPACK -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> UNPACK.ADDR [imm=7]
+CONST -> UNPACK.TYPE [imm=1]
+CONST -> UNPACK.CHUNK [imm=0x80ffffffffffffff]
+CONST -> MEM.WRITE [imm=i8]
+UNPACK -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> UNPACK.ADDR [imm=6]
+CONST -> UNPACK.TYPE [imm=2]
+CONST -> UNPACK.CHUNK [imm=0x8000ffffffffffff]
+CONST -> MEM.WRITE [imm=u16]
+UNPACK -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> UNPACK.ADDR [imm=6]
+CONST -> UNPACK.TYPE [imm=3]
+CONST -> UNPACK.CHUNK [imm=0x8000ffffffffffff]
+CONST -> MEM.WRITE [imm=i16]
+UNPACK -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> UNPACK.ADDR [imm=4]
+CONST -> UNPACK.TYPE [imm=4]
+CONST -> UNPACK.CHUNK [imm=0x80000000ffffffff]
+CONST -> MEM.WRITE [imm=u32]
+UNPACK -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> UNPACK.ADDR [imm=4]
+CONST -> UNPACK.TYPE [imm=5]
+CONST -> UNPACK.CHUNK [imm=0x80000000ffffffff]
+CONST -> MEM.WRITE [imm=i32]
+UNPACK -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> UNPACK.ADDR [imm=0]
+CONST -> UNPACK.TYPE [imm=6]
+CONST -> UNPACK.CHUNK [imm=0x8000000000000000]
+CONST -> MEM.WRITE [imm=u64]
+UNPACK -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> UNPACK.ADDR [imm=0]
+CONST -> UNPACK.TYPE [imm=7]
+CONST -> UNPACK.CHUNK [imm=0x8000000000000000]
+CONST -> MEM.WRITE [imm=i64]
+UNPACK -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> MEM.READ [imm=i64]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+u8: .word 0xfeedfacefeedface
+i8: .word 0xfeedfacefeedface
+u16: .word 0xfeedfacefeedface
+i16: .word 0xfeedfacefeedface
+u32: .word 0xfeedfacefeedface
+i32: .word 0xfeedfacefeedface
+u64: .word 0xfeedfacefeedface
+i64: .word 0xfeedfacefeedface

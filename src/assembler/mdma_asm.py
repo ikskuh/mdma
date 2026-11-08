@@ -129,6 +129,12 @@ def resolve(value: str, labels: dict[str, int]) -> int:
 
 
 def assemble(source: str) -> bytes:
+    image, _ = assemble_with_labels(source)
+    return image
+
+
+def assemble_with_labels(source: str) -> tuple[bytes, dict[str, int]]:
+    """Assemble a binary and return its absolute byte addresses by label."""
     lines = tuple(parse_asm(source))
     labels = {}
     address = 0
@@ -178,7 +184,7 @@ def assemble(source: str) -> bytes:
                 output.extend(word.to_bytes(8, "little"))
         except ValueError as exc:
             raise ValueError(f"line {line.number}: {exc}") from exc
-    return bytes(output)
+    return bytes(output), labels
 
 
 def parse_args() -> argparse.Namespace:

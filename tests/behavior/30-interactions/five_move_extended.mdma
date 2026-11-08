@@ -1,0 +1,18 @@
+# An extended constant keeps all five move slots, including the predicate.
+# expect mem64 constant = 0x8000000000000100
+# expect mem64 sum = 0x200
+
+CONST -> MEM.WRITE [imm=constant]
+CONST -> ARITH_A.LHS, CONST -> ARITH_A.RHS, CONST -> MEM.CHUNK, CONST -> MEM.MASK, CONST -> COND [imm=0x8000000000000100]
+CONST -> PC [pred, imm=taken]
+CONST -> PC [imm=-1]
+taken:
+CONST -> MEM.WRITE [imm=sum]
+ARITH_A.ADD -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> MEM.READ [imm=sum]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+constant: .word 0xfeedfacefeedface
+sum: .word 0xfeedfacefeedface

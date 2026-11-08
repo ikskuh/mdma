@@ -1,0 +1,4 @@
+# expect fault memory_bounds
+CONST -> MEM.WRITE [imm=-1]
+CONST -> MEM.CHUNK, ZERO -> MEM.MASK
+CONST -> PC [imm=-1]

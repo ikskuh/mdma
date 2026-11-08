@@ -1,0 +1,22 @@
+# An older load sees the original value and a younger load sees the intervening store.
+# expect mem64 cell = 456
+# expect mem64 older_read = 123
+# expect mem64 younger_read = 456
+
+CONST -> MEM.WRITE [imm=cell]
+CONST -> MEM.CHUNK, ZERO -> MEM.MASK [imm=123]
+CONST -> MEM.READ, CONST -> MEM.WRITE [imm=cell]
+CONST -> MEM.CHUNK, ZERO -> MEM.MASK [imm=456]
+CONST -> MEM.READ [imm=cell]
+CONST -> MEM.WRITE [imm=older_read]
+MEM.CHUNK -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+CONST -> MEM.WRITE [imm=younger_read]
+MEM.CHUNK -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> MEM.READ [imm=younger_read]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+cell: .word 0xfeedfacefeedface
+older_read: .word 0xfeedfacefeedface
+younger_read: .word 0xfeedfacefeedface

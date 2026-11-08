@@ -1,18 +1,21 @@
 """Behavioral checks for the FIFO core and the external binary runner."""
+import argparse
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr
+from io import StringIO
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src/assembler'))
 sys.path.insert(0, str(ROOT / 'src/simulator'))
 from mdma_asm import assemble
-from simulator import (MASK, DEPTH, State, Queue, Instruction, Simulator,
-                       SimulationError)
-import simulator as units
+import simulator_core as units
 from mdma import SOURCE_BY_NAME
+from simulator import Simulator, SimulationError, parse_latency
+from simulator_core import MASK, DEPTH, Instruction
 
 HALT = '\nCONST -> PC [imm=-1]\n'
 
@@ -34,33 +37,34 @@ def result(sim, name):
 
 class SimulatorTest(unittest.TestCase):
     def test_flat_core_and_partial_execution(self):
-        state = State([Queue() for _ in range(64)], [Queue() for _ in range(64)])
+        state = Simulator(b'').state
         self.assertEqual(set(vars(state)), {'sinks', 'sources'})
         instruction = Instruction([(4, 8), (4, 9), (5, 10)])
-        state.sources[4].write(42)
+        state.sources[4].unit.results.append({'ADD': 0, 'SUB': 42})
         self.assertTrue(instruction.execute(state))
         self.assertFalse(instruction.finished)
         self.assertEqual(list(state.sinks[8].values), [42])
         self.assertEqual(list(state.sinks[9].values), [42])
-        state.sources[5].write(7)
+        state.sources[5].unit.results.append({'ADD': 7, 'SUB': 0})
         instruction.execute(state)
         self.assertTrue(instruction.finished)
         self.assertEqual(list(state.sinks[8].values), [42])
         self.assertEqual(list(state.sinks[10].values), [7])
 
     def test_synchronized_backpressure(self):
-        state = State([Queue() for _ in range(64)], [Queue() for _ in range(64)])
+        state = Simulator(b'').state
         for _ in range(DEPTH):
             state.sinks[9].write(1)
-        state.sources[4].write(42)
+        self.assertFalse(state.sinks[9].writable())
+        state.sources[4].unit.results.append({'ADD': 0, 'SUB': 42})
         instruction = Instruction([(4, 8), (4, 9)], synchronized=True)
         self.assertFalse(instruction.execute(state))
         self.assertFalse(state.sinks[8].values)
-        self.assertEqual(list(state.sources[4].values), [42])
+        self.assertTrue(state.sources[4].ready({}))
         state.sinks[9].values.popleft()
         self.assertTrue(instruction.execute(state))
         self.assertTrue(instruction.finished)
-        self.assertFalse(state.sources[4].values)
+        self.assertFalse(state.sources[4].ready({}))
 
     def test_counter_and_halt(self):
         sim = machine((ROOT / 'examples/counter.mdma').read_text())
@@ -286,6 +290,27 @@ CMP.EQ -> STASH_A, CMP.NE -> STASH_B [sync]''')
         mem.execute()
         self.assertEqual(mem.results[0]['CHUNK'], 42)
 
+    def test_full_memory_output_holds_younger_store(self):
+        sim = Simulator(bytes(8), latencies={'MEM': 1})
+        mem = sim.state.sources[38].unit
+        for _ in range(DEPTH):
+            mem.inputs['READ'].write(0)
+            self.assertTrue(mem.execute())
+        mem.inputs['READ'].write(0)
+        self.assertFalse(mem.execute())
+        mem.inputs['WRITE'].write(0)
+        mem.inputs['CHUNK'].write(42)
+        mem.inputs['MASK'].write(0)
+        self.assertFalse(mem.execute())
+        self.assertEqual(list(mem.inputs['READ'].values), [0])
+        self.assertEqual(sim.memory[0], 0)
+        self.assertEqual(result(sim, 'MEM.CHUNK'), 0)
+        self.assertTrue(mem.execute())
+        self.assertEqual(len(mem.results), DEPTH)
+        self.assertEqual(mem.results[-1], {'CHUNK': 0})
+        self.assertTrue(mem.execute())
+        self.assertEqual(sim.memory[0], 42)
+
     def test_latency_configuration(self):
         sim = Simulator(b'', latencies={'ARITH': 2, 'ARITH_A': 5, 'MEM': 6})
         self.assertEqual(sim.state.sources[3].unit.latency, 5)
@@ -297,10 +322,10 @@ CMP.EQ -> STASH_A, CMP.NE -> STASH_B [sync]''')
         for overrides in ({'MUL': 0}, {'MUL': -1}, {'MUL': 1.5}, {'MUL': True}, {'TYPO': 3}):
             with self.subTest(overrides=overrides), self.assertRaises(SimulationError):
                 Simulator(b'', latencies=overrides)
-        self.assertEqual(units.parse_latency('MUL=5'), ('MUL', 5))
+        self.assertEqual(parse_latency('MUL=5'), ('MUL', 5))
         for argument in ('MUL=0', 'MUL=-1', 'MUL=slow', 'MUL', '=3'):
-            with self.subTest(argument=argument), self.assertRaises(units.argparse.ArgumentTypeError):
-                units.parse_latency(argument)
+            with self.subTest(argument=argument), self.assertRaises(argparse.ArgumentTypeError):
+                parse_latency(argument)
 
     def test_errors_and_limits(self):
         for index in (59, 60):
@@ -321,6 +346,14 @@ CMP.EQ -> STASH_A, CMP.NE -> STASH_B [sync]''')
         with self.assertRaisesRegex(SimulationError, 'smaller than image'):
             Simulator(b'12345678', 4)
         self.assertEqual(len(Simulator(assemble(HALT), 128).memory), 128)
+
+    def test_halt_on_final_tick_with_trace(self):
+        sim = Simulator(assemble(HALT))
+        trace = StringIO()
+        with redirect_stderr(trace):
+            sim.run(max_ticks=1, trace=True)
+        self.assertTrue(sim.halted)
+        self.assertEqual(trace.getvalue(), 'tick=0 pc=0x0\n')
 
     def test_cli(self):
         with tempfile.TemporaryDirectory() as directory:

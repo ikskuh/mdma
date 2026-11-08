@@ -1,0 +1,54 @@
+# Fill both eight-entry read queues. The later store must wait for the queued loads.
+# expect mem64 first = 123
+# expect mem64 last = 123
+# expect mem64 cell = 456
+
+CONST -> MEM.WRITE [imm=cell]
+CONST -> MEM.CHUNK, ZERO -> MEM.MASK [imm=123]
+
+CONST -> MEM.READ [imm=cell]
+CONST -> MEM.READ [imm=cell]
+CONST -> MEM.READ [imm=cell]
+CONST -> MEM.READ [imm=cell]
+CONST -> MEM.READ [imm=cell]
+CONST -> MEM.READ [imm=cell]
+CONST -> MEM.READ [imm=cell]
+CONST -> MEM.READ [imm=cell]
+CONST -> MEM.READ [imm=cell]
+CONST -> MEM.READ [imm=cell]
+CONST -> MEM.READ [imm=cell]
+CONST -> MEM.READ [imm=cell]
+CONST -> MEM.READ [imm=cell]
+CONST -> MEM.READ [imm=cell]
+CONST -> MEM.READ [imm=cell]
+CONST -> MEM.READ [imm=cell]
+
+CONST -> MEM.WRITE [imm=cell]
+CONST -> MEM.CHUNK [imm=456]
+ZERO -> MEM.MASK
+
+CONST -> MEM.WRITE [imm=first]
+MEM.CHUNK -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+MEM.CHUNK -> DISCARD
+MEM.CHUNK -> DISCARD
+MEM.CHUNK -> DISCARD
+MEM.CHUNK -> DISCARD
+MEM.CHUNK -> DISCARD
+MEM.CHUNK -> DISCARD
+MEM.CHUNK -> DISCARD
+MEM.CHUNK -> DISCARD
+MEM.CHUNK -> DISCARD
+MEM.CHUNK -> DISCARD
+MEM.CHUNK -> DISCARD
+MEM.CHUNK -> DISCARD
+MEM.CHUNK -> DISCARD
+MEM.CHUNK -> DISCARD
+CONST -> MEM.WRITE [imm=last]
+MEM.CHUNK -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> MEM.READ [imm=last]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+first: .word 0
+last: .word 0
+cell: .word 0

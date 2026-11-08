@@ -1,0 +1,20 @@
+# MUL returns the expected low and high.
+# expect mem64 low = -2
+# expect mem64 high = 1
+
+CONST -> MUL.LHS [imm=-1]
+CONST -> MUL.RHS [imm=2]
+CONST -> MEM.WRITE [imm=low]
+MUL.LO -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> MUL.LHS [imm=-1]
+CONST -> MUL.RHS [imm=2]
+CONST -> MEM.WRITE [imm=high]
+MUL.HI -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> MEM.READ [imm=high]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+low: .word 0xfeedfacefeedface
+high: .word 0xfeedfacefeedface

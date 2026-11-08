@@ -1,0 +1,17 @@
+# STACK_B retains 2 values and returns them in LIFO order.
+# expect mem64 pop_1 = 2
+# expect mem64 pop_2 = 1
+
+CONST -> STACK_B [imm=1]
+CONST -> STACK_B [imm=2]
+CONST -> MEM.WRITE [imm=pop_1]
+STACK_B -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+CONST -> MEM.WRITE [imm=pop_2]
+STACK_B -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> MEM.READ [imm=pop_2]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+pop_1: .word 0xfeedfacefeedface
+pop_2: .word 0xfeedfacefeedface

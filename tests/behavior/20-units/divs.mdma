@@ -1,0 +1,20 @@
+# DIVS returns the expected quotient and remainder.
+# expect mem64 quotient = -3
+# expect mem64 remainder = -2
+
+CONST -> DIVS.LHS [imm=-17]
+CONST -> DIVS.RHS [imm=5]
+CONST -> MEM.WRITE [imm=quotient]
+DIVS.QUO -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> DIVS.LHS [imm=-17]
+CONST -> DIVS.RHS [imm=5]
+CONST -> MEM.WRITE [imm=remainder]
+DIVS.REM -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> MEM.READ [imm=remainder]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+quotient: .word 0xfeedfacefeedface
+remainder: .word 0xfeedfacefeedface

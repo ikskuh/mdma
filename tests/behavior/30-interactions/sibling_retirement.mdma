@@ -1,0 +1,27 @@
+# One instruction uses ADD as data and SUB as its mask. Later reads see fresh generations.
+# expect mem64 masked_sum = 0x0123456789ab236c
+# expect mem64 next_sum = 15
+# expect mem64 third_difference = 4
+
+CONST -> MEM.WRITE [imm=masked_sum]
+CONST -> MEM.CHUNK, ZERO -> MEM.MASK [imm=0x0123456789abcdef]
+CONST -> ARITH_A.LHS [imm=0x1234]
+CONST -> ARITH_A.RHS [imm=0x1138]
+CONST -> MEM.WRITE [imm=masked_sum]
+ARITH_A.ADD -> MEM.CHUNK, ARITH_A.SUB -> MEM.MASK [sync]
+CONST -> ARITH_A.LHS [imm=12]
+CONST -> ARITH_A.RHS [imm=3]
+CONST -> MEM.WRITE [imm=next_sum]
+ARITH_A.ADD -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+CONST -> ARITH_A.LHS [imm=8]
+CONST -> ARITH_A.RHS [imm=4]
+CONST -> MEM.WRITE [imm=third_difference]
+ARITH_A.SUB -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> MEM.READ [imm=third_difference]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+masked_sum: .word 0
+next_sum: .word 0xfeedfacefeedface
+third_difference: .word 0xfeedfacefeedface

@@ -1,0 +1,11 @@
+# One asynchronous instruction issues a multiply and consumes its result.
+# expect mem64 product = 49
+
+CONST -> MEM.WRITE [imm=product]
+CONST -> MUL.LHS, CONST -> MUL.RHS, MUL.LO -> MEM.CHUNK, ZERO -> MEM.MASK [imm=7]
+
+CONST -> MEM.READ [imm=product]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+product: .word 0xfeedfacefeedface

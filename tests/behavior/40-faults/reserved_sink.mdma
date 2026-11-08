@@ -1,0 +1,3 @@
+# expect fault reserved_sink
+# Raw instruction: ZERO -> sink 26. The assembler rejects reserved port names.
+.word 0x680

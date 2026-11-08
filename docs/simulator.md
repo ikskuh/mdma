@@ -114,3 +114,42 @@ instruction or unit progress reports a stall; an active infinite loop is stopped
 
 Run the assembler and simulator tests with `just test` (or
 `python -m unittest discover -s tests -v`).
+
+## Assembly behavior tests
+
+Each `.mdma` file in `tests/behavior/` assembles into a complete memory image.
+Add one or more postconditions to its leading comment header, for example
+`# expect mem64 result = -1`. The runner requires a successful halt and compares
+the little-endian 64-bit word at the assembler label `result`. Values follow the
+assembler's integer syntax and range. A fixture can declare storage with
+`.word` and uses instructions to set up operands, queues, and working memory.
+An ordered MEM read followed by consumption of its result can confirm that
+earlier stores have completed before halt.
+
+A fault fixture instead declares a single postcondition such as
+`# expect fault division_by_zero`. The runner checks the fault code. The
+program image and postconditions can also be used by an FPGA runner that
+reports the same outcomes.
+
+The runner discovers fixtures recursively. Each fixture has its own test name
+derived from its path, so failures identify the fixture and `unittest -k` can
+select it.
+`00-memory` checks the memory operations used to record results.
+`10-instructions` checks CPU instruction behavior.
+`20-units` checks individual functional-unit instances using MEM to record results.
+`30-interactions` checks behavior that depends on units working together.
+`40-faults` checks errors triggered by instructions.
+`50-backpressure` checks output stalls using the simulator's separate
+eight-entry input and output queues. These fixtures require that buffering on
+an FPGA.
+Every fixture starts from its own assembled image.
+
+CI requires 100% line and branch coverage of `simulator_core.py` from
+the assembly fixtures. The assembler, CLI, and host runner are outside this
+measurement.
+
+```sh
+python -m unittest discover -s tests -p test_behavior.py -k test_20_units_divs -v
+python -m coverage run -m unittest discover -s tests -p test_behavior.py -k BehaviorTest
+python -m coverage report --fail-under=100
+```

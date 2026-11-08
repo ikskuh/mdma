@@ -1,0 +1,3 @@
+# expect fault division_by_zero
+CONST -> DIV.LHS, ZERO -> DIV.RHS
+DIV.QUO -> DISCARD

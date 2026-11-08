@@ -2,3 +2,10 @@
 
 # change the default line length number or characters.
 line-length = 120
+
+[tool.coverage.run]
+branch = true
+include = ["*/src/simulator/simulator_core.py"]
+
+[tool.coverage.report]
+show_missing = true

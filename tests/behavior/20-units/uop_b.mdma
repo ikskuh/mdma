@@ -1,0 +1,24 @@
+# UOP_B negates, complements, and reverses bytes.
+# expect mem64 negated = -0x0123456789abcdef
+# expect mem64 complement = 0xfedcba9876543210
+# expect mem64 byte_swap = 0xefcdab8967452301
+
+CONST -> UOP_B [imm=0x0123456789abcdef]
+CONST -> MEM.WRITE [imm=negated]
+UOP_B.NEG -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> UOP_B [imm=0x0123456789abcdef]
+CONST -> MEM.WRITE [imm=complement]
+UOP_B.NOT -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> UOP_B [imm=0x0123456789abcdef]
+CONST -> MEM.WRITE [imm=byte_swap]
+UOP_B.BSW -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> MEM.READ [imm=byte_swap]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+negated: .word 0xfeedfacefeedface
+complement: .word 0xfeedfacefeedface
+byte_swap: .word 0xfeedfacefeedface

@@ -1,0 +1,17 @@
+# A simultaneous load and store returns the old chunk and commits the replacement.
+# expect mem64 cell = 456
+# expect mem64 old_chunk = 123
+
+CONST -> MEM.WRITE [imm=cell]
+CONST -> MEM.CHUNK, ZERO -> MEM.MASK [imm=123]
+CONST -> MEM.CHUNK [imm=456]
+CONST -> MEM.READ, CONST -> MEM.WRITE, ZERO -> MEM.MASK [sync, imm=cell]
+CONST -> MEM.WRITE [imm=old_chunk]
+MEM.CHUNK -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> MEM.READ [imm=cell]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+cell: .word 0xfeedfacefeedface
+old_chunk: .word 0xfeedfacefeedface

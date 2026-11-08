@@ -1,0 +1,3 @@
+# expect fault memory_bounds
+CONST -> MEM.READ [imm=-1]
+MEM.CHUNK -> DISCARD

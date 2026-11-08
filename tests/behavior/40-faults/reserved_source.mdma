@@ -1,0 +1,3 @@
+# expect fault reserved_source
+# Raw instruction: source 59 -> DISCARD.
+.word 0xffb
