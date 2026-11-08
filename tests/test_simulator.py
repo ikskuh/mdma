@@ -190,7 +190,7 @@ UNPACK -> STASH_A'''
             (units.ArithmeticUnit, [MASK, 1], {'ADD': 0, 'SUB': MASK - 1}),
             (units.LogicUnit, [5, 3], {'AND': 1, 'OR': 7, 'XOR': 6}),
             (units.ShiftUnit, [1 << 63, 1], {'LSL': 0, 'LSR': 1 << 62, 'ASR': 3 << 62, 'ROL': 1, 'ROR': 1 << 62}),
-            (units.CompareUnit, [MASK, 1], {'EQ': 0, 'LT': 0, 'LTS': 1, 'LTE': 0, 'LTES': 1}),
+            (units.CompareUnit, [MASK, 1], {'EQ': 0, 'NE': 1, 'LT': 0, 'LTS': 1, 'LTE': 0, 'LTES': 1}),
             (units.MultiplyUnit, [MASK, 2], {'LO': MASK - 1, 'HI': 1}),
             (units.SignedMultiplyUnit, [MASK, 2], {'LO': MASK - 1, 'HI': MASK}),
             (units.DivideUnit, [7, 3], {'REM': 1, 'QUO': 2}),
@@ -208,6 +208,14 @@ UNPACK -> STASH_A'''
                 self.assertEqual(actual, expected)
         with self.assertRaisesRegex(SimulationError, 'division by zero'):
             evaluate(units.DivideUnit, [1, 0])
+
+    def test_cmp_ne_and_eq_share_a_generation(self):
+        for rhs, eq, ne in [('ZERO', 0, 1), ('CONST', 1, 0)]:
+            with self.subTest(rhs=rhs):
+                sim = machine(f'''CONST -> CMP.LHS, {rhs} -> CMP.RHS
+CMP.EQ -> STASH_A, CMP.NE -> STASH_B [sync]''')
+                self.assertEqual(result(sim, 'STASH_A.OUT'), eq)
+                self.assertEqual(result(sim, 'STASH_B.OUT'), ne)
 
     def test_latency_and_independent_units(self):
         source = ('CONST -> MUL.LHS, CONST -> MUL.RHS, '
@@ -295,7 +303,7 @@ UNPACK -> STASH_A'''
                 units.parse_latency(argument)
 
     def test_errors_and_limits(self):
-        for index in (58, 59, 60):
+        for index in (59, 60):
             word = (63 << 6) | index  # Reserved source routed to DISCARD.
             with self.subTest(index=index), self.assertRaisesRegex(SimulationError, 'reserved source'):
                 Simulator(word.to_bytes(8, 'little')).tick()

@@ -2,6 +2,12 @@
 
 ## Overview
 
+Each STASH and STACK instance must hold at least eight elements. Every other
+FIFO must support at least four elements in flight.
+
+Every CMP output yields the 64-bit value `1` when its comparison is true and
+`0` when it is false.
+
 ### Table of Sinks
 
 | Sink Index | Functional Unit | Instance | Name      | Description                                                 |
@@ -133,7 +139,7 @@
 | 55           | UOP             | `B`      | `NOT`     |                                               |
 | 56           | UOP             | `B`      | `BSW`     |                                               |
 | 57           | PACK            | -        | `ADDR`    | Input address forwarded unchanged.            |
-| 58           | *reserved*      |          |           |                                               |
+| 58           | CMP             | -        | `NE`      | Whether `LHS` and `RHS` differ.                |
 | 59           | *reserved*      |          |           |                                               |
 | 60           | *reserved*      |          |           |                                               |
 | 61           | BITCNT          | -        | `POP`     |                                               |

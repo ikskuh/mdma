@@ -71,6 +71,9 @@ CONST -> PC [imm=start]
         with self.assertRaisesRegex(ValueError, 'unknown source'):
             assemble('ARITH_A -> PC')
 
+    def test_cmp_ne_encoding(self):
+        self.assertEqual(decode(words('CMP.NE -> DISCARD')[0])[0], (58, 63))
+
     def test_memory_port_encoding(self):
         sinks = ('MEM.READ', 'MEM.WRITE', 'MEM.CHUNK', 'MEM.MASK',
                  'PACK.ADDR', 'PACK.TYPE', 'PACK.VALUE', 'UNPACK.ADDR', 'UNPACK.TYPE', 'UNPACK.CHUNK')

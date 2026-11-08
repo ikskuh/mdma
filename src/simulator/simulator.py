@@ -225,7 +225,7 @@ class ShiftUnit(Unit):
 
 class CompareUnit(Unit):
     def compute(self, a, b):
-        return dict(EQ=a == b, LT=a < b, LTS=signed(a) < signed(b),
+        return dict(EQ=a == b, NE=a != b, LT=a < b, LTS=signed(a) < signed(b),
                     LTE=a <= b, LTES=signed(a) <= signed(b))
 
 

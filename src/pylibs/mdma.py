@@ -69,7 +69,7 @@ class SourceInfo(FifoInfoBase):
 __CPU = FunctionUnit(
     name="CPU",
     sinks=("PC", "*Reserved[26]*", *(f"*Reserved[{index}]*" for index in range(52, 62)), "COND", "DISCARD"),
-    sources=("ZERO", "CONST", "PC_NEXT", *(f"*Reserved[{index}]*" for index in range(58, 61))),
+    sources=("ZERO", "CONST", "PC_NEXT", *(f"*Reserved[{index}]*" for index in range(59, 61))),
 ).singleton()
 
 __ARITH = FunctionUnit(name="ARITH", sinks=("LHS", "RHS"), sources=("ADD", "SUB"))
@@ -87,7 +87,7 @@ LOGIC_A = __LOGIC.new_instance("A")
 LOGIC_B = __LOGIC.new_instance("B")
 SHIFT_A = __SHIFT.new_instance("A")
 SHIFT_B = __SHIFT.new_instance("B")
-CMP = FunctionUnit(name="CMP", sinks=("LHS", "RHS"), sources=("EQ", "LT", "LTS", "LTE", "LTES")).singleton()
+CMP = FunctionUnit(name="CMP", sinks=("LHS", "RHS"), sources=("EQ", "NE", "LT", "LTS", "LTE", "LTES")).singleton()
 MUL = FunctionUnit(name="MUL", sinks=("LHS", "RHS"), sources=("LO", "HI")).singleton()
 MULS = FunctionUnit(name="MULS", sinks=("LHS", "RHS"), sources=("LO", "HI")).singleton()
 DIV = FunctionUnit(name="DIV", sinks=("LHS", "RHS"), sources=("QUO", "REM")).singleton()
@@ -235,7 +235,7 @@ __sources = (
     SourceInfo(index=55, unit=UOP_B, name="NOT"),
     SourceInfo(index=56, unit=UOP_B, name="BSW"),
     SourceInfo(index=57, unit=PACK, name="ADDR"),
-    SourceInfo(index=58, unit=__CPU, name="*Reserved[58]*"),
+    SourceInfo(index=58, unit=CMP, name="NE"),
     SourceInfo(index=59, unit=__CPU, name="*Reserved[59]*"),
     SourceInfo(index=60, unit=__CPU, name="*Reserved[60]*"),
     SourceInfo(index=61, unit=BITCNT, name="POP"),
