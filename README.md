@@ -87,6 +87,17 @@ Another very simple functional unit is `STASH`, which is a loopback fifo, where 
 
 See [`docs/functional-units.md`](docs/functional-units.md) for a full reference.
 
+### Memory and Typed Values
+
+A single `MEM` functional unit handles loads and stores in issue order. Its inputs are `READ` (load address), `WRITE` (store address), `CHUNK`, and `MASK`; loads produce `MEM.CHUNK`. A load consumes `READ` independently. A store consumes `(WRITE, CHUNK, MASK)` atomically. If read and write trigger together, the read observes memory before the write, allowing a memory cell to be swapped with a supplied value.
+
+Typed memory operations use two helper FUs:
+
+- `PACK: (Address, Type, Value) -> (Address, Chunk, Mask)` positions a scalar in a chunk, generates the store mask, and forwards the address unchanged.
+- `UNPACK: (Address, Type, Chunk) -> (Value)` extracts a scalar and extends it to 64 bits: sign extension for signed types, zero extension for unsigned types.
+
+`Type` is `enum(u8, i8, u16, i16, u32, i32, u64, i64)`, encoded as values 0–7 in that order. Extension is part of `UNPACK`; there is no separate extension FU.
+
 ## Assembler Syntax
 
 The assembler syntax is straightforward and does not require much variety syntax:

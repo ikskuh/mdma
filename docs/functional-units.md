@@ -32,7 +32,7 @@
 | 23         | MASK            |          | `N`       |                                                             |
 | 24         | UOP             | `A`      | `IN`      |                                                             |
 | 25         | UOP             | `B`      | `IN`      |                                                             |
-| 26         | EXT             |          | `IN`      |                                                             |
+| 26         | *reserved*      |          |           |                                                             |
 | 27         | BITCNT          |          | `IN`      |                                                             |
 | 28         | SEL             | `A`      | `COND`    | Selector condition, `0` is false, else true.                |
 | 29         | SEL             | `A`      | `TRUE`    | Selector truthy value Used when `COND` is not 0.            |
@@ -40,16 +40,16 @@
 | 31         | SEL             | `B`      | `COND`    | Selector condition, `0` is false, else true.                |
 | 32         | SEL             | `B`      | `TRUE`    | Selector truthy value Used when `COND` is not 0.            |
 | 33         | SEL             | `B`      | `FALSE`   | Selector falsy value. Used when `COND` is 0.                |
-| 34         | LOAD            |          | `ADDR`    | When written, loads a value from written address in memory. |
-| 35         | STORE           |          | `ADDR`    |                                                             |
-| 36         | STORE           |          | `CHUNK`   |                                                             |
-| 37         | STORE           |          | `MASK`    |                                                             |
-| 38         | PACK            |          | `ADDR`    |                                                             |
-| 39         | PACK            |          | `VALUE`   |                                                             |
-| 40         | PACK            |          | `SIZE`    |                                                             |
-| 41         | EXTRACT         |          | `ADDR`    |                                                             |
-| 42         | EXTRACT         |          | `CHUNK`   |                                                             |
-| 43         | EXTRACT         |          | `SIZE`    |                                                             |
+| 34         | MEM             |          | `READ`    | Load address; produces a full 64-bit chunk.                  |
+| 35         | MEM             |          | `WRITE`   | Store address; consumed atomically with CHUNK and MASK.     |
+| 36         | MEM             |          | `CHUNK`   | 64-bit chunk to store.                                      |
+| 37         | MEM             |          | `MASK`    | Inverted byte-lane mask: 0 writes, 1 preserves.              |
+| 38         | PACK            |          | `ADDR`    | Full address; low 3 bits select the starting byte lane.     |
+| 39         | PACK            |          | `TYPE`    | Type enum (0–7); selects width and signedness.              |
+| 40         | PACK            |          | `VALUE`   | Scalar value to pack.                                      |
+| 41         | UNPACK          |          | `ADDR`    | Full address; low 3 bits select the starting byte lane.     |
+| 42         | UNPACK          |          | `TYPE`    | Type enum (0–7); selects width and signedness.              |
+| 43         | UNPACK          |          | `CHUNK`   | 64-bit chunk to unpack.                                    |
 | 44         | SWIZZLE8        |          | `VALUE`   |                                                             |
 | 45         | SWIZZLE8        |          | `PATTERN` |                                                             |
 | 46         | STASH           | `A`      | `IN`      |                                                             |
@@ -113,10 +113,10 @@
 | 35           | DIVS            | -        | `QUO`     |                                               |
 | 36           | SEL             | `A`      | `OUT`     |                                               |
 | 37           | SEL             | `B`      | `OUT`     |                                               |
-| 38           | LOAD            | -        | `CHUNK`   |                                               |
-| 39           | PACK            | -        | `CHUNK`   |                                               |
-| 40           | PACK            | -        | `MASK`    |                                               |
-| 41           | EXTRACT         | -        | `VALUE`   |                                               |
+| 38           | MEM             | -        | `CHUNK`   | Full 64-bit chunk returned by a load.          |
+| 39           | PACK            | -        | `CHUNK`   | Scalar positioned in its target byte lanes.   |
+| 40           | PACK            | -        | `MASK`    | Inverted byte-lane mask for MEM.MASK.          |
+| 41           | UNPACK          | -        | `VALUE`   | Extracted, sign- or zero-extended scalar.     |
 | 42           | SWIZZLE8        | -        | `VALUE`   |                                               |
 | 43           | STASH           | `A`      | `OUT`     |                                               |
 | 44           | STASH           | `B`      | `OUT`     |                                               |
@@ -132,11 +132,10 @@
 | 54           | UOP             | `B`      | `NEG`     |                                               |
 | 55           | UOP             | `B`      | `NOT`     |                                               |
 | 56           | UOP             | `B`      | `BSW`     |                                               |
-| 57           | EXT             | -        | `ZX8`     |                                               |
-| 58           | EXT             | -        | `ZX16`    |                                               |
-| 59           | EXT             | -        | `SX8`     |                                               |
-| 60           | EXT             | -        | `SX16`    |                                               |
+| 57           | PACK            | -        | `ADDR`    | Input address forwarded unchanged.            |
+| 58           | *reserved*      |          |           |                                               |
+| 59           | *reserved*      |          |           |                                               |
+| 60           | *reserved*      |          |           |                                               |
 | 61           | BITCNT          | -        | `POP`     |                                               |
 | 62           | BITCNT          | -        | `CLZ`     |                                               |
 | 63           | BITCNT          | -        | `CTZ`     |                                               |
-
