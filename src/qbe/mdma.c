@@ -1,4 +1,5 @@
 #include "all.h"
+#include "schedule.h"
 #include <getopt.h>
 #include <stdarg.h>
 
@@ -10,12 +11,13 @@ struct Symbol {
     Symbol *next;
     char *name, *label;
     int module, origin, function;
+    unsigned alignment;
 };
 
 static Symbol *symbols;
 static FILE *out;
 static char *input;
-static int module, collect;
+static int module, collect, optimize = 1;
 static Fn *fn;
 static Blk *block;
 static size_t frame_size, phi_base, *objects;
@@ -96,6 +98,7 @@ define(const char *name, Lnk *linkage, int function)
     s->module = scope;
     s->origin = module;
     s->function = function;
+    s->alignment = linkage->align < 8 ? 8 : linkage->align;
     s->next = symbols;
     symbols = s;
 }
@@ -297,11 +300,12 @@ binary(Ins *i, const char *unit, const char *result, int signed_operands)
     save(i->to, i->cls, source);
 }
 
+static const char *const cmp_results[] = {"EQ", "NE", "LTES", "LTS", "LTES", "LTS",
+                                          "LTE", "LT", "LTE", "LT"};
+
 static void
 compare(Ins *i)
 {
-    static const char *const results[] = {"EQ", "NE", "LTES", "LTS", "LTES", "LTS",
-                                           "LTE", "LT", "LTE", "LT"};
     unsigned cmp = i->op >= Ocmpl ? i->op - Ocmpl : i->op - Ocmpw;
     int sign = cmp >= Cisge && cmp <= Cislt;
     int reverse = cmp == Cisge || cmp == Cisgt || cmp == Ciuge || cmp == Ciugt;
@@ -313,7 +317,7 @@ compare(Ins *i)
     }
     line("%s -> CMP.LHS, %s -> CMP.RHS [sync]", reverse ? B : A, reverse ? A : B);
     char source[16];
-    snprintf(source, sizeof source, "CMP.%s", results[cmp]);
+    snprintf(source, sizeof source, "CMP.%s", cmp_results[cmp]);
     store_frame(slot(i->to), source);
 }
 
@@ -433,6 +437,378 @@ instruction(Ins *i)
     default:
         error("unsupported operation %s", optab[i->op].name);
     }
+}
+
+/* The block-local optimizer uses SSA IDs until it lowers the region to moves. */
+static SchedRegion scheduled;
+static SchedValue *scheduled_value, scheduled_sp;
+static unsigned char *scheduled_known;
+static int schedule_overflow;
+
+static SchedValue
+sched_number(uint64_t value)
+{
+    if (!value)
+        return (SchedValue){0};
+    char *imm = alloc(32);
+    if (value >= UINT64_MAX - 2047)
+        snprintf(imm, 32, "%"PRId64, (int64_t)value);
+    else
+        snprintf(imm, 32, "0x%"PRIx64, value);
+    return (SchedValue){.imm = imm};
+}
+
+static SchedValue
+sched_node(enum SchedUnit unit, const char *result, int count, const SchedMove *moves)
+{
+    if (scheduled.count == SCHED_NODES) {
+        schedule_overflow = 1;
+        return (SchedValue){0};
+    }
+    SchedNode *node = &scheduled.node[scheduled.count++];
+    *node = (SchedNode){.unit = unit, .result = result, .count = count};
+    memcpy(node->move, moves, count * sizeof *moves);
+    /* An instruction has one immediate. Stage conflicting constants as values
+     * and let the allocator place them in a STASH or STACK. */
+    const char *first = NULL;
+    for (int n = 0; n < count; ++n) {
+        SchedValue operand = node->move[n].value;
+        if (!operand.imm)
+            continue;
+        if (!first) {
+            first = operand.imm;
+            continue;
+        }
+        if (!strcmp(first, operand.imm))
+            continue;
+        if (scheduled.count == SCHED_NODES) {
+            schedule_overflow = 1;
+            return (SchedValue){0};
+        }
+        node[1] = *node;
+        *node = (SchedNode){.unit = HOLD, .result = "OUT", .count = 1,
+                            .move = {{NULL, operand}}};
+        node = &scheduled.node[scheduled.count++];
+        node->move[n].value = (SchedValue){.node = scheduled.count - 1};
+    }
+    return (SchedValue){.node = scheduled.count};
+}
+
+static SchedValue
+sched_pair(enum SchedUnit unit, const char *result, SchedValue lhs, SchedValue rhs)
+{
+    int shift_unit = unit == SHIFT_A || unit == SHIFT_B;
+    return sched_node(unit, result, 2, (SchedMove[]){
+        {shift_unit ? "VAL" : "LHS", lhs}, {shift_unit ? "CNT" : "RHS", rhs}
+    });
+}
+
+static SchedValue
+sched_read(SchedValue addr)
+{
+    return sched_node(MEM_READ, "CHUNK", 1, (SchedMove[]){{"READ", addr}});
+}
+
+static void
+sched_write(SchedValue addr, SchedValue chunk, SchedValue mask)
+{
+    sched_node(MEM_WRITE, NULL, 3, (SchedMove[]){{"WRITE", addr}, {"CHUNK", chunk}, {"MASK", mask}});
+}
+
+static SchedValue
+sched_address(size_t offset)
+{
+    if (!scheduled_sp.node)
+        scheduled_sp = sched_read((SchedValue){.imm = SP});
+    return sched_pair(ARITH_A, "ADD", scheduled_sp, sched_number(offset - frame_size));
+}
+
+static SchedValue
+sched_value(Ref ref)
+{
+    if (rtype(ref) == RTmp) {
+        SchedValue *saved = &scheduled_value[ref.val];
+        if (!scheduled_known[ref.val]) {
+            *saved = sched_read(sched_address(slot(ref)));
+            scheduled_known[ref.val] = 1;
+        }
+        return *saved;
+    }
+    Con *con = &fn->con[ref.val];
+    if (con->type == CAddr) {
+        SchedValue label = {.imm = symbol(str(con->sym.id))->label};
+        return con->bits.i ? sched_pair(ARITH_A, "ADD", label, sched_number(con->bits.i)) : label;
+    }
+    return sched_number(req(ref, UNDEF) ? 0 : (uint64_t)con->bits.i);
+}
+
+static SchedValue
+sched_extend(SchedValue value, unsigned width, int sign)
+{
+    if (sign) {
+        SchedValue count = sched_number(64 - width);
+        value = sched_pair(SHIFT_A, "LSL", value, count);
+        return sched_pair(SHIFT_A, "ASR", value, count);
+    }
+    return sched_pair(LOGIC_A, "AND", value, sched_number((UINT64_C(1) << width) - 1));
+}
+
+static int
+aligned_address(Ref ref, unsigned bytes, unsigned budget)
+{
+    if (bytes == 1)
+        return 1;
+    if (!budget)
+        return 0;
+    if (rtype(ref) == RCon) {
+        Con *c = &fn->con[ref.val];
+        if (c->type == CBits)
+            return !(c->bits.i & (bytes - 1));
+        return c->type == CAddr && !(c->bits.i & (bytes - 1)) &&
+               symbol(str(c->sym.id))->alignment >= bytes;
+    }
+    if (rtype(ref) != RTmp || fn->tmp[ref.val].ndef != 1)
+        return 0;
+    Ins *def = fn->tmp[ref.val].def;
+    if (!def)
+        return 0;
+    if (isalloc(def->op))
+        return (4u << (def->op - Oalloc4)) >= bytes;
+    if (def->op == Ocopy)
+        return aligned_address(def->arg[0], bytes, budget - 1);
+    if (def->op == Oadd && def->cls == Kl)
+        return aligned_address(def->arg[0], bytes, budget - 1) &&
+               aligned_address(def->arg[1], bytes, budget - 1);
+    return 0;
+}
+
+static unsigned
+memory_width(Ins *i)
+{
+    return isstore(i->op) ? storesz(i) : loadsz(i);
+}
+
+static int
+sched_eligible(Ins *i)
+{
+    if (i->cls > Kl)
+        return 0;
+    if (INRANGE(i->op, Ocmpw, Ocmpl1))
+        return 1;
+    if (isload(i->op) || isstore(i->op)) {
+        /* Plain QBE loadw is a word read, unlike the legacy eight-byte
+         * fallback used by this backend's generic load template. */
+        unsigned bytes = memory_width(i);
+        if (i->op == Oload && i->cls == Kw)
+            return 0;
+        return aligned_address(i->arg[isstore(i->op)], bytes, 16);
+    }
+    return i->op == Onop || i->op == Odbgloc || i->op == Ocopy || i->op == Oneg ||
+           i->op == Oadd || i->op == Osub || i->op == Omul || i->op == Oand ||
+           i->op == Oor || i->op == Oxor || i->op == Oshl || i->op == Oshr ||
+           i->op == Osar || isext(i->op);
+}
+
+static SchedValue
+sched_memory(Ins *i, SchedValue lhs, SchedValue rhs)
+{
+    unsigned bytes = memory_width(i);
+    if (bytes == 8) {
+        if (isload(i->op))
+            return sched_read(lhs);
+        sched_write(rhs, lhs, (SchedValue){0});
+        return (SchedValue){0};
+    }
+    unsigned type = bytes == 1 ? 0 : bytes == 2 ? 2 : 4;
+    if (isload(i->op)) {
+        SchedValue chunk = sched_read(lhs);
+        int sign = !((i->op - Oloadsb) & 1);
+        return sched_node(UNPACK, "VALUE", 3, (SchedMove[]){
+            {"ADDR", lhs}, {"TYPE", sched_number(type + sign)}, {"CHUNK", chunk}
+        });
+    }
+    SchedValue addr = sched_node(PACK, "ADDR", 3, (SchedMove[]){
+        {"ADDR", rhs}, {"TYPE", sched_number(type)}, {"VALUE", lhs}
+    });
+    sched_write(addr, (SchedValue){.node = addr.node, .port = "CHUNK"},
+                      (SchedValue){.node = addr.node, .port = "MASK"});
+    return (SchedValue){0};
+}
+
+static SchedValue
+sched_instruction(Ins *i)
+{
+    SchedValue lhs = sched_value(i->arg[0]);
+    SchedValue rhs = req(i->arg[1], R) ? (SchedValue){0} : sched_value(i->arg[1]);
+    if (isload(i->op) || isstore(i->op))
+        return sched_memory(i, lhs, rhs);
+    if (INRANGE(i->op, Ocmpw, Ocmpl1)) {
+        unsigned cmp = i->op >= Ocmpl ? i->op - Ocmpl : i->op - Ocmpw;
+        int sign = cmp >= Cisge && cmp <= Cislt;
+        int reverse = cmp == Cisge || cmp == Cisgt || cmp == Ciuge || cmp == Ciugt;
+        if (i->op < Ocmpl && sign) {
+            lhs = sched_extend(lhs, 32, 1);
+            rhs = sched_extend(rhs, 32, 1);
+        } else if (i->op < Ocmpl) {
+            /* Word constants may carry high bits even though SSA words do not. */
+            if (rtype(i->arg[0]) != RTmp || fn->tmp[i->arg[0].val].cls != Kw)
+                lhs = sched_extend(lhs, 32, 0);
+            if (rtype(i->arg[1]) != RTmp || fn->tmp[i->arg[1].val].cls != Kw)
+                rhs = sched_extend(rhs, 32, 0);
+        }
+        return sched_pair(CMP, cmp_results[cmp], reverse ? rhs : lhs, reverse ? lhs : rhs);
+    }
+    switch (i->op) {
+    case Oadd: return sched_pair(ARITH_A, "ADD", lhs, rhs);
+    case Osub: return sched_pair(ARITH_A, "SUB", lhs, rhs);
+    case Omul: return sched_pair(MUL, "LO", lhs, rhs);
+    case Oand: return sched_pair(LOGIC_A, "AND", lhs, rhs);
+    case Oor: return sched_pair(LOGIC_A, "OR", lhs, rhs);
+    case Oxor: return sched_pair(LOGIC_A, "XOR", lhs, rhs);
+    case Oneg: return sched_node(UOP_A, "NEG", 1, (SchedMove[]){{"IN", lhs}});
+    case Oshl: case Oshr: case Osar:
+        if (i->cls == Kw) {
+            if (i->op != Oshl)
+                lhs = sched_extend(lhs, 32, i->op == Osar);
+            rhs = sched_extend(rhs, 5, 0);
+        }
+        return sched_pair(SHIFT_A, i->op == Oshl ? "LSL" : i->op == Oshr ? "LSR" : "ASR", lhs, rhs);
+    case Ocopy: return lhs;
+    default: {
+        unsigned k = i->op - Oextsb;
+        return sched_extend(lhs, k < 2 ? 8 : k < 4 ? 16 : 32, !(k & 1));
+    }
+    }
+}
+
+static int
+local_result(Ref ref, const Ins *first, const Ins *end)
+{
+    Tmp *tmp = &fn->tmp[ref.val];
+    if (!tmp->nuse)
+        return 0;
+    for (unsigned n = 0; n < tmp->nuse; ++n) {
+        Use *use = &tmp->use[n];
+        if (use->bid != block->id || use->type != UIns ||
+            use->u.ins < first || use->u.ins >= end)
+            return 0;
+    }
+    return 1;
+}
+
+static int
+sched_region(Ins *first, Ins *end, int words, int cycles)
+{
+    scheduled.count = schedule_overflow = 0;
+    scheduled_sp = (SchedValue){0};
+    memset(scheduled_known, 0, fn->ntmp * sizeof *scheduled_known);
+    for (Ins *i = first; i < end && !schedule_overflow; ++i) {
+        if (i->op == Onop || i->op == Odbgloc)
+            continue;
+        SchedValue result = sched_instruction(i);
+        if (req(i->to, R))
+            continue;
+        if (i->cls == Kw && !INRANGE(i->op, Ocmpw, Ocmpl1))
+            result = sched_extend(result, 32, 0);
+        if (!local_result(i->to, first, end))
+            sched_write(sched_address(slot(i->to)), result, (SchedValue){0});
+        scheduled_value[i->to.val] = result;
+        scheduled_known[i->to.val] = 1;
+    }
+    return !schedule_overflow && schedule_emit(out, &scheduled, words, cycles);
+}
+
+static void
+emit_region(Ins *first, Ins *end)
+{
+    char *baseline = NULL;
+    size_t size = 0;
+    FILE *saved = out;
+    out = open_memstream(&baseline, &size);
+    if (!out)
+        error("cannot buffer unscheduled region");
+    for (Ins *i = first; i < end; ++i)
+        instruction(i);
+    if (fclose(out))
+        error("cannot buffer unscheduled region");
+    out = saved;
+    int words = 0, cycles = 0;
+    for (char *p = baseline; *p;) {
+        char *next = strchr(p, '\n');
+        *next = 0;
+        const char *imm = strstr(p, "imm=");
+        const char *read = strstr(p, "MEM.CHUNK ->");
+        ++words;
+        ++cycles;
+        if (read)
+            cycles += schedule_serial_read_wait();
+        if (imm) {
+            char *tail;
+            int64_t value = strtoll(imm + 4, &tail, 0);
+            if (*tail != ']' || value < -2048 || value > 4095)
+                ++words;
+        }
+        *next = '\n';
+        p = next + 1;
+    }
+    if (!sched_region(first, end, words, cycles)) {
+        if (end - first > 1) {
+            Ins *middle = first + (end - first) / 2;
+            emit_region(first, middle);
+            emit_region(middle, end);
+        } else
+            fwrite(baseline, 1, size, out);
+    }
+    free(baseline);
+}
+
+/* Promotion produces chains of copies between the same scalar types.
+ * Resolve those before use counting so the allocator sees real consumers. */
+static Ref
+copy_source(Ref ref)
+{
+    for (unsigned remaining = fn->ntmp; rtype(ref) == RTmp && remaining--; ) {
+        Tmp *tmp = &fn->tmp[ref.val];
+        Ins *i = tmp->def;
+        if (!i || tmp->ndef != 1 || i->op != Ocopy || i->cls > Kl)
+            break;
+        Ref arg = i->arg[0];
+        if (rtype(arg) == RTmp && fn->tmp[arg.val].cls == i->cls)
+            ref = arg;
+        else if (rtype(arg) == RCon && fn->con[arg.val].type == CBits &&
+                 !fn->con[arg.val].flt &&
+                 (i->cls == Kl || (uint64_t)fn->con[arg.val].bits.i <= UINT32_MAX))
+            return arg;
+        else
+            break;
+    }
+    return ref;
+}
+
+static void
+promote_locals(void)
+{
+    fillcfg(fn);
+    filluse(fn);
+    promote(fn);
+    filluse(fn);
+    ssa(fn);
+    filluse(fn);
+    for (Blk *b = fn->start; b; b = b->link) {
+        for (Ins *i = b->ins; i < b->ins + b->nins; ++i)
+            for (unsigned n = 0; n < 2; ++n)
+                i->arg[n] = copy_source(i->arg[n]);
+        for (Phi *p = b->phi; p; p = p->link)
+            for (unsigned n = 0; n < p->narg; ++n)
+                p->arg[n] = copy_source(p->arg[n]);
+        b->jmp.arg = copy_source(b->jmp.arg);
+    }
+    filluse(fn);
+    for (Blk *b = fn->start; b; b = b->link)
+        for (Ins *i = b->ins; i < b->ins + b->nins; ++i)
+            if (i->op == Ocopy && i->cls <= Kl && !fn->tmp[i->to.val].nuse)
+                *i = (Ins){.op = Onop};
+    filluse(fn);
 }
 
 static void
@@ -556,6 +932,11 @@ function(Fn *parsed)
         error("unsupported function signature");
     Symbol *f = lookup(fn->name, fn->lnk.export ? 0 : module);
     int main_entry = f->module == 0 && strcmp(f->name, "main") == 0;
+    if (optimize) {
+        promote_locals();
+        scheduled_value = alloc(fn->ntmp * sizeof *scheduled_value);
+        scheduled_known = alloc(fn->ntmp * sizeof *scheduled_known);
+    }
     frame_size = 8 * (1 + (size_t)(fn->ntmp - Tmp0));
     objects = alloc((frame_size / 8) * sizeof *objects);
     size_t max_phi = 0;
@@ -614,6 +995,12 @@ function(Fn *parsed)
             } else if (i->op == Oblit0) {
                 blit(i, rsval(i[1].arg[0]));
                 ++i;
+            } else if (optimize && sched_eligible(i)) {
+                Ins *end = i + 1;
+                while (end < block->ins + block->nins && end - i < SCHED_REGION && sched_eligible(end))
+                    ++end;
+                emit_region(i, end);
+                i = end - 1;
             } else {
                 instruction(i);
             }
@@ -730,17 +1117,28 @@ parse_files(int count, char **files)
 int
 main(int argc, char **argv)
 {
-    char *output = NULL;
+    const char *output = NULL, *profile = NULL;
+    static const struct option options[] = {
+        {"schedule", required_argument, NULL, 's'},
+        {"no-schedule", no_argument, NULL, 'n'},
+        {NULL, 0, NULL, 0}
+    };
     int option;
-    while ((option = getopt(argc, argv, "o:")) != -1) {
-        if (option != 'o')
-            return 1;
-        output = optarg;
+    while ((option = getopt_long(argc, argv, "o:", options, NULL)) != -1) {
+        switch (option) {
+        case 'o': output = optarg; break;
+        case 's': profile = optarg; break;
+        case 'n': optimize = 0; break;
+        default: return 1;
+        }
     }
-    if (optind == argc) {
-        fputs("usage: qbe-mdma [-o output.mdma] file.ssa [file.ssa ...]\n", stderr);
+    if (optind == argc || (!optimize && profile)) {
+        fputs("usage: qbe-mdma [--schedule PROFILE | --no-schedule] [-o output.mdma] file.ssa [file.ssa ...]\n",
+              stderr);
         return 1;
     }
+    if (optimize)
+        schedule_profile(profile);
     collect = 1;
     parse_files(argc - optind, argv + optind);
     Symbol *entry = lookup("main", 0);

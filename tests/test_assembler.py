@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src' / 'assembler'))
-from mdma_asm import assemble
+from mdma_asm import MoveDensity, assemble, assemble_with_labels
 from mdma import SINK_BY_NAME, SOURCE_BY_NAME, FunctionUnitInstance
 
 
@@ -25,6 +25,20 @@ def decode(word):
 
 
 class AssemblerTest(unittest.TestCase):
+    def test_code_efficiency_counts_immediate_slots_and_ignores_data(self):
+        source = '''
+ZERO -> STASH_A, ZERO -> DISCARD
+CONST -> STASH_B [imm=17]
+CONST -> STASH_C [imm=data]
+.align 64
+data: .word 123
+'''
+        density = MoveDensity()
+        image, _ = assemble_with_labels(source, density=density)
+        self.assertEqual(image, assemble(source))
+        self.assertEqual((density.unused, density.total), (11, 20))
+        self.assertIn('11/20 unused move slots', str(density))
+
     def test_alignment_and_data_offsets(self):
         self.assertEqual(words('.word data+4, data - 0x8\n.align 32\ndata: .word 1'),
                          [36, 24, 0, 0, 1])
@@ -112,6 +126,8 @@ CONST -> PC [imm=start]
             result = subprocess.run([sys.executable, str(script), '-', '-o', str(output)],
                                     input='.word 1', text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, '')
+            self.assertIn('0/0 unused move slots (no instructions)', result.stderr)
             self.assertEqual(output.read_bytes(), b'\x01' + b'\0' * 7)
 
 

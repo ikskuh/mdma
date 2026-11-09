@@ -1,0 +1,14 @@
+# expect mem64 __mdma_result = 496
+export function w $main() {
+@start
+    %a =l mul 2, 3
+    %b =l mul 5, 7
+    %c =l mul 11, 13
+    %d =l mul 17, 19
+    %t1 =l add %d, 23
+    %t2 =l xor %t1, %c
+    %t3 =l xor %t2, %b
+    %t4 =l xor %t3, %a
+    %r =w copy %t4
+    ret %r
+}

@@ -44,6 +44,18 @@ class AsmLine:
     alignment: int = 0
 
 
+@dataclass(slots=True)
+class MoveDensity:
+    unused: int = 0
+    total: int = 0
+
+    def __str__(self) -> str:
+        if not self.total:
+            return "Code efficiency: 0/0 unused move slots (no instructions)"
+        percent = 100 * (self.total - self.unused) / self.total
+        return f"Code efficiency: {percent:.2f}% used ({self.unused}/{self.total} unused move slots)"
+
+
 def parse_asm(source: str) -> Iterable[AsmLine]:
     for number, raw in enumerate(source.splitlines(), 1):
         line = raw.split("#", 1)[0].strip()
@@ -155,7 +167,7 @@ def assemble(source: str) -> bytes:
     return image
 
 
-def assemble_with_labels(source: str) -> tuple[bytes, dict[str, int]]:
+def assemble_with_labels(source: str, *, density: MoveDensity | None = None) -> tuple[bytes, dict[str, int]]:
     """Assemble a binary and return its absolute byte addresses by label."""
     lines = tuple(parse_asm(source))
     labels = {}
@@ -205,6 +217,9 @@ def assemble_with_labels(source: str) -> tuple[bytes, dict[str, int]]:
                 if mode in (2, 3):
                     word |= (value & 4095) << 48
                 words = [word, value] if mode == 1 else [word]
+                if density is not None:
+                    density.total += 5 * len(words)
+                    density.unused += moves.count((63, 0))
             else:
                 continue
             for word in words:
@@ -225,8 +240,10 @@ def main():
     args = parse_args()
     try:
         source = sys.stdin.read() if args.input == "-" else Path(args.input).read_text("utf-8")
-        binary = assemble(source)
+        density = MoveDensity()
+        binary, _ = assemble_with_labels(source, density=density)
         args.output.write_bytes(binary)
+        print(density, file=sys.stderr)
     except (ValueError, OSError) as exc:
         print(f"mdma_asm: {exc}", file=sys.stderr)
         return 1

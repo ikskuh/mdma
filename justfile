@@ -33,13 +33,14 @@ rtl-benchmark:
 
 qbe-build:
     mkdir -p build
-    ${CC:-cc} -std=c99 -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Wpedantic -Ivendor/qbe src/qbe/mdma.c vendor/qbe/parse.c vendor/qbe/util.c vendor/qbe/cfg.c -o build/qbe-mdma
+    awk '$1 && $1 !~ /^#/ {printf "\"%s %s %s\\n\"\n", $1, $2, $3}' src/qbe/profiles/ecp5.conf > build/mdma_default_profile.h
+    ${CC:-cc} -std=c99 -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Wpedantic -Ivendor/qbe -Ibuild src/qbe/mdma.c src/qbe/schedule.c vendor/qbe/parse.c vendor/qbe/util.c vendor/qbe/cfg.c vendor/qbe/ssa.c vendor/qbe/live.c vendor/qbe/mem.c vendor/qbe/alias.c vendor/qbe/load.c -o build/qbe-mdma
 
 qbe-test: qbe-build
     "{{python}}" tests/qbe/run.py
 
-qbe-coremark: qbe-build
-    "{{python}}" src/qbe/coremark/run.py
+qbe-coremark *args: qbe-build
+    "{{python}}" src/qbe/coremark/run.py {{args}}
 
-qbe-coremark-ecp5: qbe-build
-    "{{python}}" src/qbe/coremark/run.py --ecp5
+qbe-coremark-ecp5 *args: qbe-build
+    "{{python}}" src/qbe/coremark/run.py --ecp5 {{args}}

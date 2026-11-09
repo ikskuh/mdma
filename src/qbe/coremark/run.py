@@ -13,7 +13,7 @@ PORT = Path(__file__).resolve().parent
 ROOT = PORT.parents[2]
 UPSTREAM = ROOT / 'vendor/coremark'
 sys.path[:0] = [str(ROOT / 'src/assembler'), str(ROOT / 'src/simulator')]
-from mdma_asm import assemble_with_labels
+from mdma_asm import MoveDensity, assemble_with_labels
 from rtl_runner import RTL, prepare, write_image
 from simulator import Simulator
 
@@ -72,6 +72,9 @@ def ecp5(work, image, labels, start_pc, end_pc):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--ecp5', action='store_true', help='simulate the full board RTL with SRAM')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--schedule', type=Path, help='override the scheduling profile')
+    mode.add_argument('--no-schedule', action='store_true', help='run the original backend')
     args = parser.parse_args()
     cproc = shutil.which(os.environ.get('CPROC', 'cproc'))
     if not cproc:
@@ -92,13 +95,17 @@ def main():
             subprocess.run([cproc, '-emit-qbe', '-nostdinc', *includes, '-o', il, source], check=True)
             inputs.append(il)
         asm = work / 'coremark.mdma'
-        subprocess.run([ROOT / 'build/qbe-mdma', '-o', asm, *inputs], check=True)
-        image, labels = assemble_with_labels(asm.read_text())
+        profile = args.schedule or PORT.parent / 'profiles' / ('ecp5.conf' if args.ecp5 else 'simulator.conf')
+        options = ['--no-schedule'] if args.no_schedule else ['--schedule', profile]
+        subprocess.run([ROOT / 'build/qbe-mdma', *options, '-o', asm, *inputs], check=True)
+        density = MoveDensity()
+        image, labels = assemble_with_labels(asm.read_text(), density=density)
         checks = {name: labels[exported(f'coremark_{name}_crc')] for name in CRCS}
         checks['result'] = labels['__mdma_result']
         start, end = (labels[exported(f'coremark_{name}')] for name in ('iteration', 'timed_end'))
         print(f'Running {len(image):,}-byte MDMA image on {"ECP5 RTL" if args.ecp5 else "the simulator"}.',
               flush=True)
+        print(density, flush=True)
         image += bytes(65536)
         if args.ecp5:
             timed, total, values = ecp5(work, image, checks, start, end)
