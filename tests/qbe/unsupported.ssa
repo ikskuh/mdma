@@ -1,0 +1,6 @@
+# expect error unsupported type for add
+export function w $main() {
+@start
+    %n =s add s_1.0, s_2.0
+    ret 0
+}

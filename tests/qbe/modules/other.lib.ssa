@@ -1,0 +1,6 @@
+data $bytes = { b 66 }
+export function w $other() {
+@start
+    %local =w loadub $bytes
+    ret %local
+}

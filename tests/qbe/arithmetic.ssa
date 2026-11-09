@@ -1,0 +1,26 @@
+# expect mem64 __mdma_result = 1
+export function w $main() {
+@start
+    %wrap =w add 4294967295, 43
+    %ok1 =w ceqw %wrap, 42
+    %quot =w div 4294967289, 3
+    %ok2 =w ceqw %quot, -2
+    %rem =w rem -7, 3
+    %ok3 =w ceqw %rem, -1
+    %shift =w shl 42, 32
+    %ok4 =w ceqw %shift, 42
+    %arith =w sar 2147483648, 31
+    %ok5 =w ceqw %arith, -1
+    %ok6 =w cugtw -1, 0
+    %ok7 =w csltw 4294967295, 0
+    %word =l extuw -1
+    %ok8 =w ceql %word, 4294967295
+    %lo =w and %ok1, %ok2
+    %mid =w and %ok3, %ok4
+    %hi =w and %ok5, %ok6
+    %last =w and %ok7, %ok8
+    %a =w and %lo, %mid
+    %b =w and %hi, %last
+    %ok =w and %a, %b
+    ret %ok
+}

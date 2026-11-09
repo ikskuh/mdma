@@ -1,0 +1,6 @@
+[submodule "vendor/qbe"]
+	path = vendor/qbe
+	url = git://c9x.me/qbe.git
+[submodule "vendor/coremark"]
+	path = vendor/coremark
+	url = https://github.com/eembc/coremark.git

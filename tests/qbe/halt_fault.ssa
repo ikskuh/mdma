@@ -1,0 +1,5 @@
+# expect fault unaligned_pc
+export function w $main() {
+@start
+    hlt
+}

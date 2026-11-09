@@ -19,9 +19,9 @@ FIXTURE_ROOT = Path(__file__).with_name('behavior')
 FIXTURE_PATHS = sorted(FIXTURE_ROOT.rglob('*.mdma'))
 
 
-def load_fixture(path):
+def load_fixture(path, assembly=None):
     source = path.read_text(encoding='utf-8')
-    image, labels = assemble_with_labels(source)
+    image, labels = assemble_with_labels(source if assembly is None else assembly)
     expectations = {}
     fault = None
     in_header = True
@@ -67,14 +67,14 @@ class BehaviorTest(unittest.TestCase):
     def test_fixtures_exist(self):
         self.assertTrue(FIXTURE_PATHS, 'tests/behavior contains no .mdma fixtures')
 
-    def check_fixture(self, path):
+    def check_fixture(self, path, *, assembly=None, extra_memory=0, max_ticks=100000):
         try:
-            image, expectations, fault = load_fixture(path)
+            image, expectations, fault = load_fixture(path, assembly)
         except (OSError, ValueError) as exc:
             self.fail(f'{path.name}: {exc}')
-        sim = Simulator(image)
+        sim = Simulator(image, memory_size=len(image) + extra_memory)
         try:
-            sim.run()
+            sim.run(max_ticks=max_ticks)
         except SimulationError as exc:
             self.assertIsNotNone(fault, f'{path.name}: {exc}')
             self.assertEqual(exc.code, fault, f'{path.name}: expected fault {fault!r}, got {exc.code!r} ({exc})')

@@ -1,0 +1,6 @@
+# expect error undefined symbol $missing
+export function w $main() {
+@start
+    %v =w call $missing()
+    ret %v
+}

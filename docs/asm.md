@@ -36,9 +36,11 @@ use an extra 64-bit word. Label immediates always use an extra word, so layout
 needs no iterative optimization.
 
 `.word value, ...` emits data words. Values are decimal, `0x` hexadecimal,
-`0b` binary, `0o` octal, or a label. Integers must fit signed or unsigned 64 bits;
+`0b` binary, `0o` octal, or a label with an optional byte offset such as
+`buffer+4`. Integers must fit signed or unsigned 64 bits;
 negative values are emitted in two's complement. `#` starts a comment.
 Labels may appear alone or before an instruction or `.word` directive and use
 letters, digits, and underscores, starting with a letter or underscore.
 
-This MVP has no expressions, strings, macros, sections, or relocation support.
+`.align N` inserts zero bytes up to the next `N`-byte boundary. `N` must
+be a power of two of at least eight. Put the aligned label on the next line.

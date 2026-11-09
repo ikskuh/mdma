@@ -1,0 +1,6 @@
+# expect fault division_by_zero
+export function w $main() {
+@start
+    %n =w div 42, 0
+    ret %n
+}

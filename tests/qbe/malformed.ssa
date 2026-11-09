@@ -1,0 +1,5 @@
+# expect error last block misses jump
+export function w $main() {
+@start
+    %n =w add 1, 2
+}

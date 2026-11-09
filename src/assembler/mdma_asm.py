@@ -41,6 +41,7 @@ class AsmLine:
     synchronized: bool
     predicate: bool
     words: tuple[str, ...] = ()
+    alignment: int = 0
 
 
 def parse_asm(source: str) -> Iterable[AsmLine]:
@@ -58,7 +59,17 @@ def parse_asm(source: str) -> Iterable[AsmLine]:
             words = ()
             immediate = None
             tags = set()
-            if line.startswith(".word"):
+            alignment = 0
+            if line.split(maxsplit=1)[:1] == [".align"]:
+                if label is not None:
+                    raise ValueError("put the label after .align on its own line")
+                try:
+                    alignment = integer(line[6:].strip())
+                except ValueError:
+                    raise ValueError("expected .align followed by a byte alignment") from None
+                if alignment < 8 or alignment > sys.maxsize or alignment & (alignment - 1):
+                    raise ValueError("alignment must be a power of two of at least eight bytes")
+            elif line.startswith(".word"):
                 if not line.startswith(".word ") and not line.startswith(".word\t"):
                     raise ValueError("expected .word followed by values")
                 words = tuple(value.strip() for value in line[5:].split(","))
@@ -88,7 +99,8 @@ def parse_asm(source: str) -> Iterable[AsmLine]:
                         raise ValueError(f"invalid move {op.strip()!r}")
                     ops.append(AsmOp(src=parts[0].strip(), dst=parts[1].strip()))
             yield AsmLine(number=number, label=label, ops=tuple(ops), immediate=immediate,
-                          synchronized="sync" in tags, predicate="pred" in tags, words=words)
+                          synchronized="sync" in tags, predicate="pred" in tags, words=words,
+                          alignment=alignment)
         except ValueError as exc:
             raise ValueError(f"line {number}: {exc}") from exc
 
@@ -128,6 +140,16 @@ def resolve(value: str, labels: dict[str, int]) -> int:
     return result & ((1 << 64) - 1)
 
 
+def resolve_word(value: str, labels: dict[str, int]) -> int:
+    offset = re.fullmatch(r"([A-Za-z_][A-Za-z_0-9]*)\s*([+-])\s*(\w+)", value)
+    if offset and offset[1] in labels:
+        displacement = integer(offset[3])
+        if offset[2] == "-":
+            displacement = -displacement
+        return resolve(str(labels[offset[1]] + displacement), labels)
+    return resolve(value, labels)
+
+
 def assemble(source: str) -> bytes:
     image, _ = assemble_with_labels(source)
     return image
@@ -139,6 +161,8 @@ def assemble_with_labels(source: str) -> tuple[bytes, dict[str, int]]:
     labels = {}
     address = 0
     for line in lines:
+        if line.alignment:
+            address += -address % line.alignment
         if line.label is not None:
             if line.label in labels:
                 raise ValueError(f"line {line.number}: duplicate label {line.label!r}")
@@ -149,8 +173,11 @@ def assemble_with_labels(source: str) -> tuple[bytes, dict[str, int]]:
     output = bytearray()
     for line in lines:
         try:
+            if line.alignment:
+                output.extend(bytes(-len(output) % line.alignment))
+                continue
             if line.words:
-                words = [resolve(value, labels) for value in line.words]
+                words = [resolve_word(value, labels) for value in line.words]
             elif line.ops:
                 mode = immediate_mode(line)
                 slots = 4 if mode in (2, 3) else 5

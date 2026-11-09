@@ -25,6 +25,14 @@ def decode(word):
 
 
 class AssemblerTest(unittest.TestCase):
+    def test_alignment_and_data_offsets(self):
+        self.assertEqual(words('.word data+4, data - 0x8\n.align 32\ndata: .word 1'),
+                         [36, 24, 0, 0, 1])
+        for source in ('.align', '.align 12', '.align 4', 'a: .align 16',
+                       '.word missing+8', 'a: .word a+18446744073709551616'):
+            with self.subTest(source=source), self.assertRaisesRegex(ValueError, r'line \d+:'):
+                assemble(source)
+
     def test_program_and_layout(self):
         source = '''start: CONST -> PC [imm=end, pred, sync]
 .word start, -1, 0x123456789abcdef0

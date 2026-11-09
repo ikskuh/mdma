@@ -1,0 +1,12 @@
+# expect mem64 __mdma_result = 1
+function sh $identity(sb %n, uh %other) {
+@start
+    %sum =w add %n, %other
+    ret %sum
+}
+export function w $main() {
+@start
+    %small =sh call $identity(sb 255, uh 65281)
+    %result =w ceqw %small, -256
+    ret %result
+}

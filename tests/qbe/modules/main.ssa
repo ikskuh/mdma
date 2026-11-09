@@ -1,0 +1,11 @@
+# expect mem64 __mdma_result = 132
+data $bytes = align 16 { b "A\102", b 0 }
+data $ptr = { l $bytes + 1 }
+export function w $main() {
+@start
+    %p =l loadl $ptr
+    %local =w loadub %p
+    %other =w call $other()
+    %sum =w add %local, %other
+    ret %sum
+}

@@ -30,3 +30,16 @@ fpga-build:
 
 rtl-benchmark:
     "{{python}}" tests/rtl/run.py --benchmark
+
+qbe-build:
+    mkdir -p build
+    ${CC:-cc} -std=c99 -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Wpedantic -Ivendor/qbe src/qbe/mdma.c vendor/qbe/parse.c vendor/qbe/util.c vendor/qbe/cfg.c -o build/qbe-mdma
+
+qbe-test: qbe-build
+    "{{python}}" tests/qbe/run.py
+
+qbe-coremark: qbe-build
+    "{{python}}" src/qbe/coremark/run.py
+
+qbe-coremark-ecp5: qbe-build
+    "{{python}}" src/qbe/coremark/run.py --ecp5

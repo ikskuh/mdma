@@ -1,0 +1,16 @@
+# expect mem64 __mdma_result = 21
+export function w $main() {
+@start
+    jmp @loop
+@loop
+    %a =w phi @start 1, @loop %b
+    %b =w phi @start 2, @loop %a
+    %n =w phi @start 0, @loop %next
+    %next =w add %n, 1
+    %again =w cultw %next, 4
+    jnz %again, @loop, @done
+@done
+    %tens =w mul %a, 10
+    %result =w add %tens, %b
+    ret %result
+}

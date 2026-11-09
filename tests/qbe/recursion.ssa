@@ -1,0 +1,18 @@
+# expect mem64 __mdma_result = 42
+function w $count(w %n) {
+@start
+    jnz %n, @more, @done
+@more
+    %next =w sub %n, 1
+    %partial =w call $count(w %next)
+    %result =w add %partial, 1
+    ret %result
+@done
+    ret 0
+}
+export function w $main() {
+@start
+    %fn =l copy $count
+    %result =w call %fn(w 42)
+    ret %result
+}

@@ -1,0 +1,24 @@
+# expect mem64 __mdma_result = 1
+export function w $main() {
+@start
+    %p =l alloc16 32
+    %q =l add %p, 7
+    storeb 85, %p
+    storel 72623859790382856, %q
+    %v =l loadl %q
+    %ok1 =w ceql %v, 72623859790382856
+    %first =w loadub %p
+    %ok2 =w ceqw %first, 85
+    %dest =l add %p, 17
+    blit %q, %dest, 8
+    %v2 =l loadl %dest
+    %ok3 =w ceql %v2, %v
+    %neg =l add %p, 29
+    storeh -2, %neg
+    %signed =l loadsh %neg
+    %ok4 =w ceql %signed, -2
+    %a =w and %ok1, %ok2
+    %b =w and %ok3, %ok4
+    %result =w and %a, %b
+    ret %result
+}
