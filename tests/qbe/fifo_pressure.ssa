@@ -1,0 +1,22 @@
+# expect mem64 __mdma_result = 35
+function w $pressure(w %a, w %b, w %c, w %d) {
+@start
+    %e =w add %a, %b
+    %f =w add %c, %d
+    %g =w add %a, %d
+    jmp @use
+@use
+    %r1 =w add %g, %a
+    %r2 =w add %f, %b
+    %r3 =w add %e, %c
+    %r4 =w add %r1, %r2
+    %r5 =w add %r4, %r3
+    %r =w add %r5, %d
+    ret %r
+}
+
+export function w $main() {
+@start
+    %result =w call $pressure(w 2, w 3, w 4, w 5)
+    ret %result
+}

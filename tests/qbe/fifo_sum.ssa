@@ -1,0 +1,27 @@
+# expect mem64 __mdma_result = 155
+function w $sum_to(w %n) {
+@start
+    jmp @condition
+@condition
+    %count =w phi @start %n, @body %next
+    %sum =w phi @start 0, @body %updated
+    jnz %count, @body, @done
+@body
+    %updated =w add %sum, %count
+    %next =w sub %count, 1
+    jmp @condition
+@done
+    ret %sum
+}
+
+export function w $main() {
+@start
+    %zero =w call $sum_to(w 0)
+    %one =w call $sum_to(w 1)
+    %ten =w call $sum_to(w 10)
+    %a =w mul %zero, 10000
+    %b =w mul %one, 100
+    %c =w add %a, %b
+    %r =w add %c, %ten
+    ret %r
+}

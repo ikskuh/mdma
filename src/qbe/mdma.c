@@ -6,19 +6,28 @@
 Target T;
 char debug['Z'+1];
 
+typedef struct CallEdge CallEdge;
+struct CallEdge {
+    CallEdge *next;
+    char *name;
+};
+
 typedef struct Symbol Symbol;
 struct Symbol {
     Symbol *next;
     char *name, *label;
     int module, origin, function;
     unsigned alignment;
+    CallEdge *calls;
+    int indirect, depth, visiting, stack_peak;
 };
 
 static Symbol *symbols;
 static FILE *out;
 static char *input;
-static int module, collect, optimize = 1;
+static int module, collect, analyze_leaves, optimize = 1;
 static Fn *fn;
+static Symbol *current_function;
 static Blk *block;
 static size_t frame_size, phi_base, *objects;
 static unsigned serial, max_args;
@@ -30,6 +39,9 @@ static unsigned serial, max_args;
 #define B "STASH_B"
 #define C "STASH_C"
 #define D "STASH_D"
+
+static const char *const abi_stash[] = {A, B, C, D};
+enum { FIFO_ARGS = sizeof abi_stash / sizeof *abi_stash };
 
 static void
 error(const char *format, ...)
@@ -78,7 +90,7 @@ symbol(const char *name)
     return s;
 }
 
-static void
+static Symbol *
 define(const char *name, Lnk *linkage, int function)
 {
     int scope = linkage->export ? 0 : module;
@@ -98,9 +110,11 @@ define(const char *name, Lnk *linkage, int function)
     s->module = scope;
     s->origin = module;
     s->function = function;
+    s->stack_peak = -1;
     s->alignment = linkage->align < 8 ? 8 : linkage->align;
     s->next = symbols;
     symbols = s;
+    return s;
 }
 
 static void
@@ -339,22 +353,99 @@ arg_label(char label[32], unsigned arg)
     snprintf(label, 32, "__mdma_arg_%u", arg);
 }
 
+static int
+continuation_depth(Symbol *s)
+{
+    if (s->depth || s->visiting)
+        return s->depth;
+    s->visiting = 1;
+    int depth = s->indirect || (s->calls && !schedule_stack_ordered()) ? 0 : 1;
+    for (CallEdge *edge = s->calls; depth && edge; edge = edge->next) {
+        Symbol *callee = lookup(edge->name, s->origin);
+        if (!callee)
+            callee = lookup(edge->name, 0);
+        int child = callee && callee->function ? continuation_depth(callee) : 0;
+        if (child <= 0 || child == 8)
+            depth = 0;
+        else if (depth <= child)
+            depth = child + 1;
+    }
+    s->visiting = 0;
+    return s->depth = depth ? depth : -1;
+}
+
+static Symbol *
+call_target(Ref ref)
+{
+    Con *con = &fn->con[ref.val];
+    if (con->type != CAddr || con->bits.i || (con->sym.type & SThr))
+        error("invalid direct call target");
+    Symbol *callee = symbol(str(con->sym.id));
+    if (!callee->function)
+        error("call target $%s is data", callee->name);
+    return callee;
+}
+
+static void
+call_argument(Ins *arg)
+{
+    if ((arg->op != Oarg && !isargbh(arg->op)) || arg->cls > Kl)
+        error("unsupported call argument");
+    value(arg->arg[0], D);
+    if (isargbh(arg->op)) {
+        unsigned index = arg->op - Oargsb;
+        extend(D, D, index < 2 ? 8 : 16, !(index & 1));
+        if (optimize && !(index & 1))
+            extend(D, D, 32, 0);
+    } else if (arg->cls == Kw) {
+        extend(D, D, 32, 0);
+    }
+}
+
+static void
+fifo_call(Ins *i, Ins *args, unsigned argc)
+{
+    int park = current_function->depth < 0;
+    if (park)
+        store_frame(0, "STACK_B.TOP");
+    for (unsigned n = FIFO_ARGS; n < argc; ++n) {
+        char label[32];
+        call_argument(&args[n]);
+        arg_label(label, n);
+        store_global(label, D);
+    }
+    for (unsigned n = 0; n < argc && n < FIFO_ARGS; ++n) {
+        call_argument(&args[n]);
+        if (n != FIFO_ARGS - 1)
+            move(D, abi_stash[n]);
+    }
+    if (rtype(i->arg[0]) == RCon)
+        line("PC_NEXT -> STACK_B.PUSH, CONST -> PC [sync, imm=%s]", call_target(i->arg[0])->label);
+    else {
+        value(i->arg[0], "STACK_A.PUSH");
+        line("PC_NEXT -> STACK_B.PUSH, STACK_A.TOP -> PC [sync]");
+    }
+    if (req(i->to, R))
+        move(A, "DISCARD");
+    else
+        move(A, D);
+    if (park)
+        load_frame(0, "STACK_B.PUSH");
+    if (!req(i->to, R))
+        save(i->to, i->cls, D);
+}
+
 static void
 call(Ins *i, Ins *args, unsigned argc)
 {
     if (rtype(i->arg[1]) == RType || i->cls > Kl)
         error("unsupported call result type");
+    if (optimize) {
+        fifo_call(i, args, argc);
+        return;
+    }
     for (unsigned n = 0; n < argc; ++n) {
-        Ins *arg = &args[n];
-        if ((arg->op != Oarg && !isargbh(arg->op)) || arg->cls > Kl)
-            error("unsupported call argument");
-        value(arg->arg[0], D);
-        if (isargbh(arg->op)) {
-            unsigned index = arg->op - Oargsb;
-            extend(D, D, index < 2 ? 8 : 16, !(index & 1));
-        } else if (arg->cls == Kw) {
-            extend(D, D, 32, 0);
-        }
+        call_argument(&args[n]);
         char label[32];
         arg_label(label, n);
         store_global(label, D);
@@ -362,17 +453,10 @@ call(Ins *i, Ins *args, unsigned argc)
     unsigned id = serial++;
     line("CONST -> MEM.WRITE, ZERO -> MEM.MASK [imm=" CONT "]");
     line("CONST -> MEM.CHUNK [imm=__mdma_return_%u]", id);
-    if (rtype(i->arg[0]) == RCon) {
-        Con *con = &fn->con[i->arg[0].val];
-        if (con->type != CAddr || con->bits.i || (con->sym.type & SThr))
-            error("invalid direct call target");
-        Symbol *callee = symbol(str(con->sym.id));
-        if (!callee->function)
-            error("call target $%s is data", callee->name);
-        literal(callee->label, "PC");
-    } else {
+    if (rtype(i->arg[0]) == RCon)
+        literal(call_target(i->arg[0])->label, "PC");
+    else
         value(i->arg[0], "PC");
-    }
     line("__mdma_return_%u:", id);
     if (!req(i->to, R)) {
         load_global(RESULT, D);
@@ -443,7 +527,8 @@ instruction(Ins *i)
 static SchedRegion scheduled;
 static SchedValue *scheduled_value, scheduled_sp;
 static unsigned char *scheduled_known;
-static int schedule_overflow;
+static int schedule_overflow, fifo_only;
+static size_t *fifo_spill;
 
 static SchedValue
 sched_number(uint64_t value)
@@ -465,9 +550,29 @@ sched_node(enum SchedUnit unit, const char *result, int count, const SchedMove *
         schedule_overflow = 1;
         return (SchedValue){0};
     }
+    SchedMove operands[5];
+    for (int n = 0; n < count; ++n) {
+        operands[n] = moves[n];
+        int id = moves[n].value.node;
+        if (!fifo_only || !id)
+            continue;
+        enum SchedUnit bank = scheduled.node[id - 1].unit;
+        for (int m = 0; bank >= STASH_A && bank <= STASH_D && m < n; ++m) {
+            int other = operands[m].value.node;
+            if (other && other != id && scheduled.node[other - 1].unit == bank) {
+                operands[n].value = sched_node(HOLD, "OUT", 1, (SchedMove[]){{NULL, moves[n].value}});
+                break;
+            }
+        }
+    }
+    if (schedule_overflow || scheduled.count == SCHED_NODES) {
+        schedule_overflow = 1;
+        return (SchedValue){0};
+    }
     SchedNode *node = &scheduled.node[scheduled.count++];
     *node = (SchedNode){.unit = unit, .result = result, .count = count};
-    memcpy(node->move, moves, count * sizeof *moves);
+    if (count)
+        memcpy(node->move, operands, count * sizeof *moves);
     /* An instruction has one immediate. Stage conflicting constants as values
      * and let the allocator place them in a STASH or STACK. */
     const char *first = NULL;
@@ -523,19 +628,44 @@ sched_address(size_t offset)
     return sched_pair(ARITH_A, "ADD", scheduled_sp, sched_number(offset - frame_size));
 }
 
+static int flow_rematerialize(int temp);
+
 static SchedValue
 sched_value(Ref ref)
 {
     if (rtype(ref) == RTmp) {
         SchedValue *saved = &scheduled_value[ref.val];
         if (!scheduled_known[ref.val]) {
-            *saved = sched_read(sched_address(slot(ref)));
+            if (fifo_only && flow_rematerialize(ref.val)) {
+                Ref arg = fn->tmp[ref.val].def->arg[0];
+                Con *c = &fn->con[arg.val];
+                if (fn->tmp[ref.val].cls != Kw)
+                    *saved = sched_value(arg);
+                else if (c->type == CAddr)
+                    *saved = sched_pair(LOGIC_A, "AND", sched_value(arg), sched_number(UINT32_MAX));
+                else
+                    *saved = sched_number((uint32_t)c->bits.i);
+                scheduled_known[ref.val] = 1;
+                return *saved;
+            }
+            if (fifo_only && !fifo_spill[ref.val]) {
+                schedule_overflow = 1;
+                return (SchedValue){0};
+            }
+            size_t offset = fifo_only ? fifo_spill[ref.val] - 1 : slot(ref);
+            *saved = sched_read(sched_address(offset));
             scheduled_known[ref.val] = 1;
         }
         return *saved;
     }
+    if (rtype(ref) != RCon)
+        error("unsupported operand");
     Con *con = &fn->con[ref.val];
+    if (con->flt)
+        error("floating-point operand");
     if (con->type == CAddr) {
+        if (con->sym.type & SThr)
+            error("thread-local reference");
         SchedValue label = {.imm = symbol(str(con->sym.id))->label};
         return con->bits.i ? sched_pair(ARITH_A, "ADD", label, sched_number(con->bits.i)) : label;
     }
@@ -699,7 +829,11 @@ local_result(Ref ref, const Ins *first, const Ins *end)
 static int
 sched_region(Ins *first, Ins *end, int words, int cycles)
 {
+    scheduled.fifo_flow = 0;
     scheduled.count = schedule_overflow = 0;
+    scheduled_sp = (SchedValue){0};
+    memset(scheduled.live_out, 0, sizeof scheduled.live_out);
+    memset(scheduled.saved, 0, sizeof scheduled.saved);
     scheduled_sp = (SchedValue){0};
     memset(scheduled_known, 0, fn->ntmp * sizeof *scheduled_known);
     for (Ins *i = first; i < end && !schedule_overflow; ++i) {
@@ -886,7 +1020,14 @@ jump(const Symbol *f)
             }
             if (op != Jretl)
                 extend(D, D, 32, 0);
-            store_global(RESULT, D);
+            if (!optimize)
+                store_global(RESULT, D);
+        }
+        if (optimize) {
+            address(0, A);
+            store_global(SP, A);
+            line("STACK_B.TOP -> PC, %s -> " A " [sync]", op == Jret0 ? "ZERO" : D);
+            return;
         }
         load_frame(0, A);
         address(0, D);
@@ -895,6 +1036,770 @@ jump(const Symbol *f)
     } else {
         error("unsupported return or jump");
     }
+}
+
+static size_t align_up(size_t n, size_t alignment);
+
+static int
+flow_barrier(Ins *i)
+{
+    return i->op == Odiv || i->op == Orem || i->op == Oudiv || i->op == Ourem ||
+           i->op == Oblit0 || ((isload(i->op) || isstore(i->op)) && !sched_eligible(i));
+}
+
+static int
+flow_rematerialize(int temp)
+{
+    Ins *def = fn->tmp[temp].def;
+    return def && def->op == Ocopy && rtype(def->arg[0]) == RCon &&
+           !fn->con[def->arg[0].val].flt;
+}
+
+typedef struct FlowSite FlowSite;
+struct FlowSite {
+    FlowSite *next;
+    Ins *instruction;
+    BSet live[1];
+    int saved[8], count;
+};
+
+static void
+flow_spill(int temp)
+{
+    if (!fifo_spill[temp]) {
+        frame_size = align_up(frame_size, 8);
+        fifo_spill[temp] = frame_size + 1;
+        frame_size += 8;
+    }
+}
+
+static FlowSite *
+flow_sites(void)
+{
+    FlowSite *sites = NULL;
+    BSet live[1];
+    bsinit(live, fn->ntmp);
+    for (Blk *b = fn->start; b; b = b->link) {
+        bscopy(live, b->out);
+        if (rtype(b->jmp.arg) == RTmp)
+            bsset(live, b->jmp.arg.val);
+        for (Ins *i = b->ins + b->nins; i != b->ins;) {
+            --i;
+            if (rtype(i->to) == RTmp)
+                bsclr(live, i->to.val);
+            if (i->op == Ocall || flow_barrier(i)) {
+                FlowSite *site = alloc(sizeof *site);
+                site->instruction = i;
+                bsinit(site->live, fn->ntmp);
+                bscopy(site->live, live);
+                site->next = sites;
+                sites = site;
+                Symbol *callee = i->op == Ocall && rtype(i->arg[0]) == RCon ?
+                                 call_target(i->arg[0]) : NULL;
+                int peak = i->op != Ocall ? 0 : callee ? callee->stack_peak : -1;
+                int capacity = peak < 0 ? 0 : schedule_stack_ordered() ? 8 - peak : !peak;
+                for (int t = Tmp0; bsiter(live, &t); ++t) {
+                    if (flow_rematerialize(t))
+                        continue;
+                    if (site->count < capacity)
+                        site->saved[site->count++] = t;
+                    else
+                        flow_spill(t);
+                }
+            }
+            for (int n = 0; n < 2; ++n)
+                if (rtype(i->arg[n]) == RTmp)
+                    bsset(live, i->arg[n].val);
+        }
+    }
+    return sites;
+}
+
+typedef struct {
+    int in[FIFO_ARGS * SCHED_STASH], out[FIFO_ARGS * SCHED_STASH];
+    unsigned edges;
+} FlowBlock;
+
+static int
+flow_uses_home(Blk *b, int t)
+{
+    if (bshas(b->in, t))
+        return 1;
+    for (Phi *p = b->phi; p; p = p->link)
+        if (p->to.val == (unsigned)t && fn->tmp[t].nuse)
+            return 1;
+    return 0;
+}
+
+static unsigned char *forced_spill;
+static int failed_temp;
+
+static void
+flow_retry_home(const FlowBlock *layout)
+{
+    for (int n = FIFO_ARGS * SCHED_STASH; n-- > 0;) {
+        int candidates[] = {layout->in[n], layout->out[n]};
+        for (unsigned k = 0; k < sizeof candidates / sizeof *candidates; ++k) {
+            int t = candidates[k];
+            if (t && (!failed_temp || fn->tmp[t].nuse < fn->tmp[failed_temp].nuse))
+                failed_temp = t;
+        }
+    }
+}
+
+static int
+flow_home(int *home, int t, int prefer)
+{
+    if (forced_spill[t]) {
+        if (!flow_rematerialize(t))
+            flow_spill(t);
+        return 1;
+    }
+    unsigned unavailable = 0;
+    int used = 0;
+    for (Blk *b = fn->start; b; b = b->link) {
+        int in = flow_uses_home(b, t), out_live = bshas(b->out, t);
+        if (in || out_live)
+            used = 1;
+        for (int other = Tmp0; (in || out_live) && other < (int)fn->ntmp; ++other)
+            if (home[other] >= 0 && ((in && flow_uses_home(b, other)) ||
+                                    (out_live && bshas(b->out, other))))
+                unavailable |= 1u << home[other];
+    }
+    if (!used)
+        return 1;
+    if (prefer < 0)
+        for (Blk *b = fn->start; b; b = b->link)
+            for (Phi *p = b->phi; p; p = p->link)
+                for (unsigned n = 0; n < p->narg; ++n) {
+                    Ref arg = p->arg[n];
+                    if (rtype(arg) != RTmp)
+                        continue;
+                    if (p->to.val == (unsigned)t && home[arg.val] >= 0)
+                        prefer = home[arg.val];
+                    if (arg.val == (unsigned)t && home[p->to.val] >= 0)
+                        prefer = home[p->to.val];
+                }
+    if (prefer >= 0 && !(unavailable & (1u << prefer))) {
+        home[t] = prefer;
+        return 1;
+    }
+    for (int bank = 0; bank < FIFO_ARGS * SCHED_STASH; ++bank)
+        if (!(unavailable & (1u << bank))) {
+            home[t] = bank;
+            return 1;
+        }
+    if (!flow_rematerialize(t))
+        flow_spill(t);
+    return 1;
+}
+
+static FlowBlock *
+flow_homes(void)
+{
+    filllive(fn);
+    FlowBlock *layout = alloc(fn->nblk * sizeof *layout);
+    int *home = alloc(fn->ntmp * sizeof *home);
+    for (int t = 0; t < fn->ntmp; ++t)
+        home[t] = -1;
+    for (unsigned n = 0; n < fn->start->nins && ispar(fn->start->ins[n].op); ++n) {
+        Ref arg = fn->start->ins[n].to;
+        if (!flow_home(home, arg.val, n < FIFO_ARGS ? (int)n : -1))
+            return NULL;
+    }
+    for (Blk *b = fn->start; b; b = b->link)
+        for (Phi *p = b->phi; p; p = p->link)
+            if (home[p->to.val] < 0 && !flow_home(home, p->to.val, -1))
+                return NULL;
+    for (int t = Tmp0; t < fn->ntmp; ++t)
+        if (home[t] < 0 && !flow_home(home, t, -1))
+            return NULL;
+    for (Blk *b = fn->start; b; b = b->link)
+        for (int t = Tmp0; t < fn->ntmp; ++t) {
+            int bank = home[t];
+            if (bank < 0)
+                continue;
+            if (flow_uses_home(b, t))
+                layout[b->id].in[bank] = t;
+            if (bshas(b->out, t))
+                layout[b->id].out[bank] = t;
+        }
+    return layout;
+}
+
+static void
+flow_seed(int bank, int temp)
+{
+    scheduled_value[temp] = sched_node(STASH_A + bank, "OUT", 0, NULL);
+    scheduled_known[temp] = 1;
+}
+
+static SchedValue
+flow_word(Ref ref)
+{
+    if (rtype(ref) == RTmp && fn->tmp[ref.val].cls == Kw)
+        return sched_value(ref);
+    if (rtype(ref) == RCon && fn->con[ref.val].type != CAddr) {
+        if (fn->con[ref.val].flt)
+            error("floating-point operand");
+        return sched_number((uint32_t)fn->con[ref.val].bits.i);
+    }
+    return sched_extend(sched_value(ref), 32, 0);
+}
+
+static void
+flow_begin(const int *input)
+{
+    scheduled.fifo_flow = 1;
+    scheduled.count = schedule_overflow = 0;
+    scheduled_sp = (SchedValue){0};
+    memset(scheduled.live_out, 0, sizeof scheduled.live_out);
+    memset(scheduled.saved, 0, sizeof scheduled.saved);
+    memset(scheduled_known, 0, fn->ntmp * sizeof *scheduled_known);
+    for (int n = 0; n < FIFO_ARGS * SCHED_STASH; ++n)
+        if (input[n])
+            flow_seed(n % FIFO_ARGS, input[n]);
+}
+
+static int
+flow_finish(const int *wanted, SchedValue *result)
+{
+    if (schedule_overflow)
+        return 0;
+    unsigned char used[SCHED_NODES + 1] = {0}, kept[SCHED_NODES + 1] = {0};
+    int count[FIFO_ARGS] = {0};
+    for (int i = 0; i < scheduled.count; ++i)
+        for (int j = 0; j < scheduled.node[i].count; ++j)
+            used[scheduled.node[i].move[j].value.node] = 1;
+    for (int n = 0; n < FIFO_ARGS * SCHED_STASH; ++n)
+        if (wanted[n])
+            used[result[n].node] = 1;
+    for (int n = 0; n < 8 && scheduled.saved[n]; ++n)
+        used[scheduled.saved[n]] = 1;
+    int nodes = scheduled.count;
+    for (int i = 1; i <= nodes; ++i)
+        if (scheduled.node[i - 1].result && !used[i])
+            sched_node(CONTROL, NULL, 1, (SchedMove[]){{"DISCARD", {.node = i}}});
+    for (int n = 0; n < FIFO_ARGS * SCHED_STASH; ++n) {
+        if (!wanted[n])
+            continue;
+        int bank = n % FIFO_ARGS;
+        enum SchedUnit unit = STASH_A + bank;
+        SchedValue source = result[n];
+        if (source.node && scheduled.node[source.node - 1].unit == unit) {
+            if (kept[source.node])
+                source = sched_node(HOLD, "OUT", 1, (SchedMove[]){{NULL, source}});
+            else {
+                kept[source.node] = 1;
+                scheduled.live_out[bank][count[bank]++] = source.node;
+                continue;
+            }
+        }
+        source = sched_node(unit, "OUT", 1, (SchedMove[]){{"IN", source}});
+        scheduled.live_out[bank][count[bank]++] = source.node;
+    }
+    return !schedule_overflow && schedule_emit(out, &scheduled, 0, -1);
+}
+
+static SchedValue
+flow_param(Ins *param, unsigned n)
+{
+    if (n < FIFO_ARGS)
+        return scheduled_value[param->to.val];
+    char *label = alloc(32);
+    arg_label(label, n);
+    SchedValue value = sched_read((SchedValue){.imm = label});
+    return param->cls == Kw ? sched_extend(value, 32, 0) : value;
+}
+
+static SchedValue
+flow_arg(Ins *arg)
+{
+    if (isargbh(arg->op)) {
+        unsigned n = arg->op - Oargsb;
+        SchedValue v = sched_extend(sched_value(arg->arg[0]), n < 2 ? 8 : 16, !(n & 1));
+        return sched_extend(v, 32, 0);
+    }
+    return arg->cls == Kw ? flow_word(arg->arg[0]) : sched_value(arg->arg[0]);
+}
+
+static void
+flow_save(FlowSite *site)
+{
+    for (int t = Tmp0; bsiter(site->live, &t); ++t) {
+        if (flow_rematerialize(t))
+            continue;
+        int n = 0;
+        while (n < site->count && site->saved[n] != t)
+            ++n;
+        if (n < site->count) {
+            SchedValue v = sched_value(TMP(t));
+            scheduled.saved[n] = sched_node(STACK_A, "TOP", 1, (SchedMove[]){{"PUSH", v}}).node;
+        } else if (scheduled_known[t])
+            sched_write(sched_address(fifo_spill[t] - 1), scheduled_value[t], (SchedValue){0});
+    }
+}
+
+static void
+flow_resume(const FlowSite *site, Ref to)
+{
+    int input[FIFO_ARGS * SCHED_STASH] = {0};
+    if (!req(to, R))
+        input[0] = to.val;
+    int next = 0;
+    for (int n = site->count; n-- > 0;) {
+        while (input[next])
+            ++next;
+        move("STACK_A.TOP", abi_stash[next % FIFO_ARGS]);
+        input[next++] = site->saved[n];
+    }
+    flow_begin(input);
+}
+
+static FlowSite *
+flow_site(FlowSite *sites, const Ins *i)
+{
+    for (; sites; sites = sites->next)
+        if (sites->instruction == i)
+            return sites;
+    return NULL;
+}
+
+static int
+flow_call(Ins *args, Ins *call, FlowSite *site)
+{
+    int abi[FIFO_ARGS * SCHED_STASH] = {0};
+    SchedValue result[FIFO_ARGS * SCHED_STASH] = {{0}};
+    if (rtype(call->arg[1]) == RType || call->cls > Kl)
+        error("unsupported call result type");
+    int indirect = rtype(call->arg[0]) != RCon;
+    if (indirect) {
+        abi[0] = 1;
+        result[0] = sched_value(call->arg[0]);
+    }
+    for (Ins *arg = args; arg < call; ++arg) {
+        if ((arg->op != Oarg && !isargbh(arg->op)) || arg->cls > Kl)
+            error("unsupported call argument");
+        unsigned n = arg - args;
+        SchedValue v = flow_arg(arg);
+        if (n < FIFO_ARGS) {
+            int index = !n && indirect ? FIFO_ARGS : (int)n;
+            abi[index] = 1;
+            result[index] = v;
+        } else {
+            char *label = alloc(32);
+            arg_label(label, n);
+            sched_write((SchedValue){.imm = label}, v, (SchedValue){0});
+        }
+    }
+    flow_save(site);
+    if (!flow_finish(abi, result))
+        return 0;
+
+    int park = current_function->depth < 0;
+    if (park) {
+        address(0, "MEM.WRITE");
+        line("STACK_B.TOP -> MEM.CHUNK, ZERO -> MEM.MASK [sync]");
+    }
+    if (indirect)
+        line("PC_NEXT -> STACK_B.PUSH, " A " -> PC [sync]");
+    else
+        line("PC_NEXT -> STACK_B.PUSH, CONST -> PC [sync, imm=%s]", call_target(call->arg[0])->label);
+    if (park)
+        load_frame(0, "STACK_B.PUSH");
+    if (req(call->to, R))
+        move(A, "DISCARD");
+    flow_resume(site, call->to);
+    return 1;
+}
+
+static void
+flow_blit(unsigned bytes)
+{
+    for (unsigned n = 0; n < bytes; ++n) {
+        line(A " -> " A ", " A " -> ARITH_A.LHS, CONST -> ARITH_A.RHS [sync, imm=%u]", n);
+        typed_load("ARITH_A.ADD", 0, D);
+        line(B " -> " B ", " B " -> ARITH_B.LHS, CONST -> ARITH_B.RHS [sync, imm=%u]", n);
+        typed_store("ARITH_B.ADD", D, 0);
+    }
+    move(A, "DISCARD");
+    move(B, "DISCARD");
+}
+
+static int
+flow_inline(Ins *i, FlowSite *site)
+{
+    int load = isload(i->op), store = isstore(i->op), copy = i->op == Oblit0;
+    int abi[FIFO_ARGS * SCHED_STASH] = {1, !load};
+    SchedValue args[FIFO_ARGS * SCHED_STASH] = {{0}};
+    args[0] = sched_value(i->arg[store ? 1 : 0]);
+    if (!load)
+        args[1] = sched_value(i->arg[store ? 0 : 1]);
+    flow_save(site);
+    if (!flow_finish(abi, args))
+        return 0;
+    if (load || store) {
+        unsigned k = i->op - Oloadsb;
+        unsigned bytes = store ? (unsigned)storesz(i) : k < 6 ? (unsigned)loadsz(i) : 8;
+        memory(bytes, load && k < 6 && !(k & 1), store);
+    } else if (copy) {
+        flow_blit(rsval(i[1].arg[0]));
+    } else {
+        int sign = i->op == Odiv || i->op == Orem;
+        const char *unit = sign ? "DIVS" : "DIV";
+        if (i->cls == Kw) {
+            extend(A, A, 32, sign);
+            extend(B, B, 32, sign);
+        }
+        line(A " -> %s.LHS, " B " -> %s.RHS [sync]", unit, unit);
+        line("%s.%s -> " D, unit, i->op == Orem || i->op == Ourem ? "REM" : "QUO");
+    }
+    if (!req(i->to, R)) {
+        if (i->cls == Kw)
+            extend(D, A, 32, 0);
+        else
+            move(D, A);
+    }
+    flow_resume(site, i->to);
+    return 1;
+}
+
+static int
+flow_block(FlowBlock *layout, FlowSite *sites)
+{
+    flow_begin(layout->in);
+    unsigned params = 0;
+    if (block == fn->start) {
+        while (params < block->nins && ispar(block->ins[params].op)) {
+            if (params < FIFO_ARGS)
+                flow_seed(params, block->ins[params].to.val);
+            ++params;
+        }
+        for (unsigned n = FIFO_ARGS; n < params; ++n) {
+            Ref dst = block->ins[n].to;
+            scheduled_value[dst.val] = flow_param(&block->ins[n], n);
+            scheduled_known[dst.val] = 1;
+        }
+    }
+    for (Ins *i = block->ins + params; i < block->ins + block->nins && !schedule_overflow; ++i) {
+        if (i->op == Onop || i->op == Odbgloc)
+            continue;
+        if (isarg(i->op) || i->op == Ocall) {
+            Ins *args = i;
+            while (i < block->ins + block->nins && isarg(i->op))
+                ++i;
+            if (i == block->ins + block->nins || i->op != Ocall)
+                error("argument without a call");
+            FlowSite *site = flow_site(sites, i);
+            if (!site || !flow_call(args, i, site))
+                return 0;
+            continue;
+        }
+        if (flow_barrier(i)) {
+            FlowSite *site = flow_site(sites, i);
+            if (!site || !flow_inline(i, site))
+                return 0;
+            if (i->op == Oblit0)
+                ++i;
+            continue;
+        }
+        SchedValue result = isalloc(i->op) ? sched_address(objects[i->to.val]) : sched_instruction(i);
+        if (req(i->to, R))
+            continue;
+        if (i->cls == Kw && !INRANGE(i->op, Ocmpw, Ocmpl1))
+            result = sched_extend(result, 32, 0);
+        scheduled_value[i->to.val] = result;
+        scheduled_known[i->to.val] = 1;
+    }
+    for (int t = Tmp0; bsiter(block->out, &t); ++t) {
+        int resident = 0;
+        for (int n = 0; n < FIFO_ARGS * SCHED_STASH; ++n)
+            resident |= layout->out[n] == t;
+        if (!resident && fifo_spill[t] && scheduled_known[t])
+            sched_write(sched_address(fifo_spill[t] - 1), scheduled_value[t], (SchedValue){0});
+    }
+    int jump = block->jmp.type;
+    int returning = isret(jump) || isretbh(jump);
+    SchedValue result[FIFO_ARGS * SCHED_STASH] = {{0}};
+    if (jump == Jjnz) {
+        SchedValue condition = flow_word(block->jmp.arg);
+        sched_node(CONTROL, NULL, 1, (SchedMove[]){{"COND", condition}});
+    }
+    if (returning && jump != Jret0) {
+        Ref arg = block->jmp.arg;
+        result[0] = jump == Jretl ? sched_value(arg) : flow_word(arg);
+        if (isretbh(jump)) {
+            unsigned n = jump - Jretsb;
+            result[0] = sched_extend(result[0], n < 2 ? 8 : 16, !(n & 1));
+            result[0] = sched_extend(result[0], 32, 0);
+        }
+    }
+    for (int n = 0; n < FIFO_ARGS * SCHED_STASH; ++n)
+        if (layout->out[n])
+            result[n] = sched_value(TMP(layout->out[n]));
+    if (returning) {
+        int abi[FIFO_ARGS * SCHED_STASH] = {1};
+        return flow_finish(abi, result);
+    }
+    return flow_finish(layout->out, result);
+}
+
+static Ref
+flow_phi_arg(Blk *from, Phi *phi)
+{
+    for (unsigned n = 0; n < phi->narg; ++n)
+        if (phi->blk[n] == from)
+            return phi->arg[n];
+    error("missing phi input");
+    return R;
+}
+
+static int
+flow_edge(Blk *from, Blk *to, const FlowBlock *layout)
+{
+    flow_begin(layout[from->id].out);
+    SchedValue result[FIFO_ARGS * SCHED_STASH] = {{0}};
+    for (int n = 0; n < FIFO_ARGS * SCHED_STASH; ++n) {
+        int temp = layout[to->id].in[n];
+        if (!temp)
+            continue;
+        Ref arg = TMP(temp);
+        for (Phi *p = to->phi; p; p = p->link)
+            if (req(p->to, arg)) {
+                arg = flow_phi_arg(from, p);
+                break;
+            }
+        result[n] = fn->tmp[temp].cls == Kw ? flow_word(arg) : sched_value(arg);
+    }
+    SchedValue *incoming = alloc(fn->ntmp * sizeof *incoming);
+    for (Phi *p = to->phi; p; p = p->link) {
+        if (!fifo_spill[p->to.val] || !fn->tmp[p->to.val].nuse)
+            continue;
+        int resident = 0;
+        for (int n = 0; n < FIFO_ARGS * SCHED_STASH; ++n)
+            resident |= layout[to->id].in[n] == (int)p->to.val;
+        if (resident)
+            continue;
+        Ref arg = flow_phi_arg(from, p);
+        incoming[p->to.val] = p->cls == Kw ? flow_word(arg) : sched_value(arg);
+    }
+    for (Phi *p = to->phi; p; p = p->link) {
+        if (!fifo_spill[p->to.val] || !fn->tmp[p->to.val].nuse)
+            continue;
+        int resident = 0;
+        for (int n = 0; n < FIFO_ARGS * SCHED_STASH; ++n)
+            resident |= layout[to->id].in[n] == (int)p->to.val;
+        if (!resident)
+            sched_write(sched_address(fifo_spill[p->to.val] - 1), incoming[p->to.val], (SchedValue){0});
+    }
+    return flow_finish(layout[to->id].in, result);
+}
+
+static void
+flow_label(const Symbol *f, Blk *from, Blk *to, unsigned edge)
+{
+    if (edge)
+        fprintf(out, "%s_e%u_%u", f->label, from->id, to->id);
+    else
+        fprintf(out, "%s_b%u", f->label, to->id);
+}
+
+static int
+flow_function(Symbol *f)
+{
+    frame_size = f->depth < 0 ? 8 : 0;
+    objects = alloc(fn->ntmp * sizeof *objects);
+    fifo_spill = alloc(fn->ntmp * sizeof *fifo_spill);
+    for (Blk *b = fn->start; b; b = b->link)
+        for (Ins *i = b->ins; i < b->ins + b->nins; ++i) {
+            if (isalloc(i->op)) {
+                if (b != fn->start || rtype(i->arg[0]) != RCon)
+                    error("only constant entry-block allocations are supported");
+                Con *size = &fn->con[i->arg[0].val];
+                if (size->type != CBits || size->flt || size->bits.i < 0)
+                    error("invalid allocation size");
+                frame_size = align_up(frame_size, 4u << (i->op - Oalloc4));
+                if ((uint64_t)size->bits.i > SIZE_MAX - frame_size)
+                    error("frame size overflow");
+                objects[i->to.val] = frame_size;
+                frame_size += size->bits.i;
+            } else if (ispar(i->op)) {
+                if (i->cls > Kl || (i->op != Opar && !isparbh(i->op)))
+                    return 0;
+            } else if (i->op >= Ostores && i->op <= Ostored) {
+                return 0;
+            } else if (!isarg(i->op) && i->op != Ocall && i->op != Oblit1 &&
+                       !sched_eligible(i) && !(i->cls <= Kl && flow_barrier(i)))
+                return 0;
+        }
+
+    FlowBlock *layout = flow_homes();
+    if (!layout)
+        return 0;
+    FlowSite *sites = flow_sites();
+    frame_size = align_up(frame_size, 16);
+    if (frame_size > INT64_MAX)
+        error("frame size overflow");
+    char **edges = alloc(2 * fn->nblk * sizeof *edges);
+    int ok = 1;
+    FILE *function_out = out;
+    fifo_only = 1;
+    for (Blk *b = fn->start; ok && b; b = b->link) {
+        Blk *targets[] = {b->s1, b->s2};
+        for (int n = 0; ok && n < 2; ++n) {
+            if (!targets[n] || (n && targets[n] == targets[0]))
+                continue;
+            size_t size = 0;
+            out = open_memstream(&edges[2 * b->id + n], &size);
+            if (!out)
+                error("cannot buffer FIFO edge");
+            ok = flow_edge(b, targets[n], layout);
+            if (!ok) {
+                flow_retry_home(&layout[b->id]);
+                flow_retry_home(&layout[targets[n]->id]);
+            }
+            if (fclose(out))
+                error("cannot buffer FIFO edge");
+            if (size)
+                layout[b->id].edges |= 1u << n;
+        }
+    }
+    out = function_out;
+    if (ok) {
+        line("%s:", f->label);
+        if (frame_size) {
+            load_global(SP, "ARITH_B.LHS");
+            number(frame_size, "ARITH_B.RHS");
+            store_global(SP, "ARITH_B.ADD");
+        }
+    }
+    for (block = fn->start; ok && block; block = block->link) {
+        FlowBlock *here = &layout[block->id];
+        line("%s_b%u:", f->label, block->id);
+        ok = flow_block(here, sites);
+        if (!ok) {
+            flow_retry_home(here);
+            break;
+        }
+        int op = block->jmp.type;
+        if (isret(op) || isretbh(op)) {
+            if (frame_size) {
+                address(0, "STASH_D");
+                store_global(SP, D);
+            }
+            move("STACK_B.TOP", "PC");
+        } else if (op == Jhlt)
+            literal("3", "PC");
+        else if (op == Jjmp || op == Jjnz) {
+            if (op == Jjmp && block->s1 == block->link && !(here->edges & 1))
+                continue;
+            fputs("CONST -> PC [", out);
+            if (op == Jjnz)
+                fputs("pred, ", out);
+            fputs("imm=", out);
+            flow_label(f, block, block->s1, here->edges & 1);
+            line("]");
+            unsigned other = here->edges & (block->s1 == block->s2 ? 1 : 2);
+            if (op == Jjnz && (block->s2 != block->link || other)) {
+                fputs("CONST -> PC [imm=", out);
+                flow_label(f, block, block->s2, other);
+                line("]");
+            }
+        } else
+            ok = 0;
+    }
+    fifo_only = 0;
+    for (Blk *b = fn->start; b; b = b->link) {
+        Blk *targets[] = {b->s1, b->s2};
+        for (int n = 0; n < 2; ++n) {
+            char *code = edges[2 * b->id + n];
+            if (ok && code && *code) {
+                flow_label(f, b, targets[n], 1);
+                line(":");
+                fputs(code, out);
+                line("CONST -> PC [imm=%s_b%u]", f->label, targets[n]->id);
+            }
+            free(code);
+        }
+    }
+    return ok;
+}
+
+static int
+split_long_blocks(void)
+{
+    int split = 0;
+    for (Blk *b = fn->start; b; b = b->link) {
+        if (b->nins <= SCHED_REGION)
+            continue;
+        unsigned n = SCHED_REGION;
+        while (n < b->nins && (ispar(b->ins[n].op) || isarg(b->ins[n].op) ||
+                               b->ins[n].op == Ocall || b->ins[n].op == Oblit1))
+            ++n;
+        if (n == b->nins)
+            continue;
+        Blk *tail = newblk();
+        tail->ins = b->ins + n;
+        tail->nins = b->nins - n;
+        tail->jmp = b->jmp;
+        tail->s1 = b->s1;
+        tail->s2 = b->s2;
+        tail->link = b->link;
+        tail->name = b->name;
+        Blk *successors[] = {b->s1, b->s2};
+        for (unsigned s = 0; s < 2; ++s)
+            if (successors[s])
+                for (Phi *p = successors[s]->phi; p; p = p->link)
+                    for (unsigned k = 0; k < p->narg; ++k)
+                        if (p->blk[k] == b)
+                            p->blk[k] = tail;
+        b->nins = n;
+        b->jmp.type = Jjmp;
+        b->jmp.arg = R;
+        b->link = b->s1 = tail;
+        b->s2 = NULL;
+        split = 1;
+    }
+    if (split) {
+        fillcfg(fn);
+        filluse(fn);
+    }
+    return split;
+}
+
+static int
+try_fifo_function(Symbol *f)
+{
+    forced_spill = alloc(fn->ntmp * sizeof *forced_spill);
+    unsigned label_base = serial;
+    FILE *saved = out;
+    /* Limit retries when the FIFO order would require an expensive shuffle. */
+    for (int attempt = 0; attempt < 5; ++attempt) {
+        char *assembly = NULL;
+        size_t size = 0;
+        failed_temp = 0;
+        out = open_memstream(&assembly, &size);
+        if (!out)
+            error("cannot buffer FIFO function");
+        int ok = flow_function(f);
+        if (fclose(out))
+            error("cannot buffer FIFO function");
+        out = saved;
+        block = NULL;
+        if (ok)
+            fwrite(assembly, 1, size, out);
+        free(assembly);
+        if (ok)
+            return 1;
+        serial = label_base;
+        schedule_reset_peak();
+        if (!attempt && schedule_overflow && split_long_blocks())
+            continue;
+        if (!failed_temp)
+            break;
+        forced_spill[failed_temp] = 1;
+    }
+    return 0;
 }
 
 static size_t
@@ -911,7 +1816,7 @@ function(Fn *parsed)
     fn = parsed;
     unsigned argc = 0;
     if (collect) {
-        define(fn->name, &fn->lnk, 1);
+        Symbol *f = define(fn->name, &fn->lnk, 1);
         unsigned params = 0;
         for (Blk *b = fn->start; b; b = b->link)
             for (Ins *i = b->ins; i < b->ins + b->nins; ++i)
@@ -923,6 +1828,19 @@ function(Fn *parsed)
                     if (argc > max_args)
                         max_args = argc;
                     argc = 0;
+                    if (rtype(i->arg[0]) == RCon) {
+                        Con *c = &fn->con[i->arg[0].val];
+                        if (c->type == CAddr && !c->bits.i && !(c->sym.type & SThr)) {
+                            CallEdge *edge = emalloc(sizeof *edge);
+                            edge->name = strdup(str(c->sym.id));
+                            if (!edge->name)
+                                error("cannot save call target");
+                            edge->next = f->calls;
+                            f->calls = edge;
+                            continue;
+                        }
+                    }
+                    f->indirect = 1;
                 }
         if (params > max_args)
             max_args = params;
@@ -931,11 +1849,24 @@ function(Fn *parsed)
     if (fn->vararg || fn->retty >= 0)
         error("unsupported function signature");
     Symbol *f = lookup(fn->name, fn->lnk.export ? 0 : module);
+    current_function = f;
+    if (analyze_leaves && (f->calls || f->indirect))
+        goto done;
+    schedule_reset_peak();
     int main_entry = f->module == 0 && strcmp(f->name, "main") == 0;
     if (optimize) {
         promote_locals();
         scheduled_value = alloc(fn->ntmp * sizeof *scheduled_value);
         scheduled_known = alloc(fn->ntmp * sizeof *scheduled_known);
+        if (!main_entry || !fn->start->nins || !ispar(fn->start->ins[0].op)) {
+            int valid_entry = 1;
+            for (Blk *b = fn->start; b; b = b->link)
+                if (main_entry && (isret(b->jmp.type) || isretbh(b->jmp.type)) && b->jmp.type != Jretw)
+                    valid_entry = 0;
+            if (valid_entry && try_fifo_function(f))
+                goto emitted;
+            schedule_reset_peak();
+        }
     }
     frame_size = 8 * (1 + (size_t)(fn->ntmp - Tmp0));
     objects = alloc((frame_size / 8) * sizeof *objects);
@@ -973,14 +1904,32 @@ function(Fn *parsed)
     load_global(SP, "ARITH_B.LHS");
     number(frame_size, "ARITH_B.RHS");
     store_global(SP, "ARITH_B.ADD");
-    load_global(CONT, D);
-    store_frame(0, D);
+    if (optimize) {
+        Ins *params = fn->start->ins;
+        unsigned count = 0;
+        while (count < fn->start->nins && ispar(params[count].op))
+            ++count;
+        unsigned fifo_count = count < FIFO_ARGS ? count : FIFO_ARGS;
+        for (unsigned n = fifo_count; n-- > 0;)
+            save(params[n].to, params[n].cls, abi_stash[n]);
+        for (unsigned n = FIFO_ARGS; n < count; ++n) {
+            char label[32];
+            arg_label(label, n);
+            load_global(label, D);
+            save(params[n].to, params[n].cls, D);
+        }
+    } else {
+        load_global(CONT, D);
+        store_frame(0, D);
+    }
     for (block = fn->start; block; block = block->link) {
         line("%s_b%u:", f->label, block->id);
         for (Ins *i = block->ins; i < block->ins + block->nins; ++i) {
             if (ispar(i->op)) {
                 if (main_entry || (i->op != Opar && !isparbh(i->op)) || i->cls > Kl)
                     error("unsupported parameter");
+                if (optimize)
+                    continue;
                 char label[32];
                 arg_label(label, argc++);
                 load_global(label, D);
@@ -1012,6 +1961,9 @@ function(Fn *parsed)
         if (block->s2 != block->s1)
             edge(f, block, block->s2);
     }
+emitted:
+    if (analyze_leaves)
+        current_function->stack_peak = schedule_stack_peak();
 done:
     fn = NULL;
     freeall();
@@ -1059,6 +2011,11 @@ string(const char *p)
 static void
 data(Dat *d)
 {
+    if (analyze_leaves) {
+        if (d->type == DEnd)
+            freeall();
+        return;
+    }
     if (collect) {
         if (d->type == DStart)
             define(d->name, d->lnk, 0);
@@ -1145,21 +2102,44 @@ main(int argc, char **argv)
     if (!entry || !entry->function)
         error("missing export function w $main()");
 
+    if (optimize)
+        for (Symbol *s = symbols; s; s = s->next)
+            if (s->function)
+                continuation_depth(s);
+
+    if (optimize) {
+        /* Leaf peak depths are needed even if their definitions follow callers. */
+        out = fopen("/dev/null", "w");
+        if (!out)
+            error("cannot open analysis output");
+        collect = 0;
+        analyze_leaves = 1;
+        parse_files(argc - optind, argv + optind);
+        analyze_leaves = 0;
+        fclose(out);
+        serial = 0;
+    }
     out = tmpfile();
     if (!out)
         error("cannot open temporary output");
-    line("CONST -> MEM.WRITE, ZERO -> MEM.MASK [imm=" CONT "]");
-    literal("__mdma_halt", "MEM.CHUNK");
-    literal(entry->label, "PC");
-    line("__mdma_halt:");
+    if (optimize) {
+        line("PC_NEXT -> STACK_B.PUSH, CONST -> PC [sync, imm=%s]", entry->label);
+        store_global(RESULT, A);
+    } else {
+        line("CONST -> MEM.WRITE, ZERO -> MEM.MASK [imm=" CONT "]");
+        literal("__mdma_halt", "MEM.CHUNK");
+        literal(entry->label, "PC");
+        line("__mdma_halt:");
+    }
     literal("-1", "PC");
 
     collect = 0;
     parse_files(argc - optind, argv + optind);
     line(SP ": .word __mdma_stack");
-    line(CONT ": .word 0");
+    if (!optimize)
+        line(CONT ": .word 0");
     line(RESULT ": .word 0");
-    for (unsigned n = 0; n < max_args; ++n)
+    for (unsigned n = optimize ? FIFO_ARGS : 0; n < max_args; ++n)
         line("__mdma_arg_%u: .word 0", n);
     line(".align 16");
     line("__mdma_stack:");

@@ -71,6 +71,41 @@ class QbeTest(unittest.TestCase):
         address, value = expected['__mdma_result']
         self.assertEqual(int.from_bytes(sim.memory[address:address + 8], 'little'), value)
 
+    def test_fifo_control_flow_uses_only_the_result_store(self):
+        for name in ('fifo_sum', 'fifo_phi_cycle', 'fifo_pressure'):
+            path = HERE / (name + '.ssa')
+            for options in MODES[2:]:
+                with self.subTest(fixture=name, options=options):
+                    result = compile_fixture(path, options)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    memory = [line for line in parse_asm(result.stdout)
+                              if any(move.src.startswith('MEM.') or move.dst.startswith('MEM.')
+                                     for move in line.ops)]
+                    self.assertEqual([line.immediate for line in memory], ['__mdma_result'])
+                    self.assertIn('PC_NEXT -> STACK_B.PUSH', result.stdout)
+
+    def test_fifo_argument_overflow(self):
+        result = compile_fixture(HERE / 'fifo_overflow.ssa', ())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        slots = re.findall(r'^__mdma_arg_(\d+): \.word', result.stdout, re.MULTILINE)
+        self.assertEqual(slots, ['4', '5'])
+
+    def test_recursive_fifo_calls_with_delayed_pushes(self):
+        path = HERE / 'recursion.ssa'
+        with tempfile.TemporaryDirectory() as directory:
+            profile = Path(directory) / 'portable.conf'
+            profile.write_text((PROFILES / 'ecp5.conf').read_text().replace(
+                'stack_push_ordered yes\n', ''))
+            result = compile_fixture(path, ('--schedule', profile))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        image, expected, fault = test_behavior.load_fixture(path, result.stdout)
+        self.assertIsNone(fault)
+        sim = test_behavior.Simulator(image, len(image) + 65536,
+                                     latencies={'STACK': 6, 'STASH': 3})
+        sim.run()
+        address, value = expected['__mdma_result']
+        self.assertEqual(int.from_bytes(sim.memory[address:address + 8], 'little'), value)
+
     @staticmethod
     def stack_depth(assembly):
         depth = dict.fromkeys(('STACK_A', 'STACK_B'), 0)

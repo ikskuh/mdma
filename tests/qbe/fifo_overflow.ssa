@@ -1,0 +1,28 @@
+# expect mem64 __mdma_result = 43
+data $out = align 8 { l 0 }
+
+function $touch(l %dst) {
+@start
+    storel 1, %dst
+    ret
+}
+
+function w $sum(w %a, w %b, w %c, w %d, w %e, w %f) {
+@start
+    %x =w add %a, %b
+    %y =w add %c, %d
+    %z =w add %e, %f
+    %u =w add %x, %y
+    %r =w add %u, %z
+    ret %r
+}
+
+export function w $main() {
+@start
+    call $touch(l $out)
+    call $sum(w 1, w 2, w 3, w 4, w 5, w 6)
+    %total =w call $sum(w 2, w 4, w 6, w 8, w 10, w 12)
+    %side =l loadl $out
+    %r =w add %total, %side
+    ret %r
+}

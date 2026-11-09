@@ -1,0 +1,35 @@
+# expect mem64 __mdma_result = 137
+function w $rotate(w %x, w %y, w %z, w %times) {
+@start
+    jmp @again
+@again
+    %a =w phi @start %x, @step %b
+    %b =w phi @start %y, @step %c
+    %c =w phi @start %z, @step %a
+    %n =w phi @start %times, @step %next
+    jnz %n, @step, @choose
+@step
+    %next =w sub %n, 1
+    jmp @again
+@choose
+    %even =w and %a, 1
+    jnz %even, @odd, @other
+@odd
+    %x1 =w mul %a, 10
+    jmp @join
+@other
+    %x2 =w mul %a, 100
+    jmp @join
+@join
+    %x3 =w phi @odd %x1, @other %x2
+    %base =w mul %b, 10
+    %prefix =w add %x3, %base
+    %r =w add %prefix, %c
+    ret %r
+}
+
+export function w $main() {
+@start
+    %result =w call $rotate(w 7, w 9, w 4, w 1)
+    ret %result
+}

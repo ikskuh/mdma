@@ -13,7 +13,7 @@ python src/assembler/mdma_asm.py program.mdma -o program.bin
 Supply all QBE IL modules for the image in one invocation. The entry point is
 `export function w $main()`. Its result is stored in `__mdma_result` before the
 program halts. When running the simulator directly, set `--memory-size` to
-the binary size plus 65,536 bytes for the software stack.
+the binary size plus 65,536 bytes for any addressable locals and spills.
 
 The backend supports integer and pointer operations, typed and unaligned
 accesses, constant-size `blit`, phi nodes, and direct and indirect scalar
@@ -26,7 +26,8 @@ dynamic allocations.
 Scheduling is enabled by default with the embedded ECP5 board profile.
 Use `--schedule PATH` to select another profile, such as
 `src/qbe/profiles/simulator.conf`, or `--no-schedule` to use the original
-serial lowering. Each profile supplies one `UNIT LATENCY ISSUE_INTERVAL`
+serial lowering and memory calling convention. Each profile supplies one
+`UNIT LATENCY ISSUE_INTERVAL`
 row per unit instance, in CPU clocks. `#` starts a comment. Latency measures
 from dispatch of the last operand to the first readable result. For
 `MEM_WRITE` it measures through the write acknowledgement. Issue interval
@@ -41,10 +42,29 @@ Latency estimates guide scheduling. The compiler checks ordering and
 capacity separately and uses hardware readiness to tolerate stalls.
 
 The optimizer promotes eligible scalar locals and schedules independent
-moves backward from their consumers. Local values can flow directly
-between units or through STASH and STACK. Values live across block and
-call boundaries stay in frame slots. Calls, phi edges, and unproven-alignment
-memory accesses use the original lowering.
+moves backward from their consumers. It keeps live values in FIFO homes
+across control-flow edges when their lifetimes fit, and checks the queue
+state at each edge. It coalesces phi copies where possible. Multi-entry
+STASH layouts leave one free entry so they can rotate to the right value.
+RAM holds addressable objects and spills when a FIFO layout fails. A
+function whose layout remains unschedulable after bounded retries uses
+frame-based lowering with the same FIFO calling convention.
+
+### FIFO calling convention
+
+In scheduled images the first four scalar arguments travel in STASH A–D.
+Remaining arguments use RAM overflow slots, which the callee reads on entry.
+Each call pushes `PC_NEXT` onto `STACK_B`. A return pops `STACK_B` into `PC`
+and supplies one token in `STASH_A`, including zero for a void return.
+The entry shim writes the final result to `__mdma_result`.
+
+Bounded direct call chains keep their continuations on `STACK_B`. Recursive
+or unproven chains park the current continuation in the frame across the
+call. A caller may also save values on `STACK_A` across a direct leaf call
+when the callee's verified peak depth leaves room. Division, `blit`, and
+unaligned-access sequences preserve live values across their scratch FIFO
+use. Functions with no addressable objects, spills, or saved continuations
+have no memory frame.
 
 `just qbe-test` compiles and runs the small IL fixtures under `tests/qbe/`.
 They use the same leading `# expect mem64` and `# expect fault` directives as
@@ -57,8 +77,7 @@ pinned CoreMark list, matrix, and state kernels. One iteration with the
 2,000-byte performance configuration must yield CRCs `0xe714`, `0x1fd7`,
 and `0x8e3a`.
 It reports the ticks for the iteration and for the whole run separately.
-The whole run takes about 34 million simulator ticks and has a 50 million
-tick limit.
+The simulator has a 50 million tick limit for the whole run.
 
 `just qbe-coremark-ecp5` runs the same workload on the ECP5 board RTL. It uses
 Verilator on PATH or through the `VERILATOR` environment variable. The
