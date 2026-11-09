@@ -1,0 +1,20 @@
+# Exercise borrow across multiple 16-bit limbs and keep a wide remainder.
+# expect mem64 quotient = 0xfedb
+# expect mem64 remainder = 0xbbbc77783335
+
+CONST -> DIV.LHS [imm=0xfedcba9876543210]
+CONST -> DIV.RHS [imm=0x1000100010001]
+CONST -> MEM.WRITE [imm=quotient]
+DIV.QUO -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> DIV.LHS [imm=0xfedcba9876543210]
+CONST -> DIV.RHS [imm=0x1000100010001]
+CONST -> MEM.WRITE [imm=remainder]
+DIV.REM -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> MEM.READ [imm=remainder]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+quotient: .word 0xfeedfacefeedface
+remainder: .word 0xfeedfacefeedface

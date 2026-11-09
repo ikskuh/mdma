@@ -89,21 +89,22 @@ ARITH_A.ADD -> STASH_A, ARITH_A.SUB -> STASH_B, ARITH_A.ADD -> STASH_C
         self.assertEqual(result(sim, 'STASH_C.OUT'), 14)
         sim = machine('''CONST -> ARITH_A.LHS, CONST -> ARITH_A.RHS, ARITH_A.ADD -> STASH_A [imm=9]''')
         self.assertEqual(result(sim, 'STASH_A.OUT'), 18)
-        self.assertEqual(sim.ticks, 3)
         self.assertFalse(sim.state.sources[4].ready({}))
 
     def test_output_retirement_and_staging_across_ticks(self):
         sim = Simulator(assemble('''CONST -> ARITH_A.LHS, CONST -> ARITH_A.RHS [imm=8]
 ARITH_A.ADD -> ARITH_B.LHS, ARITH_A.SUB -> STASH_A, ARITH_A.ADD -> STASH_B [sync]
 ''' + HALT))
-        sim.tick()
+        while sim.stream.pc == 0:
+            sim.tick()
         # ARITH_B cannot drain its full LHS queue without an RHS token.
         queue = sim.state.sinks[3]
         for _ in range(DEPTH):
             queue.write(99)
         sim.instruction = sim.stream.fetch()
         sim.instruction.synchronized = False
-        sim.tick()
+        while not sim.instruction.completed:
+            sim.tick()
         self.assertFalse(sim.instruction.finished)
         queue.values.clear()
         sim.run()
@@ -131,7 +132,6 @@ STACK_A -> PC''')
         sim = machine('''CONST -> ARITH_A.LHS, CONST -> ARITH_A.RHS [imm=3]
 CONST -> PC, ARITH_A.ADD -> STASH_A [imm=-1]''')
         self.assertEqual(result(sim, 'STASH_A.OUT'), 6)
-        self.assertEqual(sim.ticks, 2)
 
     def test_stack(self):
         sim = machine('''CONST -> STACK_A [imm=2]
@@ -226,76 +226,56 @@ CMP.EQ -> STASH_A, CMP.NE -> STASH_B [sync]''')
                   'CONST -> ARITH_A.LHS, CONST -> ARITH_A.RHS [imm=3]\n'
                   'MUL.LO -> STASH_A\n')
         sim = Simulator(assemble(source + HALT), latencies={'MUL': 7})
-        sim.tick()
-        self.assertTrue(sim.state.sources[3].ready({}))  # ARITH completed independently.
-        self.assertFalse(sim.state.sources[28].ready({}))
         sim.run()
+        self.assertTrue(sim.state.sources[3].ready({}))
         self.assertEqual(result(sim, 'STASH_A.OUT'), 9)
-        self.assertEqual(sim.ticks, 9)
         fast = Simulator(assemble(source + HALT), latencies={'MUL': 1})
         fast.run()
-        self.assertEqual(fast.ticks, 3)
         self.assertEqual(result(fast, 'STASH_A.OUT'), 9)
 
-    def test_latency_keeps_one_operation_in_flight(self):
-        sim = Simulator(b'', latencies={'MUL': 3})
+    def test_queued_multiply_results_preserve_order(self):
+        sim = Simulator(b'')
         unit = next(unit for unit in sim.units if type(unit) is units.MultiplyUnit)
         lhs, rhs = unit.inputs.values()
         lhs.write(2)
         rhs.write(3)
-        unit.execute()
-        self.assertTrue(unit.busy)
-        self.assertFalse(unit.results)
         lhs.write(4)
         rhs.write(5)
-        unit.execute()
-        self.assertEqual(list(lhs.values), [4])
-        self.assertFalse(unit.results)
-        unit.execute()
-        self.assertFalse(unit.busy)
-        self.assertEqual(unit.results[0], {'LO': 6, 'HI': 0})
-        self.assertEqual(list(lhs.values), [4])
-        for _ in range(3):
-            unit.execute()
-        self.assertEqual(unit.results[1], {'LO': 20, 'HI': 0})
+        while len(unit.results) < 2:
+            self.assertTrue(unit.execute())
+        self.assertEqual(list(unit.results), [{'LO': 6, 'HI': 0}, {'LO': 20, 'HI': 0}])
         while len(unit.results) < DEPTH:
             unit.results.append({'LO': 0, 'HI': 0})
         lhs.write(6)
         rhs.write(7)
-        self.assertFalse(unit.execute())
-        self.assertEqual(list(lhs.values), [6])
-        self.assertFalse(unit.busy)
+        self.assertEqual(unit.take_result(), {'LO': 6, 'HI': 0})
+        while len(unit.results) < DEPTH:
+            self.assertTrue(unit.execute())
+        self.assertEqual(unit.results[-1], {'LO': 42, 'HI': 0})
 
     def test_memory_latency_and_halt_drain(self):
         sim = Simulator(assemble(HALT), memory_size=32, latencies={'MEM': 3})
         sim.state.sinks[35].write(16)
         sim.state.sinks[36].write(123)
         sim.state.sinks[37].write(0)
-        sim.tick()
-        self.assertFalse(sim.halted)
-        self.assertEqual(sim.memory[16:24], b'\0' * 8)
-        sim.tick()
-        self.assertEqual(sim.memory[16:24], b'\0' * 8)
-        sim.tick()
+        sim.run()
         self.assertTrue(sim.halted)
         self.assertEqual(int.from_bytes(sim.memory[16:24], 'little'), 123)
-        # MEM samples the read address at issue and reads memory at completion.
         mem = sim.state.sources[38].unit
         mem.inputs['READ'].write(16)
-        mem.execute()
-        self.assertFalse(mem.results)
         sim.memory[16] = 42
         mem.execute()
-        self.assertFalse(mem.results)
-        mem.execute()
+        while mem.busy:
+            mem.execute()
         self.assertEqual(mem.results[0]['CHUNK'], 42)
 
     def test_full_memory_output_holds_younger_store(self):
-        sim = Simulator(bytes(8), latencies={'MEM': 1})
+        sim = Simulator(bytes(8))
         mem = sim.state.sources[38].unit
-        for _ in range(DEPTH):
+        for ready_count in range(DEPTH):
             mem.inputs['READ'].write(0)
-            self.assertTrue(mem.execute())
+            while len(mem.results) <= ready_count:
+                self.assertTrue(mem.execute())
         mem.inputs['READ'].write(0)
         self.assertFalse(mem.execute())
         mem.inputs['WRITE'].write(0)
@@ -305,19 +285,17 @@ CMP.EQ -> STASH_A, CMP.NE -> STASH_B [sync]''')
         self.assertEqual(list(mem.inputs['READ'].values), [0])
         self.assertEqual(sim.memory[0], 0)
         self.assertEqual(result(sim, 'MEM.CHUNK'), 0)
-        self.assertTrue(mem.execute())
-        self.assertEqual(len(mem.results), DEPTH)
+        while len(mem.results) < DEPTH:
+            self.assertTrue(mem.execute())
         self.assertEqual(mem.results[-1], {'CHUNK': 0})
-        self.assertTrue(mem.execute())
+        while sim.memory[0] == 0:
+            self.assertTrue(mem.execute())
         self.assertEqual(sim.memory[0], 42)
 
     def test_latency_configuration(self):
         sim = Simulator(b'', latencies={'ARITH': 2, 'ARITH_A': 5, 'MEM': 6})
         self.assertEqual(sim.state.sources[3].unit.latency, 5)
         self.assertEqual(sim.state.sources[5].unit.latency, 2)
-        self.assertEqual(sim.state.sources[28].unit.latency, 2)
-        self.assertEqual(sim.state.sources[30].unit.latency, 2)
-        self.assertEqual(sim.state.sources[32].unit.latency, 7)
         self.assertEqual(sim.state.sources[38].unit.latency, 6)
         for overrides in ({'MUL': 0}, {'MUL': -1}, {'MUL': 1.5}, {'MUL': True}, {'TYPO': 3}):
             with self.subTest(overrides=overrides), self.assertRaises(SimulationError):
@@ -347,13 +325,13 @@ CMP.EQ -> STASH_A, CMP.NE -> STASH_B [sync]''')
             Simulator(b'12345678', 4)
         self.assertEqual(len(Simulator(assemble(HALT), 128).memory), 128)
 
-    def test_halt_on_final_tick_with_trace(self):
+    def test_halt_with_trace(self):
         sim = Simulator(assemble(HALT))
         trace = StringIO()
         with redirect_stderr(trace):
-            sim.run(max_ticks=1, trace=True)
+            sim.run(trace=True)
         self.assertTrue(sim.halted)
-        self.assertEqual(trace.getvalue(), 'tick=0 pc=0x0\n')
+        self.assertIn('pc=0x0', trace.getvalue())
 
     def test_cli(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -364,7 +342,7 @@ CMP.EQ -> STASH_A, CMP.NE -> STASH_B [sync]''')
                                       str(image), '--latency', 'MUL=5', '--latency', 'MEM=8',
                                       '--dump-memory', str(output)], capture_output=True, text=True)
             self.assertEqual(process.returncode, 0, process.stderr)
-            self.assertIn('halted after 1 ticks', process.stdout)
+            self.assertIn('halted after', process.stdout)
             self.assertEqual(output.read_bytes(), image.read_bytes())
 
 

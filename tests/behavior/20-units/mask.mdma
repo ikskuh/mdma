@@ -13,7 +13,7 @@ MASK.BIT -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
 CONST -> MASK [imm=64]
 CONST -> MEM.WRITE [imm=full_mask]
 MASK.MASK -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
-CONST -> MASK [imm=64]
+CONST -> MASK [imm=0x8000000000000000]
 CONST -> MEM.WRITE [imm=out_of_range_bit]
 MASK.BIT -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
 

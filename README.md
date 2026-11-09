@@ -90,6 +90,8 @@ See [`docs/functional-units.md`](docs/functional-units.md) for a full reference.
 ### Memory and Typed Values
 
 A single `MEM` functional unit handles loads and stores in issue order. Its inputs are `READ` (load address), `WRITE` (store address), `CHUNK`, and `MASK`; loads produce `MEM.CHUNK`. A load consumes `READ` independently. A store consumes `(WRITE, CHUNK, MASK)` atomically. If read and write trigger together, the read observes memory before the write, allowing a memory cell to be swapped with a supplied value.
+Halt drains complete operand bundles, including MEM requests in issue order.
+Unread results do not block the drain, and errors still surface.
 
 Typed memory operations use two helper FUs:
 
@@ -132,3 +134,6 @@ See [`docs/asm.md`](docs/asm.md) for a full reference.
 Run assembled binary images with `python src/simulator/simulator.py program.bin`.
 End programs with `CONST -> PC [imm=-1]`. See [the simulator reference](docs/simulator.md)
 for timing, memory, and CLI options.
+
+The ECP5 Verilog softcore runs the same behavior fixtures.
+[FPGA build, interfaces, and timing](docs/fpga.md)

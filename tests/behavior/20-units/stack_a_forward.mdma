@@ -1,0 +1,27 @@
+# The second pass reads STACK immediately after cached pushes.
+# expect mem64 first = 2
+# expect mem64 second = 1
+# expect mem64 cached_first = 2
+# expect mem64 cached_second = 1
+
+CONST -> COND
+ZERO -> COND
+loop:
+CONST -> STACK_A [imm=1]
+CONST -> STACK_A [imm=2]
+STACK_A -> MEM.CHUNK
+STACK_A -> MEM.CHUNK
+CONST -> PC [pred, imm=loop]
+
+CONST -> MEM.WRITE, ZERO -> MEM.MASK [imm=first]
+CONST -> MEM.WRITE, ZERO -> MEM.MASK [imm=second]
+CONST -> MEM.WRITE, ZERO -> MEM.MASK [imm=cached_first]
+CONST -> MEM.WRITE, ZERO -> MEM.MASK [imm=cached_second]
+CONST -> MEM.READ [imm=cached_second]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+first: .word 0
+second: .word 0
+cached_first: .word 0
+cached_second: .word 0

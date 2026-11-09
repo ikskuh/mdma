@@ -1,0 +1,4 @@
+# A complete load issued in the halt instruction still reports bus errors.
+# expect fault memory_bounds
+
+CONST -> PC, CONST -> MEM.READ [imm=-1]

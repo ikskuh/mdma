@@ -16,8 +16,9 @@ CONST -> PC [imm=-1]
 
 The all-ones 64-bit jump target is the halt marker. It takes effect when all
 moves in that instruction finish. Falling off the image is an error, not a halt.
-The runner finishes operations already in flight before reporting halt. It does
-not start queued operations during this final drain.
+The runner drains complete operand bundles before reporting halt, including
+MEM requests in issue order. Unread results do not block the drain, and
+faults from drained operations still surface.
 
 Options:
 
@@ -124,7 +125,7 @@ the little-endian 64-bit word at the assembler label `result`. Values follow the
 assembler's integer syntax and range. A fixture can declare storage with
 `.word` and uses instructions to set up operands, queues, and working memory.
 An ordered MEM read followed by consumption of its result can confirm that
-earlier stores have completed before halt.
+earlier stores have completed while the program is running.
 
 A fault fixture instead declares a single postcondition such as
 `# expect fault division_by_zero`. The runner checks the fault code. The

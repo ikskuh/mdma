@@ -1,10 +1,32 @@
-# A false predicate skips its jump. The next predicate takes its jump.
+# Queue eight predicates before consuming them in FIFO order.
 # expect mem64 result = 17
 
+CONST -> COND [imm=0x8000000000000000]
 ZERO -> COND
-CONST -> PC [pred, imm=bad]
 CONST -> COND
-CONST -> PC [pred, imm=good]
+CONST -> COND
+ZERO -> COND
+ZERO -> COND
+CONST -> COND
+ZERO -> COND
+
+CONST -> PC [pred, imm=after_first]
+CONST -> PC [imm=bad]
+after_first:
+CONST -> PC [pred, imm=bad]
+CONST -> PC [pred, imm=after_third]
+CONST -> PC [imm=bad]
+after_third:
+CONST -> PC [pred, imm=after_fourth]
+CONST -> PC [imm=bad]
+after_fourth:
+CONST -> PC [pred, imm=bad]
+CONST -> PC [pred, imm=bad]
+CONST -> PC [pred, imm=after_seventh]
+CONST -> PC [imm=bad]
+after_seventh:
+CONST -> PC [pred, imm=bad]
+CONST -> PC [imm=good]
 bad: CONST -> PC [imm=-1]
 good:
 CONST -> MEM.WRITE [imm=result]

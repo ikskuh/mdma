@@ -1,0 +1,6 @@
+# A second operand pair is still executed when the program reaches halt.
+# expect fault division_by_zero
+
+CONST -> DIV.LHS, CONST -> DIV.RHS
+CONST -> DIV.LHS, ZERO -> DIV.RHS
+CONST -> PC [imm=-1]

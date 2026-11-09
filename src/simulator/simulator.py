@@ -1,7 +1,9 @@
 """Host runner for the FIFO-based MDMA simulator."""
 
 import argparse
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 if __package__:
@@ -62,6 +64,26 @@ def parse_latency(value):
     return name, latency
 
 
+def run_rtl(image, max_clocks, trace):
+    if __package__:
+        from .rtl_runner import compile_bench, execute_image, prepare
+    else:
+        from rtl_runner import compile_bench, execute_image, prepare
+
+    with tempfile.TemporaryDirectory(prefix="mdma-rtl-") as directory:
+        build = Path(directory)
+        prepare(build)
+        bench = compile_bench(build, "mdma_tb")
+        fault, _, clocks, memory, output = execute_image(image, build, bench, max_clocks=max_clocks, trace=trace)
+    if trace:
+        for line in output.splitlines():
+            if line.startswith("TRACE "):
+                print(line[6:], file=sys.stderr)
+    if fault is not None:
+        raise SimulationError(f'{fault} after {clocks} hardware clocks', code=fault)
+    return clocks, memory
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('input', type=Path)
@@ -70,17 +92,26 @@ def main():
     parser.add_argument('--latency', type=parse_latency, action='append', default=[], metavar='UNIT=TICKS',
                         help='override unit/family latency; repeatable')
     parser.add_argument('--trace', action='store_true')
+    parser.add_argument('--rtl-timing', choices=('ecp5',), help='execute the RTL with zero-wait Wishbone slaves')
     parser.add_argument('--dump-memory', type=Path, help='write final memory after successful halt')
     args = parser.parse_args()
     if args.max_ticks <= 0 or (args.memory_size is not None and args.memory_size <= 0):
         parser.error('tick limit and memory size must be positive')
     try:
         simulator = Simulator(args.input.read_bytes(), args.memory_size, latencies=dict(args.latency))
-        simulator.run(args.max_ticks, args.trace)
-        if args.dump_memory:
-            args.dump_memory.write_bytes(simulator.memory)
-        print(f'halted after {simulator.ticks} ticks (jump to -1)')
-    except (OSError, SimulationError) as exc:
+        if args.rtl_timing:
+            if args.latency:
+                raise ValueError('RTL functional-unit latencies are fixed by the design')
+            clocks, memory = run_rtl(simulator.memory, args.max_ticks, args.trace)
+            if args.dump_memory:
+                args.dump_memory.write_bytes(memory)
+            print(f'{args.rtl_timing.upper()} halted after {clocks} hardware clocks (jump to -1)')
+        else:
+            simulator.run(args.max_ticks, args.trace)
+            if args.dump_memory:
+                args.dump_memory.write_bytes(simulator.memory)
+            print(f'halted after {simulator.ticks} ticks (jump to -1)')
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
         print(f'mdma simulator: {exc}', file=sys.stderr)
         return 1
     return 0

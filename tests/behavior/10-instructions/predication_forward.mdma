@@ -1,0 +1,16 @@
+# Each predicate is consumed by the immediately following instruction.
+# expect mem64 result = 1
+
+CONST -> COND [imm=0x8000000000000000]
+CONST -> PC [pred, imm=true]
+CONST -> PC [imm=bad]
+true:
+ZERO -> COND
+CONST -> PC [pred, imm=bad]
+CONST -> MEM.WRITE [imm=result]
+CONST -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+CONST -> PC [imm=-1]
+bad:
+CONST -> PC [imm=-1]
+
+result: .word 0

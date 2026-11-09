@@ -1,0 +1,16 @@
+# A synchronized exchange pops the previous value and pushes the replacement.
+# expect mem64 old = 7
+# expect mem64 new = 13
+
+CONST -> STASH_A [imm=7]
+CONST -> MEM.WRITE [imm=old]
+STASH_A -> MEM.CHUNK, ZERO -> MEM.MASK, CONST -> STASH_A [sync, imm=13]
+CONST -> MEM.WRITE [imm=new]
+STASH_A -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> MEM.READ [imm=new]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+
+old: .word 0
+new: .word 0

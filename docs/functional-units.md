@@ -2,8 +2,9 @@
 
 ## Overview
 
-Each STASH and STACK instance must hold at least eight elements. Every other
-FIFO must support at least four elements in flight.
+Each STASH and STACK instance must hold at least eight elements. The `COND`
+predicate FIFO must hold at least eight predicates. Every other FIFO must
+support at least four elements in flight.
 
 Every CMP output yields the 64-bit value `1` when its comparison is true and
 `0` when it is false.
@@ -74,7 +75,7 @@ Every CMP output yields the 64-bit value `1` when its comparison is true and
 | 59         | *reserved*      |          |           |                                                             |
 | 60         | *reserved*      |          |           |                                                             |
 | 61         | *reserved*      |          |           |                                                             |
-| 62         | *CPU*           |          | `COND`    | Stashes a predication, non-zero means *execute*.            |
+| 62         | *CPU*           |          | `COND`    | Queues a predicate. Each predicated instruction consumes the oldest predicate. A nonzero value means *execute*. |
 | 63         | *CPU*           | -        | `DISCARD` | Always writable, ignores all written values.                |
 
 ### Table of Sources

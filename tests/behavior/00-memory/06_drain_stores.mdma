@@ -1,0 +1,12 @@
+# Complete stores remain in issue order through halt.
+# expect mem64 first = 1
+# expect mem64 second = 2
+
+CONST -> MEM.WRITE [imm=first]
+CONST -> MEM.WRITE [imm=second]
+CONST -> MEM.CHUNK, ZERO -> MEM.MASK [imm=1]
+CONST -> MEM.CHUNK, ZERO -> MEM.MASK [imm=2]
+CONST -> PC [imm=-1]
+
+first: .word 0
+second: .word 0

@@ -164,23 +164,27 @@ class Unit:
     def busy(self):
         return self.pending is not None
 
-    def take_inputs(self):
-        if not all(queue.values for queue in self.inputs.values()):
+    @property
+    def has_complete_request(self):
+        return all(queue.values for queue in self.inputs.values())
+
+    def take_inputs(self, draining=False):
+        if not self.has_complete_request:
             return None
-        if len(self.results) >= DEPTH:
+        if len(self.results) >= DEPTH and not draining:
             return None
         return [queue.values.popleft() for queue in self.inputs.values()]
 
-    def execute(self):
+    def execute(self, draining=False):
         if not self.busy:
-            self.pending = self.take_inputs()
+            self.pending = self.take_inputs(draining=draining)
             if self.pending is None:
                 return False
             self.remaining = self.latency
         self.remaining -= 1
         if self.remaining == 0:
             results = self.compute(*self.pending)
-            if results:
+            if results and len(self.results) < DEPTH:
                 self.results.append({name: int(value) & MASK for name, value in results.items()})
             self.pending = None
         return True
@@ -285,7 +289,7 @@ class MemoryUnit(Unit):
         self.queued_reads = 0
         self.queued_stores = 0
 
-    def execute(self):
+    def execute(self, draining=False):
         # Record when requests become ready even while the memory unit is busy.
         # Leave the tokens in their input FIFOs until execution can start.
         reads = len(self.read_queue) - self.queued_reads
@@ -294,13 +298,17 @@ class MemoryUnit(Unit):
         self.queued_stores += stores
         for index in range(max(reads, stores)):
             self.requests.append((index < reads, index < stores))
-        return super().execute()
+        return super().execute(draining=draining)
 
-    def take_inputs(self):
+    @property
+    def has_complete_request(self):
+        return bool(self.read_queue) or all(self.store_queues)
+
+    def take_inputs(self, draining=False):
         if not self.requests:
             return None
         read, write = self.requests[0]
-        if read and len(self.results) >= DEPTH:
+        if read and len(self.results) >= DEPTH and not draining:
             return None
         self.requests.popleft()
         self.queued_reads -= read
@@ -414,7 +422,8 @@ class SimulatorCore:
 
     @property
     def halted(self):
-        return self.stream.pc == MASK and not any(unit.busy for unit in self.units)
+        return (self.stream.pc == MASK and
+                not any(unit.busy or unit.has_complete_request for unit in self.units))
 
     def tick(self):
         progress = False
@@ -423,9 +432,7 @@ class SimulatorCore:
                 self.instruction = self.stream.fetch()
             progress = self.instruction.execute(self.state)
         for unit in self.units:
-            # After the halt jump, finish operations already in flight only.
-            if self.stream.pc != MASK or unit.busy:
-                progress = unit.execute() or progress
+            progress = unit.execute(draining=self.stream.pc == MASK) or progress
         self.ticks += 1
         if self.instruction is not None and self.instruction.finished:
             self.stream.advance()
