@@ -1,0 +1,27 @@
+# expect mem64 __mdma_result = 59
+function w $guarded(w %start, w %end, w %seed) {
+@start
+    jmp @test
+@test
+    %i =w phi @start %start, @body %next
+    %acc =w phi @start %seed, @body %sum
+    %again =w cultw %i, %end
+    jnz %again, @body, @done
+@body
+    %sum =w add %acc, %i
+    %next =w add %i, 1
+    jmp @test
+@done
+    %r =w add %acc, %i
+    ret %r
+}
+
+export function w $main() {
+@start
+    %a =w call $guarded(w 9, w 9, w 5)
+    %b =w call $guarded(w 3, w 4, w 7)
+    %c =w call $guarded(w 2, w 6, w 11)
+    %ab =w add %a, %b
+    %r =w add %ab, %c
+    ret %r
+}

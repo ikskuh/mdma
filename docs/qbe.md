@@ -41,8 +41,15 @@ Omitting the setting limits each STACK to one live compiler temporary.
 Latency estimates guide scheduling. The compiler checks ordering and
 capacity separately and uses hardware readiness to tolerate stalls.
 
-The optimizer promotes eligible scalar locals and schedules independent
-moves backward from their consumers. It keeps live values in FIFO homes
+After scalar promotion and SSA construction, the optimizer folds integer
+expressions and simplifies the control-flow graph. It lays out edge copies
+with their blocks, packs compatible moves with jumps, and rotates eligible
+two-block loops into a guarded bottom-tested form. Rotation currently handles
+at most two loop-carried values and a side-effect-free test and body.
+
+The scheduler compares backward placement from consumers with earlier
+issue of ready work on the critical path. It keeps ordered results in the
+producing FU's FIFO when its queue has room. It keeps live values in FIFO homes
 across control-flow edges when their lifetimes fit, and checks the queue
 state at each edge. It coalesces phi copies where possible. Multi-entry
 STASH layouts leave one free entry so they can rotate to the right value.

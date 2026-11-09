@@ -30,10 +30,16 @@ typedef struct {
 enum { SCHED_NODES = 192, SCHED_REGION = 24, SCHED_STASH = 7 };
 
 typedef struct {
+    enum { TERM_NONE, TERM_JUMP, TERM_PRED, TERM_CALL, TERM_RETURN } kind;
+    const char *target;
+} SchedTerm;
+
+typedef struct {
     int count, fifo_flow;
     SchedNode node[SCHED_NODES];
-    int live_out[4][SCHED_STASH];
-    int saved[8]; /* STACK_A values retained across a call, in push order. */ /* Retain the given node in each STASH at region exit. */
+    int live_out[4][SCHED_STASH]; /* STASH contents in FIFO order at region exit. */
+    int saved[8]; /* STACK_A values retained across a call, in push order. */
+    SchedTerm term;
 } SchedRegion;
 
 void schedule_profile(const char *path);

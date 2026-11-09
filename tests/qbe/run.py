@@ -52,6 +52,42 @@ class QbeTest(unittest.TestCase):
             self.assertIn('MUL.LO -> ARITH_', asm)
         self.assertEqual(compile_fixture(path, ()).stdout, ecp5)
 
+    def test_queued_fu_results_retire_in_order(self):
+        result = compile_fixture(HERE / 'schedule_fifo_order.ssa', ())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = list(parse_asm(result.stdout))
+        issues = [n for n, line in enumerate(lines) if any(m.dst == 'MUL.LHS' for m in line.ops)]
+        reads = [(n, m.dst) for n, line in enumerate(lines) for m in line.ops if m.src == 'MUL.LO']
+        self.assertEqual(len(issues), 2)
+        self.assertEqual([dst for _, dst in reads], ['ARITH_A.LHS', 'LOGIC_A.LHS'])
+        self.assertLess(issues[-1], reads[0][0])
+
+    def test_sum_loop_packs_control_edges(self):
+        result = compile_fixture(HERE / 'fifo_sum.ssa', ())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        sum_label = '__mdma_g1_73756d5f746f'
+        asm = result.stdout.split(sum_label + ':\n', 1)[1].split('__mdma_g0_6d61696e:', 1)[0]
+        lines = [line for line in parse_asm(asm) if line.ops]
+        predicates = [line for line in lines if line.predicate]
+        self.assertEqual(len(predicates), 2)
+        guard, back_edge = predicates
+        self.assertTrue(any(m.src == 'ZERO' and m.dst.startswith('STASH_') for m in guard.ops))
+        self.assertEqual(guard.immediate, back_edge.immediate)
+        self.assertNotIn(sum_label + '_e', asm)
+        self.assertTrue(any({m.dst for m in line.ops} >= {'CPU.PC', 'CPU.DISCARD'}
+                            for line in lines))
+
+        # A call target label cannot share CONST with a different argument.
+        main = result.stdout.split('__mdma_g0_6d61696e:', 1)[1]
+        call_lines = [line for line in parse_asm(main) if line.ops]
+        for n, line in enumerate(call_lines):
+            if line.immediate == '0xa':
+                self.assertFalse(any(m.dst in ('PC', 'CPU.PC') for m in line.ops))
+                self.assertEqual(call_lines[n + 1].immediate, sum_label)
+                break
+        else:
+            self.fail('missing literal argument 10')
+
     def test_stack_order_is_a_target_capability(self):
         path = HERE / 'schedule_stack.ssa'
         nested = compile_fixture(path, MODES[3]).stdout

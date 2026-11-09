@@ -108,10 +108,11 @@ typedef struct {
 } Uses;
 
 typedef struct {
-    int time, count, sync, write_mem;
+    int time, count, sync, write_mem, pred;
     struct Transfer {
         int sink_unit, source;
-        const char *sink, *port, *imm;
+        const char *sink, *port, *imm, *fixed;
+        int recirculate, last_read;
     } move[5];
     int writes[5], nwrites;
     const char *imm;
@@ -125,6 +126,7 @@ typedef struct {
     int live_out[4][SCHED_STASH];
     int saved[8];
     Bundle bundle[NODES];
+    SchedTerm term;
 } Schedule;
 
 static int
@@ -142,7 +144,7 @@ hardware_name(int unit)
 static void
 dependency(Schedule *s, int from, int to, int gap)
 {
-    assert(from < to);
+    assert(from != to);
     if (from && s->edge[from][to] < gap + 1)
         s->edge[from][to] = gap + 1;
 }
@@ -259,7 +261,7 @@ record_use(Uses *use, int at)
 }
 
 static int
-expand(Schedule *s, const SchedRegion *region, Uses *uses)
+expand(Schedule *s, const SchedRegion *region, Uses *uses, int reorder)
 {
     SchedNode input[SCHED_NODES + 1];
     Uses original[SCHED_NODES + 1] = {{0}};
@@ -281,9 +283,11 @@ expand(Schedule *s, const SchedRegion *region, Uses *uses)
         int next = later[unit][0], fourth = later[unit][3];
         /* Materialize outputs with several consumers or whose intended reads
          * would overtake another generation on the same result FIFO. */
+        int next_pop = next ? (hold[next] ? next : original[next].first) : 0;
         hold[i] = original[i].count > 1 ||
-                  (next && original[i].last >= (hold[next] ? next : original[next].first)) ||
-                  (fourth && original[i].last >= fourth);
+                  (next && (original[i].last == next_pop ||
+                            (!reorder && original[i].last > next_pop))) ||
+                  (!reorder && fourth && original[i].last >= fourth);
         if (hold[i] && !strcmp(input[i].result, "ADDR") && unit == PACK)
             return 0; /* PACK's siblings are only used together by a store. */
         for (int j = 3; j > 0; --j)
@@ -340,9 +344,9 @@ expand(Schedule *s, const SchedRegion *region, Uses *uses)
 }
 
 static int
-build_graph(Schedule *s, const Uses *uses)
+build_graph(Schedule *s, const Uses *uses, int reorder)
 {
-    int last[UNIT_COUNT] = {0}, pop[UNIT_COUNT] = {0}, history[UNIT_COUNT][4] = {{0}};
+    int last[UNIT_COUNT] = {0}, last_read[UNIT_COUNT] = {0}, pop[UNIT_COUNT] = {0}, history[UNIT_COUNT][4] = {{0}};
     for (int i = 1; i <= s->count; ++i) {
         const SchedNode *n = &s->node[i];
         int unit = n->unit, r = resource(unit);
@@ -362,19 +366,25 @@ build_graph(Schedule *s, const Uses *uses)
             if (bank >= STASH_A) {
                 if (previous == i)
                     return 0;
-                dependency(s, previous, i, 1);
+                dependency(s, previous, i, last_read[bank] == src ||
+                           (!last_read[bank] && src < previous) ? 0 : 1);
                 last[bank] = i;
+                last_read[bank] = src;
             }
             dependency(s, src, i, timing[bank].latency);
         }
         int previous = last[r];
         if (previous != i)
-            dependency(s, previous, i, !previous || unit >= STASH_A ? 1 :
-                       timing[s->node[previous].unit].interval);
+            dependency(s, previous, i,
+                       unit >= STASH_A && unit < STACK_A && last_read[r] &&
+                       uses[last_read[r]].last == previous ? 0 :
+                       !previous || unit >= STASH_A ? 1 : timing[s->node[previous].unit].interval);
         last[r] = i;
+        last_read[r] = 0;
         if (unit >= STASH_A || !n->result)
             continue;
-        if (!uses[i].count || pop[unit] >= uses[i].first || history[unit][3] >= i)
+        if (!uses[i].count || pop[unit] == uses[i].first || history[unit][3] == i ||
+            (!reorder && (pop[unit] > uses[i].first || history[unit][3] > i)))
             return 0;
         dependency(s, pop[unit], uses[i].first, 1);
         pop[unit] = uses[i].last;
@@ -389,15 +399,24 @@ build_graph(Schedule *s, const Uses *uses)
 static int
 add_move(Bundle *b, struct Transfer m)
 {
-    if (b->count == 5)
-        return 0;
     for (int j = 0; j < b->count; ++j) {
         struct Transfer old = b->move[j];
+        if (m.source && old.source == m.source) {
+            if (m.recirculate && (old.recirculate || old.last_read))
+                return 1;
+            if (m.last_read && old.recirculate) {
+                --b->count;
+                memmove(&b->move[j], &b->move[j + 1], (b->count - j) * sizeof *b->move);
+                --j;
+                continue;
+            }
+            b->sync = 1;
+        }
         if (old.sink_unit == m.sink_unit && !strcmp(old.sink, m.sink))
             return 0;
-        if (m.source && old.source == m.source)
-            b->sync = 1;
     }
+    if (b->count == 5)
+        return 0;
     if (m.imm && b->imm && strcmp(m.imm, b->imm))
         return 0;
     if (m.imm)
@@ -416,7 +435,11 @@ pack(Bundle *b, const Schedule *s, const Uses *uses, int at)
     for (int j = 0; j < n->count; ++j) {
         SchedMove m = n->move[j];
         int src = m.value.node;
-        if (!add_move(b, (struct Transfer){unit, src, m.sink, m.value.port, m.value.imm}))
+        int condition = !strcmp(m.sink, "CPU.COND");
+        struct Transfer move = {.sink_unit = condition ? CONTROL : unit, .source = src,
+                                .sink = condition ? "COND" : m.sink, .port = m.value.port,
+                                .imm = m.value.imm, .last_read = src && uses[src].last == at};
+        if (!add_move(b, move))
             return 0;
         if (!src || s->node[src].unit < STASH_A || uses[src].last == at)
             continue;
@@ -426,7 +449,8 @@ pack(Bundle *b, const Schedule *s, const Uses *uses, int at)
         if (k != nseen)
             continue;
         seen[nseen++] = src;
-        if (!add_move(b, (struct Transfer){s->node[src].unit, src, "IN", NULL, NULL}))
+        if (!add_move(b, (struct Transfer){.sink_unit = s->node[src].unit, .source = src,
+                                           .sink = "IN", .recirculate = 1}))
             return 0;
     }
     if (n->result)
@@ -465,6 +489,84 @@ latest_first(Schedule *s, const Uses *uses)
     return 1;
 }
 
+/* Rank ready work by the remaining latency on the dependency graph. In the
+ * relaxed graph, a FIFO retirement edge may point backward in IL order. */
+static int
+earliest_first(Schedule *s, const Uses *uses)
+{
+    int predecessors[NODES] = {0}, order[NODES], count = 0;
+    int critical[NODES] = {0}, ready[NODES] = {0}, when[NODES] = {0};
+    for (int i = 1; i <= s->count; ++i) {
+        if (!s->node[i].count)
+            continue;
+        for (int j = 1; j <= s->count; ++j)
+            if (s->edge[j][i] && s->node[j].count)
+                ++predecessors[i];
+        if (!predecessors[i])
+            order[count++] = i;
+    }
+    memcpy(when, predecessors, sizeof when);
+    for (int n = 0; n < count; ++n)
+        for (int j = 1; j <= s->count; ++j)
+            if (s->edge[order[n]][j] && --when[j] == 0)
+                order[count++] = j;
+    for (int i = 1; i <= s->count; ++i)
+        if (when[i])
+            return 0;
+    for (int n = count; n-- > 0;) {
+        int i = order[n];
+        for (int j = 1; j <= s->count; ++j)
+            if (s->edge[i][j] && critical[i] < critical[j] + s->edge[i][j])
+                critical[i] = critical[j] + s->edge[i][j];
+    }
+    int time = 0, placed = 0;
+    Bundle bundle = {0};
+    while (placed < count) {
+        int best = 0, next = INT_MAX;
+        Bundle packed = {0};
+        for (int i = 1; i <= s->count; ++i) {
+            if (!s->node[i].count || predecessors[i] != 0)
+                continue;
+            if (ready[i] > time) {
+                if (ready[i] < next)
+                    next = ready[i];
+                continue;
+            }
+            if (best && critical[i] <= critical[best])
+                continue;
+            Bundle trial = bundle;
+            if (pack(&trial, s, uses, i)) {
+                best = i;
+                packed = trial;
+            }
+        }
+        if (!best) {
+            if (bundle.count) {
+                s->bundle[s->bundle_count++] = bundle;
+                bundle = (Bundle){0};
+                ++time;
+            } else if (next != INT_MAX) {
+                time = next;
+            } else
+                return 0;
+            continue;
+        }
+        bundle = packed;
+        predecessors[best] = -1;
+        ++placed;
+        for (int j = 1; j <= s->count; ++j)
+            if (s->edge[best][j]) {
+                int earliest = time + s->edge[best][j] - 1;
+                if (ready[j] < earliest)
+                    ready[j] = earliest;
+                --predecessors[j];
+            }
+    }
+    if (bundle.count)
+        s->bundle[s->bundle_count++] = bundle;
+    return 1;
+}
+
 static int
 bundle_order(const void *a, const void *b)
 {
@@ -483,6 +585,103 @@ bundle_words(const Bundle *b)
             return 1;
     }
     return 2;
+}
+
+static void
+print_bundle(FILE *out, const Schedule *s, const Bundle *b)
+{
+    for (int j = 0; j < b->count; ++j) {
+        struct Transfer m = b->move[j];
+        if (j)
+            fputs(", ", out);
+        if (m.fixed)
+            fputs(m.fixed, out);
+        else if (m.source) {
+            const SchedNode *src = &s->node[m.source];
+            fprintf(out, "%s.%s", hardware_name(src->unit), m.port ? m.port : src->result);
+        } else
+            fputs(m.imm ? "CONST" : "ZERO", out);
+        fprintf(out, " -> %s.%s", hardware_name(m.sink_unit), m.sink);
+    }
+    if (b->sync || b->pred || b->imm) {
+        fputs(" [", out);
+        if (b->pred)
+            fputs(b->sync || b->imm ? "pred, " : "pred", out);
+        if (b->sync)
+            fputs(b->imm ? "sync, " : "sync", out);
+        if (b->imm)
+            fprintf(out, "imm=%s", b->imm);
+        fputc(']', out);
+    }
+    fputc('\n', out);
+}
+
+typedef struct {
+    FILE *out;
+    const Schedule *schedule;
+    Bundle pending;
+    int count;
+} Emission;
+
+static void
+emit_bundle(Emission *emit, const Bundle *bundle)
+{
+    if (emit->out && emit->pending.count)
+        print_bundle(emit->out, emit->schedule, &emit->pending);
+    emit->pending = *bundle;
+    ++emit->count;
+}
+
+static void
+repair(Emission *emit, int source, int sink, const char *port, int sync)
+{
+    static const char *const heads[] = {
+        "STASH_A.OUT", "STASH_B.OUT", "STASH_C.OUT", "STASH_D.OUT", "STACK_A.TOP"
+    };
+    Bundle b = {.count = 1, .sync = sync,
+                .move = {{.sink_unit = sink, .sink = port, .fixed = heads[source - STASH_A]}}};
+    emit_bundle(emit, &b);
+}
+
+static int
+emit_terminal(Emission *emit, int *words, int *cycles)
+{
+    SchedTerm term = emit->schedule->term;
+    if (term.kind != TERM_NONE) {
+        Bundle tail = emit->pending;
+        struct Transfer jump = {.sink_unit = CONTROL, .sink = "PC", .imm = term.target,
+                                .fixed = term.kind == TERM_RETURN ? "STACK_B.TOP" : NULL};
+        struct Transfer continuation = {.sink_unit = STACK_B, .sink = "PUSH", .fixed = "PC_NEXT"};
+        /* A terminal can share the last bundle of its own path only. Keep
+         * memory requests in their original retirement order. */
+        int safe = 1;
+        for (int i = 0; i < tail.count; ++i)
+            if (tail.move[i].sink_unit == MEM_READ)
+                safe = 0;
+        if (safe && add_move(&tail, jump) &&
+            (term.kind != TERM_CALL || add_move(&tail, continuation))) {
+            if (term.kind == TERM_PRED && emit->count > 1)
+                return 0;
+            tail.pred = term.kind == TERM_PRED;
+            tail.sync |= term.kind == TERM_CALL;
+            *words += bundle_words(&tail) - (emit->pending.count ? bundle_words(&emit->pending) : 0);
+            *cycles += !emit->pending.count;
+            emit->pending = tail;
+        } else {
+            if (term.kind == TERM_PRED && emit->count)
+                return 0;
+            Bundle jump_bundle = {.pred = term.kind == TERM_PRED, .sync = term.kind == TERM_CALL};
+            add_move(&jump_bundle, jump);
+            if (term.kind == TERM_CALL)
+                add_move(&jump_bundle, continuation);
+            *words += bundle_words(&jump_bundle);
+            ++*cycles;
+            emit_bundle(emit, &jump_bundle);
+        }
+    }
+    if (emit->out && emit->pending.count)
+        print_bundle(emit->out, emit->schedule, &emit->pending);
+    return 1;
 }
 
 typedef struct {
@@ -507,7 +706,7 @@ queue_clock(int *words, int *cycles, int ready)
 }
 
 static int
-select_head(FILE *out, int bank, Queue *q, int id, int *words, int *cycles)
+select_head(Emission *emit, int bank, Queue *q, int id, int *words, int *cycles)
 {
     int at = 0;
     while (at < q->count && q->id[at] != id)
@@ -519,14 +718,13 @@ select_head(FILE *out, int bank, Queue *q, int id, int *words, int *cycles)
         queue_pop(q);
         q->id[q->count] = old;
         q->ready[q->count++] = queue_clock(words, cycles, ready) + timing[bank].latency;
-        if (out)
-            fprintf(out, "%s.OUT -> %s.IN [sync]\n", unit_name[bank], unit_name[bank]);
+        repair(emit, bank, bank, "IN", 1);
     }
     return 1;
 }
 
 static int
-restore_order(FILE *out, int bank, Queue *q, const int *want, int have_saved, int *words, int *cycles)
+restore_order(Emission *emit, int bank, Queue *q, const int *want, int have_saved, int *words, int *cycles)
 {
     int count = 0;
     while (count < SCHED_STASH && want[count])
@@ -537,54 +735,30 @@ restore_order(FILE *out, int bank, Queue *q, const int *want, int have_saved, in
         return 1;
     if (have_saved)
         return 0;
-    if (out && stack_peak == 0)
+    if (emit->out && stack_peak == 0)
         stack_peak = 1;
     /* Extract each desired head in turn and append it without disturbing the
      * other entries. One balanced push/pop on STACK_A holds the extracted word. */
     for (int n = 0; n < count; ++n) {
         int first = q->id[0];
-        if (!select_head(out, bank, q, want[n], words, cycles))
+        if (!select_head(emit, bank, q, want[n], words, cycles))
             return 0;
         int saved = queue_clock(words, cycles, q->ready[0]) + timing[STACK_A].latency;
         queue_pop(q);
-        if (out)
-            fprintf(out, "%s.OUT -> STACK_A.PUSH\n", unit_name[bank]);
-        if (first != want[n] && !select_head(out, bank, q, first, words, cycles))
+        repair(emit, bank, STACK_A, "PUSH", 0);
+        if (first != want[n] && !select_head(emit, bank, q, first, words, cycles))
             return 0;
         q->id[q->count] = want[n];
         q->ready[q->count++] = queue_clock(words, cycles, saved) + timing[bank].latency;
-        if (out)
-            fprintf(out, "STACK_A.TOP -> %s.IN\n", unit_name[bank]);
+        repair(emit, STACK_A, bank, "IN", 0);
     }
     return !memcmp(q->id, want, count * sizeof *want);
-}
-
-static void
-print_bundle(FILE *out, const Schedule *s, const Bundle *b)
-{
-    for (int j = 0; j < b->count; ++j) {
-        struct Transfer m = b->move[j];
-        if (j)
-            fputs(", ", out);
-        if (m.source) {
-            const SchedNode *src = &s->node[m.source];
-            fprintf(out, "%s.%s", hardware_name(src->unit), m.port ? m.port : src->result);
-        } else
-            fputs(m.imm ? "CONST" : "ZERO", out);
-        fprintf(out, " -> %s.%s", hardware_name(m.sink_unit), m.sink);
-    }
-    if (b->sync || b->imm) {
-        fputs(b->sync ? " [sync" : " [", out);
-        if (b->imm)
-            fprintf(out, "%simm=%s", b->sync ? ", " : "", b->imm);
-        fputc(']', out);
-    }
-    fputc('\n', out);
 }
 
 static int
 verify(FILE *out, const Schedule *s, int *words, int *cycles)
 {
+    Emission emit = {.out = out, .schedule = s};
     Queue fifo[UNIT_COUNT] = {{0}};
     int service[UNIT_COUNT] = {0};
     *words = *cycles = 0;
@@ -609,7 +783,7 @@ verify(FILE *out, const Schedule *s, int *words, int *cycles)
             if (read[bank] && read[bank] != src)
                 return 0;
             if (bank >= STASH_A && bank < STACK_A && !read[bank] &&
-                !select_head(out, bank, q, src, words, cycles))
+                !select_head(&emit, bank, q, src, words, cycles))
                 return 0;
             int head = bank >= STACK_A ? q->count - 1 : 0;
             if (q->id[head] != src)
@@ -641,7 +815,7 @@ verify(FILE *out, const Schedule *s, int *words, int *cycles)
         }
         for (int j = 0; j < b->count; ++j) {
             struct Transfer m = b->move[j];
-            if (m.sink_unit >= STASH_A && read[m.sink_unit] && m.source == read[m.sink_unit]) {
+            if (m.recirculate) {
                 Queue *q = &fifo[m.sink_unit];
                 if (q->count == SCHED_STASH)
                     return 0;
@@ -664,8 +838,7 @@ verify(FILE *out, const Schedule *s, int *words, int *cycles)
             int start = next < service[MEM_READ] ? service[MEM_READ] : next;
             service[MEM_READ] = start + timing[MEM_WRITE].interval;
         }
-        if (out)
-            print_bundle(out, s, b);
+        emit_bundle(&emit, b);
         *words += bundle_words(b);
         *cycles = next + 1;
     }
@@ -678,12 +851,12 @@ verify(FILE *out, const Schedule *s, int *words, int *cycles)
     for (int bank = 0; bank < UNIT_COUNT; ++bank) {
         Queue *q = &fifo[bank];
         if (bank >= STASH_A && bank < STACK_A) {
-            if (!restore_order(out, bank, q, s->live_out[bank - STASH_A], count, words, cycles))
+            if (!restore_order(&emit, bank, q, s->live_out[bank - STASH_A], count, words, cycles))
                 return 0;
         } else if (bank != STACK_A && q->count)
             return 0;
     }
-    return 1;
+    return emit_terminal(&emit, words, cycles);
 }
 
 int
@@ -693,37 +866,79 @@ schedule_serial_read_wait(void)
     return timing[MEM_READ].latency > 2 ? timing[MEM_READ].latency - 2 : 0;
 }
 
+static int
+serial_schedule(Schedule *s, const Uses *uses)
+{
+    s->bundle_count = 0;
+    for (int i = 1; i <= s->count; ++i)
+        if (s->node[i].count) {
+            Bundle *b = &s->bundle[s->bundle_count++];
+            *b = (Bundle){0};
+            if (!pack(b, s, uses, i))
+                return 0;
+        }
+    return 1;
+}
+
+static int
+temporary_moves(const Schedule *s)
+{
+    int count = 0;
+    for (int i = 0; i < s->bundle_count; ++i)
+        for (int n = 0; n < s->bundle[i].count; ++n) {
+            struct Transfer move = s->bundle[i].move[n];
+            count += move.sink_unit >= STASH_A && move.sink_unit <= STACK_A;
+        }
+    return count;
+}
+
 int
 schedule_emit(FILE *out, const SchedRegion *region, int baseline_words, int baseline_cycles)
 {
-    if (!region->count)
+    if (!region->count && region->term.kind == TERM_NONE)
         return 1;
-    Schedule *s = emalloc(sizeof *s);
-    Uses uses[NODES] = {{0}};
-    int words, cycles;
-    s->fifo_flow = region->fifo_flow;
-    int expanded = expand(s, region, uses);
-    int ok = expanded && build_graph(s, uses) && latest_first(s, uses);
-    if (ok) {
-        qsort(s->bundle, s->bundle_count, sizeof *s->bundle, bundle_order);
-        ok = verify(NULL, s, &words, &cycles);
+    Schedule *work = emalloc(sizeof *work);
+    Schedule *best = emalloc(sizeof *best);
+    int best_cycles = INT_MAX, best_words = INT_MAX, best_moves = INT_MAX;
+    for (int candidate = 0; candidate < 4; ++candidate) {
+        if (candidate == 3 && (best_cycles != INT_MAX || baseline_cycles >= 0))
+            break;
+        memset(work, 0, sizeof *work);
+        work->fifo_flow = region->fifo_flow;
+        work->term = region->term;
+        Uses uses[NODES] = {{0}};
+        int reorder = candidate == 2;
+        if (!expand(work, region, uses, reorder))
+            continue;
+        int ok;
+        if (candidate == 3)
+            ok = serial_schedule(work, uses);
+        else if (!build_graph(work, uses, reorder))
+            continue;
+        else if (candidate == 0) {
+            ok = latest_first(work, uses);
+            qsort(work->bundle, work->bundle_count, sizeof *work->bundle, bundle_order);
+        } else
+            ok = earliest_first(work, uses);
+        int words, cycles;
+        if (!ok || !verify(NULL, work, &words, &cycles))
+            continue;
+        int moves = temporary_moves(work);
+        if (cycles < best_cycles || (cycles == best_cycles &&
+            (words < best_words || (words == best_words && moves < best_moves)))) {
+            best_cycles = cycles;
+            best_words = words;
+            best_moves = moves;
+            Schedule *swap = best;
+            best = work;
+            work = swap;
+        }
     }
-    if (!ok && expanded && baseline_cycles < 0) {
-        /* Replay one complete group per bundle before giving up a home. */
-        s->bundle_count = 0;
-        ok = 1;
-        for (int i = 1; ok && i <= s->count; ++i)
-            if (s->node[i].count) {
-                Bundle *b = &s->bundle[s->bundle_count++];
-                *b = (Bundle){0};
-                ok = pack(b, s, uses, i);
-            }
-        ok = ok && verify(NULL, s, &words, &cycles);
-    }
-    ok = ok && (baseline_cycles < 0 || cycles < baseline_cycles ||
-                (cycles == baseline_cycles && words < baseline_words));
+    int ok = best_cycles != INT_MAX && (baseline_cycles < 0 || best_cycles < baseline_cycles ||
+             (best_cycles == baseline_cycles && best_words < baseline_words));
     if (ok)
-        ok = verify(out, s, &words, &cycles);
-    free(s);
+        ok = verify(out, best, &best_words, &best_cycles);
+    free(work);
+    free(best);
     return ok;
 }

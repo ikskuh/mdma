@@ -1,0 +1,16 @@
+# expect mem64 __mdma_result = 101
+function w $pair(l %x, l %y) {
+@start
+    %a =l mul %x, 3
+    %b =l mul %y, 5
+    %c =l add %a, 7
+    %d =l xor %b, 2
+    %r =w add %c, %d
+    ret %r
+}
+
+export function w $main() {
+@start
+    %r =w call $pair(l 9, l 13)
+    ret %r
+}

@@ -1,13 +1,19 @@
 # expect mem64 __mdma_result = 166
-export function w $main() {
+function w $work(l %seed, l %shift) {
 @start
-    %a =l mul 7, 11
-    %b =l add 9, 13
-    %c =l shl 3, 5
+    %a =l mul %seed, 11
+    %b =l add %seed, 15
+    %c =l shl %shift, 5
     %d =l xor %c, 15
     %e =l add %a, %b
     %f =l sub %d, %e
     %g =l mul %f, %f
     %r =w add %g, %b
+    ret %r
+}
+
+export function w $main() {
+@start
+    %r =w call $work(l 7, l 3)
     ret %r
 }
