@@ -29,6 +29,8 @@ module mdma_coremark_tb;
     reg [63:0] start_pc, end_pc;
     integer words, list_word, matrix_word, state_word, result_word;
     integer clocks = 0, start_clock = -1, end_clock = -1;
+    integer fetch_clocks = 0, retire_clocks = 0, waiting_clocks = 0;
+    integer refill_clocks = 0, unready_clocks = 0, ready_clocks = 0;
 
     initial begin
         if (!$value$plusargs("image=%s", image) || !$value$plusargs("words=%d", words) ||
@@ -51,9 +53,29 @@ module mdma_coremark_tb;
             if (board.soc.cpu.pc == end_pc && end_clock < 0)
                 end_clock = clocks;
         end
+        if (start_clock >= 0 && end_clock < 0) begin
+            if (!board.soc.cpu.execute_valid) begin
+                fetch_clocks = fetch_clocks + 1;
+                if (board.soc.cpu.icache.busy)
+                    refill_clocks = refill_clocks + 1;
+                else if (!board.soc.cpu.cache_ready)
+                    unready_clocks = unready_clocks + 1;
+                else
+                    ready_clocks = ready_clocks + 1;
+            end else if (board.soc.cpu.done)
+                retire_clocks = retire_clocks + 1;
+            else
+                waiting_clocks = waiting_clocks + 1;
+        end
         if (halted) begin
             if (start_clock < 0 || end_clock <= start_clock)
                 $fatal(1, "CoreMark timing boundaries were not reached");
+            if (fetch_clocks + retire_clocks + waiting_clocks != end_clock - start_clock)
+                $fatal(1, "CoreMark profile does not cover the timed interval");
+            $display("PROFILE empty_execute=%0d retired=%0d waiting=%0d",
+                     fetch_clocks, retire_clocks, waiting_clocks);
+            $display("PROFILE fetch_refill=%0d fetch_unready=%0d fetch_ready=%0d",
+                     refill_clocks, unready_clocks, ready_clocks);
             $display("COREMARK %0d %0d %h %h %h %h", end_clock - start_clock, clocks,
                      memory[list_word], memory[matrix_word], memory[state_word], memory[result_word]);
             $finish;

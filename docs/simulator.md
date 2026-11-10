@@ -25,10 +25,10 @@ Options:
 - `--max-ticks N`: execution limit, default 100000.
 - `--memory-size N`: memory size in bytes, default the binary's length. Additional
   bytes are zero-filled; a size smaller than the image is rejected.
-- `--latency UNIT=TICKS`: override a unit's latency; repeat for multiple units.
-  Use a unit name (`MEM`), family name (`ARITH`), or instance name (`ARITH_A`).
-  Instance overrides take precedence over family overrides. Repeated overrides
-  for the same name use the last value.
+- `--profile FILE` loads the same timing file as `qbe-mdma --schedule FILE`.
+- `--latency UNIT=TICKS` overrides the latency of a unit or family. Instance
+  overrides such as `ARITH_A` and `MEM_READ` take precedence over family
+  overrides such as `ARITH` and `MEM`. The last override for a name wins.
 - `--trace`: print tick and PC to stderr.
 - `--dump-memory FILE`: save final memory after successful halt.
 
@@ -71,11 +71,11 @@ consumes it.
 
 ## Unit latency
 
-All FIFOs have capacity eight. Each unit has one operation in flight at a time.
-It consumes its inputs when starting, counts down once per unit phase, and
-computes and publishes its results at completion. Starting counts as the first
-phase: latency 1 preserves the original behavior. A unit starts its next operation
-no earlier than the tick after completion. Other units continue independently.
+All FIFOs have capacity eight. A unit takes its inputs when it starts an
+operation. Starting counts as the first tick of latency, and instructions
+can read the result on the tick after completion. The issue interval sets
+the minimum spacing between starts. An interval shorter than the latency
+allows multiple operations in flight, with results published in issue order.
 
 Default latencies (ticks):
 
@@ -86,23 +86,26 @@ Default latencies (ticks):
 | DIV, DIVS | 7 |
 | MEM | 4 |
 
-For example:
+With the built-in timings, the issue interval equals the latency. A timing
+profile provides both values per unit, including separate `MEM_READ` and
+`MEM_WRITE` rows. The `stack_push_ordered` entry is a QBE scheduling hint.
+When combined with a profile, `--latency` changes only the latency column.
 
 ```sh
-python src/simulator/simulator.py program.bin --latency MUL=5 --latency MEM=8
+python src/simulator/simulator.py program.bin --profile src/qbe/profiles/ecp5.conf
 ```
 
-Python callers can use
-`Simulator(image, latencies={"MUL": 5, "MEM": 8, "ARITH_A": 2})`.
-Overrides must name known units and contain positive integer tick counts.
-Subclasses specify their own `default_latency`; the shared execution loop handles
-countdown and output capacity. `State` still contains only endpoint arrays.
+Python callers can pass the same path as `Simulator(image, profile=path)` and
+optionally pass `latencies={"MUL": 5, "ARITH_A": 2}`. The ECP5 profile models
+FU timing. The Python runner still fetches instructions immediately. Use
+`--rtl-timing ecp5` for the RTL execution path.
 
 MEM queues a load when `READ` is available and queues a store when `WRITE`,
 `CHUNK`, and `MASK` are all available. Requests execute in the order they
 became ready, including requests queued while MEM was busy. A load and store
-that become ready in the same tick share one operation. At completion, MEM
-reads the old chunk before applying the store. Instruction fetching is
+that become ready in the same tick share one operation, using the longer
+latency and issue interval of the two rows. At completion, MEM reads the old
+chunk before applying the store. Instruction fetching is
 immediate and independent of MEM latency. STACK uses LIFO output ordering and
 STASH uses FIFO ordering.
 

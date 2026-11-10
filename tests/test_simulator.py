@@ -305,6 +305,55 @@ CMP.EQ -> STASH_A, CMP.NE -> STASH_B [sync]''')
             with self.subTest(argument=argument), self.assertRaises(argparse.ArgumentTypeError):
                 parse_latency(argument)
 
+    def test_profile_pipelines_results_in_order(self):
+        profile = ROOT / 'src/qbe/profiles/ecp5.conf'
+        image = assemble('''
+CONST -> ARITH_A.LHS, CONST -> ARITH_A.RHS [imm=3]
+CONST -> ARITH_A.LHS, CONST -> ARITH_A.RHS [imm=5]
+''' + HALT)
+        sim = Simulator(image, profile=profile, latencies={'ARITH': 6, 'ARITH_A': 5})
+        unit = sim.state.sources[SOURCE_BY_NAME['ARITH_A.ADD'].index].unit
+        for _ in range(4):
+            sim.tick()
+        self.assertFalse(unit.results)
+        sim.tick()
+        self.assertEqual([value['ADD'] for value in unit.results], [6])
+        sim.tick()
+        self.assertEqual([value['ADD'] for value in unit.results], [6, 10])
+
+    def test_profile_separates_memory_read_and_write_timing(self):
+        source = '''
+CONST -> MEM.READ [imm=cell]
+CONST -> MEM.WRITE, ZERO -> MEM.CHUNK, ZERO -> MEM.MASK [imm=cell]
+CONST -> MEM.READ [imm=cell]
+CONST -> PC [imm=-1]
+cell: .word 42
+'''
+        image = assemble(source)
+        with tempfile.TemporaryDirectory() as directory:
+            profile = Path(directory) / 'timing.conf'
+            original = (ROOT / 'src/qbe/profiles/simulator.conf').read_text()
+            profile.write_text(original.replace('MEM_READ 4 4', 'MEM_READ 2 4')
+                               .replace('MEM_WRITE 4 4', 'MEM_WRITE 5 6'))
+            sim = Simulator(image, profile=profile)
+            for _ in range(2):
+                sim.tick()
+            self.assertEqual(result(sim, 'MEM.CHUNK'), 42)
+            for _ in range(6):
+                sim.tick()
+            self.assertEqual(sim.memory[-8], 42)
+            sim.tick()
+            self.assertEqual(sim.memory[-8], 0)
+            for _ in range(2):
+                sim.tick()
+            self.assertFalse(sim.state.sources[SOURCE_BY_NAME['MEM.CHUNK'].index].ready({}))
+            sim.tick()
+            self.assertEqual(result(sim, 'MEM.CHUNK'), 0)
+
+            profile.write_text(original.replace('MEM_READ 4 4', 'MEM_READ 4 0'))
+            with self.assertRaisesRegex(SimulationError, 'expected UNIT LATENCY ISSUE_INTERVAL'):
+                Simulator(image, profile=profile)
+
     def test_errors_and_limits(self):
         for index in (59, 60):
             word = (63 << 6) | index  # Reserved source routed to DISCARD.
@@ -339,6 +388,7 @@ CMP.EQ -> STASH_A, CMP.NE -> STASH_B [sync]''')
             output = Path(directory) / 'result.bin'
             image.write_bytes(assemble(HALT))
             process = subprocess.run([sys.executable, str(ROOT / 'src/simulator/simulator.py'),
+                                      '--profile', str(ROOT / 'src/qbe/profiles/ecp5.conf'),
                                       str(image), '--latency', 'MUL=5', '--latency', 'MEM=8',
                                       '--dump-memory', str(output)], capture_output=True, text=True)
             self.assertEqual(process.returncode, 0, process.stderr)

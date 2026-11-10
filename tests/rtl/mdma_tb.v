@@ -65,7 +65,8 @@ module mdma_tb;
                         tail <= tail + 1'b1;
                     end
                     if (dut.publish[fu]) begin
-                        $display("LATENCY %0d %0d", fu, cycles - start_clock[head] + 1);
+                        $display("LATENCY %0d %0d", fu,
+                                 dut.take[fu] && head == tail ? 1 : cycles - start_clock[head] + 1);
                         head <= head + 1'b1;
                     end
                 end
@@ -132,6 +133,34 @@ module mdma_tb;
         end
     end
 
+    reg [63:0] alu_producer, alu_consumer;
+    integer alu_unit, alu_source, alu_sink;
+    integer alu_round = 0, alu_dispatched = -1, alu_ready = -1;
+    integer alu_consumed = -1, burst_count = 0, burst_first = -1, burst_last = -1;
+    always @(posedge clk) if (!reset && $test$plusargs("alu_latency")) begin
+        if (dut.execute_valid && dut.pc == alu_producer && dut.dispatch_push[alu_sink]) begin
+            alu_round = alu_round + 1;
+            if (alu_round == 3)
+                alu_dispatched = cycles;
+        end
+        if (alu_round == 3 && dut.source_ready[alu_source] && alu_ready < 0)
+            alu_ready = cycles;
+        if (alu_round == 3 && dut.execute_valid && dut.pc == alu_consumer && dut.result_pop[alu_unit])
+            alu_consumed = cycles;
+        if (alu_consumed >= 0 && dut.take[alu_unit]) begin
+            if (burst_count == 0)
+                burst_first = cycles;
+            burst_count = burst_count + 1;
+            burst_last = cycles;
+        end
+        if (alu_round == 4) begin
+            $display("BENCH FU %0d ready=%0d use=%0d burst=%0d/%0d",
+                     alu_unit, alu_ready - alu_dispatched,
+                     alu_consumed - alu_dispatched, burst_count, burst_last - burst_first);
+            $finish;
+        end
+    end
+
     initial begin
         if (!$value$plusargs("image=%s", image_path) || !$value$plusargs("dump=%s", dump_path) ||
             !$value$plusargs("words=%d", words) || words < 1 || words > 16384)
@@ -139,6 +168,14 @@ module mdma_tb;
         if ($test$plusargs("five_wide")) begin
             if (!$value$plusargs("first_pc=%d", first_pc) || !$value$plusargs("second_pc=%d", second_pc))
                 $fatal(1, "throughput benchmark needs both dispatch addresses");
+        end
+        if ($test$plusargs("alu_latency")) begin
+            if (!$value$plusargs("alu_producer=%d", alu_producer) ||
+                !$value$plusargs("alu_consumer=%d", alu_consumer) ||
+                !$value$plusargs("alu_unit=%d", alu_unit) ||
+                !$value$plusargs("alu_source=%d", alu_source) ||
+                !$value$plusargs("alu_sink=%d", alu_sink))
+                $fatal(1, "ALU benchmark needs addresses and port indices");
         end
         if (!$value$plusargs("max_clocks=%d", max_clocks))
             max_clocks = 250000;

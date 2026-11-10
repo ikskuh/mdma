@@ -1,0 +1,44 @@
+# expect mem64 __mdma_result = 0xc1109443
+# Fold the zero-trip, both single-trip branches, and a wrapping 32-trip case.
+function w $mix_loop(w %n, w %seed, w %factor) {
+@entry
+    jmp @test
+@test
+    %count =w phi @entry %n, @next %remaining
+    %x =w phi @entry %seed, @next %mixed
+    %acc =w phi @entry 17, @next %updated
+    jnz %count, @body, @done
+@body
+    %product =w mul %x, %factor
+    %mixed =w add %product, %count
+    %odd =w and %mixed, 1
+    %remaining =w sub %count, 1
+    jnz %odd, @add, @xor
+@add
+    %added =w add %acc, %mixed
+    jmp @next
+@xor
+    %xored =w xor %acc, %mixed
+    jmp @next
+@next
+    %updated =w phi @add %added, @xor %xored
+    jmp @test
+@done
+    %result =w xor %acc, %x
+    ret %result
+}
+
+export function w $main() {
+@entry
+    %zero =w call $mix_loop(w 0, w 2147483649, w 2654435761)
+    %even =w call $mix_loop(w 1, w 1, w 5)
+    %odd =w call $mix_loop(w 1, w 2, w 5)
+    %many =w call $mix_loop(w 32, w 305419896, w 2654435761)
+    %a =w mul %zero, 31
+    %b =w add %a, %even
+    %c =w mul %b, 31
+    %d =w add %c, %odd
+    %e =w mul %d, 31
+    %result =w add %e, %many
+    ret %result
+}

@@ -14,7 +14,7 @@ ROOT = PORT.parents[2]
 UPSTREAM = ROOT / 'vendor/coremark'
 sys.path[:0] = [str(ROOT / 'src/assembler'), str(ROOT / 'src/simulator')]
 from mdma_asm import MoveDensity, assemble_with_labels
-from rtl_runner import RTL, prepare, write_image
+from rtl_runner import RTL, prepare, rtl_defines, write_image
 from simulator import Simulator
 
 
@@ -25,8 +25,8 @@ def exported(name):
     return '__mdma_g0_' + name.encode().hex()
 
 
-def functional(image, labels, start_pc, end_pc):
-    sim = Simulator(image)
+def functional(image, labels, start_pc, end_pc, profile):
+    sim = Simulator(image, profile=profile)
     start = end = None
     while not sim.halted and sim.ticks < 50_000_000:
         if sim.instruction is None:
@@ -53,7 +53,7 @@ def ecp5(work, image, labels, start_pc, end_pc):
     bench = ROOT / 'tests/rtl/mdma_coremark_tb.v'
     command = [verilator, '--binary', '--timing', '-O3', '-CFLAGS', '-O3', '-j', '4',
                '-Wno-fatal', '--top-module', 'mdma_coremark_tb', '--Mdir', obj, f'-I{work}',
-               *sorted(RTL.glob('*.v')), bench]
+               *rtl_defines(), *sorted(RTL.glob('*.v')), bench]
     build = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     if build.returncode:
         raise ValueError(f'Verilator build failed:\n{build.stdout}')
@@ -66,6 +66,9 @@ def ecp5(work, image, labels, start_pc, end_pc):
     match = re.search(r'^COREMARK (\d+) (\d+) ((?:[0-9a-fA-F]+ ?){4})$', result.stdout, re.MULTILINE)
     if result.returncode or not match:
         raise ValueError(f'ECP5 simulation failed:\n{result.stdout}')
+    for line in result.stdout.splitlines():
+        if line.startswith('PROFILE '):
+            print(line, flush=True)
     return int(match[1]), int(match[2]), [int(value, 16) for value in match[3].split()]
 
 
@@ -110,7 +113,8 @@ def main():
         if args.ecp5:
             timed, total, values = ecp5(work, image, checks, start, end)
         else:
-            timed, total, values = functional(image, checks, start, end)
+            timed, total, values = functional(image, checks, start, end,
+                                               None if args.no_schedule else profile)
 
     for name, expected, actual in zip(CRCS, CRCS.values(), values):
         if actual != expected:

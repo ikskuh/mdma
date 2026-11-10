@@ -1,6 +1,7 @@
 """Host runner for the FIFO-based MDMA simulator."""
 
 import argparse
+import re
 import subprocess
 import sys
 import tempfile
@@ -19,25 +20,65 @@ SimulationError = core.SimulationError
 State = core.State
 
 
+MEM_TIMINGS = ('MEM_READ', 'MEM_WRITE')
+PROFILE_UNITS = {str(unit) for unit in core.INSTANCES} - {'MEM'} | set(MEM_TIMINGS)
+
+
+def read_profile(path):
+    timings = {}
+    seen_stack = False
+    with Path(path).open(encoding='utf-8') as profile:
+        for line, raw in enumerate(profile, 1):
+            row = raw.partition('#')[0].split()
+            if not row:
+                continue
+            name, *fields = row
+            location = f'{path}:{line}'
+            if name == 'stack_push_ordered':
+                if seen_stack or fields not in (['yes'], ['no']):
+                    raise SimulationError(f'{location}: expected one stack_push_ordered yes/no entry')
+                seen_stack = True
+                continue
+            if name not in PROFILE_UNITS:
+                raise SimulationError(f'{location}: unknown unit {name}')
+            if name in timings:
+                raise SimulationError(f'{location}: duplicate unit {name}')
+            if len(fields) != 2 or any(not re.fullmatch(r'\+?[0-9]+', value) or
+                                       not 1 <= int(value) <= 10000 for value in fields):
+                raise SimulationError(f'{location}: expected UNIT LATENCY ISSUE_INTERVAL for {name}')
+            timings[name] = tuple(map(int, fields))
+    missing = sorted(PROFILE_UNITS - timings.keys())
+    if missing:
+        raise SimulationError(f'{path}: missing unit {missing[0]}')
+    return timings
+
+
 class Simulator(core.SimulatorCore):
-    def __init__(self, image: bytes, memory_size=None, latencies=None):
+    def __init__(self, image: bytes, memory_size=None, latencies=None, *, profile=None):
         if memory_size is not None and memory_size < len(image):
             raise SimulationError('memory size is smaller than image')
         memory = bytearray(image)
         memory.extend(b'\0' * ((memory_size or len(image)) - len(image)))
         latencies = {} if latencies is None else latencies
-        allowed = set(core.UNIT_TYPES) | {str(instance) for instance in core.INSTANCES}
+        allowed = core.UNIT_TYPES.keys() | PROFILE_UNITS
         for name, latency in latencies.items():
             if name not in allowed:
                 raise SimulationError(f'unknown unit latency override {name!r}')
             if type(latency) is not int or latency < 1:
                 raise SimulationError('unit latency must be a positive integer')
-        unit_latencies = {}
+        configured = {} if profile is None else read_profile(profile)
+        timings = {}
         for instance in core.INSTANCES:
             family = instance.unit.name
             default = core.UNIT_TYPES[family].default_latency
-            unit_latencies[instance] = latencies.get(str(instance), latencies.get(family, default))
-        super().__init__(memory, unit_latencies)
+            names = MEM_TIMINGS if family == 'MEM' else (str(instance),)
+            timing = []
+            for name in names:
+                latency, interval = configured.get(name, (default, default))
+                latency = latencies.get(name, latencies.get(family, latency))
+                timing.extend((latency, interval if configured else latency))
+            timings[instance] = timing
+        super().__init__(memory, timings)
 
     def tick(self):
         return False if self.halted else super().tick()
@@ -91,6 +132,7 @@ def main():
     parser.add_argument('--memory-size', type=int, help='zero-filled memory size in bytes (default: image size)')
     parser.add_argument('--latency', type=parse_latency, action='append', default=[], metavar='UNIT=TICKS',
                         help='override unit/family latency; repeatable')
+    parser.add_argument('--profile', type=Path, help='load a QBE latency and issue-interval profile')
     parser.add_argument('--trace', action='store_true')
     parser.add_argument('--rtl-timing', choices=('ecp5',), help='execute the RTL with zero-wait Wishbone slaves')
     parser.add_argument('--dump-memory', type=Path, help='write final memory after successful halt')
@@ -98,10 +140,11 @@ def main():
     if args.max_ticks <= 0 or (args.memory_size is not None and args.memory_size <= 0):
         parser.error('tick limit and memory size must be positive')
     try:
-        simulator = Simulator(args.input.read_bytes(), args.memory_size, latencies=dict(args.latency))
+        if args.rtl_timing and (args.latency or args.profile is not None):
+            raise ValueError('RTL functional-unit latencies are fixed by the design')
+        simulator = Simulator(args.input.read_bytes(), args.memory_size,
+                              latencies=dict(args.latency), profile=args.profile)
         if args.rtl_timing:
-            if args.latency:
-                raise ValueError('RTL functional-unit latencies are fixed by the design')
             clocks, memory = run_rtl(simulator.memory, args.max_ticks, args.trace)
             if args.dump_memory:
                 args.dump_memory.write_bytes(memory)

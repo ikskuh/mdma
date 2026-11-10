@@ -143,10 +143,11 @@ def read_word(memory, address):
 class Unit:
     default_latency = 1
 
-    def __init__(self, instance, state, memory, latency):
+    def __init__(self, instance, state, memory, latency, interval):
         self.latency = latency
-        self.pending = None
-        self.remaining = 0
+        self.interval = interval
+        self.pending = deque()
+        self.clock = self.next_issue = 0
         self.inputs = {}
         self.outputs = {}
         self.results = deque()
@@ -162,7 +163,7 @@ class Unit:
 
     @property
     def busy(self):
-        return self.pending is not None
+        return bool(self.pending)
 
     @property
     def has_complete_request(self):
@@ -171,23 +172,28 @@ class Unit:
     def take_inputs(self, draining=False):
         if not self.has_complete_request:
             return None
-        if len(self.results) >= DEPTH and not draining:
+        if len(self.results) + len(self.pending) >= DEPTH and not draining:
             return None
         return [queue.values.popleft() for queue in self.inputs.values()]
 
+    def timing(self, *inputs):
+        return self.latency, self.interval
+
     def execute(self, draining=False):
-        if not self.busy:
-            self.pending = self.take_inputs(draining=draining)
-            if self.pending is None:
-                return False
-            self.remaining = self.latency
-        self.remaining -= 1
-        if self.remaining == 0:
-            results = self.compute(*self.pending)
+        self.clock += 1
+        if self.clock >= self.next_issue:
+            inputs = self.take_inputs(draining=draining)
+            if inputs is not None:
+                latency, interval = self.timing(*inputs)
+                self.next_issue = self.clock + interval
+                self.pending.append((self.clock + latency - 1, inputs))
+        active = self.busy
+        while self.pending and self.pending[0][0] <= self.clock:
+            _, inputs = self.pending.popleft()
+            results = self.compute(*inputs)
             if results and len(self.results) < DEPTH:
                 self.results.append({name: int(value) & MASK for name, value in results.items()})
-            self.pending = None
-        return True
+        return active or (self.clock < self.next_issue and self.has_complete_request)
 
 
 class ArithmeticUnit(Unit):
@@ -280,8 +286,9 @@ class StackUnit(Unit):
 class MemoryUnit(Unit):
     default_latency = 4
 
-    def __init__(self, instance, state, memory, latency):
-        super().__init__(instance, state, memory, latency)
+    def __init__(self, instance, state, memory, latency, interval, write_latency, write_interval):
+        super().__init__(instance, state, memory, latency, interval)
+        self.write_timing = write_latency, write_interval
         self.memory = memory
         self.read_queue = self.inputs['READ'].values
         self.store_queues = tuple(self.inputs[name].values for name in ('WRITE', 'CHUNK', 'MASK'))
@@ -308,14 +315,23 @@ class MemoryUnit(Unit):
         if not self.requests:
             return None
         read, write = self.requests[0]
-        if read and len(self.results) >= DEPTH and not draining:
-            return None
+        if read and not draining:
+            reserved = sum(inputs[0] is not None for _, inputs in self.pending)
+            if len(self.results) + reserved >= DEPTH:
+                return None
         self.requests.popleft()
         self.queued_reads -= read
         self.queued_stores -= write
         address = self.read_queue.popleft() if read else None
         store = tuple(queue.popleft() for queue in self.store_queues) if write else None
         return address, store
+
+    def timing(self, address, store):
+        if store is None:
+            return self.latency, self.interval
+        if address is None:
+            return self.write_timing
+        return max(self.latency, self.write_timing[0]), max(self.interval, self.write_timing[1])
 
     def compute(self, address, store):
         results = {}
@@ -411,11 +427,11 @@ INSTANCES = tuple(dict.fromkeys(info.unit for info in SINK_BY_INDEX.values() if 
 
 
 class SimulatorCore:
-    def __init__(self, memory, latencies):
+    def __init__(self, memory, timings):
         self.memory = memory
         self.state = State([Reserved() for _ in range(64)], [Reserved() for _ in range(64)])
         self.stream = BinaryStream(self.memory, self.state)
-        self.units = [UNIT_TYPES[instance.unit.name](instance, self.state, self.memory, latencies[instance])
+        self.units = [UNIT_TYPES[instance.unit.name](instance, self.state, self.memory, *timings[instance])
                       for instance in INSTANCES]
         self.instruction = None
         self.ticks = 0

@@ -197,11 +197,12 @@ class QbeTest(unittest.TestCase):
     def test_bad_profiles(self):
         path = HERE / 'schedule_interleave.ssa'
         profile = (PROFILES / 'ecp5.conf').read_text()
+        arith = next(row for row in profile.splitlines() if row.startswith('ARITH_A '))
         for old, new, error in (
-            ('ARITH_A 5 1', 'ARITH_A 0 1', 'expected UNIT LATENCY ISSUE_INTERVAL'),
-            ('ARITH_A 5 1', 'ARITH_A 5 1\nARITH_A 5 1', 'duplicate unit ARITH_A'),
-            ('ARITH_A 5 1', 'ARITH_X 5 1', 'unknown unit ARITH_X'),
-            ('ARITH_A 5 1', '', 'missing unit ARITH_A'),
+            (arith, 'ARITH_A 0 1', 'expected UNIT LATENCY ISSUE_INTERVAL'),
+            (arith, arith + '\n' + arith, 'duplicate unit ARITH_A'),
+            (arith, arith.replace('ARITH_A', 'ARITH_X'), 'unknown unit ARITH_X'),
+            (arith, '', 'missing unit ARITH_A'),
         ):
             with self.subTest(error=error), tempfile.TemporaryDirectory() as directory:
                 bad = Path(directory) / 'bad.conf'

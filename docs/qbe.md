@@ -24,6 +24,8 @@ dynamic allocations.
 ## Scheduling
 
 Scheduling is enabled by default with the embedded ECP5 board profile.
+The profile targets the default fast ALUs, with two CPU clocks from dispatch
+to dependent use and one request per clock.
 Use `--schedule PATH` to select another profile, such as
 `src/qbe/profiles/simulator.conf`, or `--no-schedule` to use the original
 serial lowering and memory calling convention. Each profile supplies one
@@ -110,4 +112,5 @@ a single-iteration kernel run using simulated SRAM.
 
 Each CoreMark recipe uses its matching profile by default. Pass
 `--no-schedule` for the baseline or `--schedule PATH` for a custom profile.
+In the Python run, the same profile also sets simulator FU timings.
 The runner reports image size and code efficiency before timing the run.

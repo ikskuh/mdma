@@ -29,9 +29,9 @@ writes at dispatch and updates its RAM write pointer at writeback. Its read
 pointer advances independently on pops. STACK reserves its top address at
 dispatch and writes that RAM entry at writeback. Both storage units forward
 pending writes when they are the next value to read. Ordinary FUs pop operands
-in parallel, compute siblings in parallel,
-then push the result as one entry. SHIFT adds a second compute stage to its
-barrel shifter.
+in parallel, compute siblings in parallel, and enqueue the result generation
+on the same edge in the default fast mode. Operands can come directly from
+writeback when no older token is queued.
 
 The four math units have separate clock inputs on `mdma_ecp5.math_clk[3:0]`.
 Bits 0 through 3 are MUL, MULS, DIV, and DIVS. Each has dedicated dual-clock
@@ -59,6 +59,85 @@ independent Python simulator. The separate benchmark reports five-wide issue,
 FU latency, and the time between a storage push and its visibility.
 Timing changes do not affect behavior-suite pass criteria.
 
+Set `MDMA_FAST_ALU=1` for writeback operand forwarding and direct ALU result
+enqueue with a two-stage SHIFT. Set `MDMA_FAST_ALU=2` to also use a single
+SHIFT compute stage. Mode `2` is the default, with a 25 MHz CPU timing target.
+Mode `0` selects the registered implementation.
+The setting applies to the build script, RTL tests, and ECP5 CoreMark runner.
+
+```sh
+just rtl-test
+just rtl-benchmark
+just qbe-coremark-ecp5
+```
+
+In the forwarding modes, a CPU-clock ALU can consume its last operand on the
+writeback edge and enqueue the computed sibling generation on that edge.
+An operand still behind an older FIFO entry waits for that entry. Normal
+FIFO push and pop accounting also applies when writeback supplies the head.
+Result FIFO space gates consumption, and invalid PACK/UNPACK requests raise
+the usual faults before a result is enqueued.
+
+The ALU benchmark reports both dispatch-to-readiness and dispatch-to-dependent
+use with a warm cache. Four consecutive requests measure issue interval.
+Mode 1 measures two clocks for 14 ALU instances and three clocks for SHIFT A/B.
+Mode 2 measures two clocks for all 16 ALU instances. Both modes sustain one
+request per clock and consecutive instructions carrying five transfers.
+
+The one-iteration board RTL measurements use 1:1 CPU, memory, and math clocks.
+The fixed-image columns use the original ECP5 scheduling profile. The
+retargeted columns use the corresponding `ecp5-fast1.conf` or
+`ecp5-fast2.conf`. All runs pass the list, matrix, and state CRC checks.
+
+| ALU mode | Fixed-image CoreMark clocks | Retargeted CoreMark clocks | Retargeted CoreMark/MHz |
+| --- | ---: | ---: | ---: |
+| 0, registered | 45,635,321 | 45,635,321 | 0.02191285 |
+| 1, split SHIFT | 45,634,841 | 45,021,254 | 0.02221173 |
+| 2, single-stage SHIFT | 45,634,841 | 44,971,002 | 0.02223655 |
+
+The fixed image spends 42,098,610 timed clocks with an empty execute slot,
+3,194,395 retiring an instruction, and 342,316 waiting within an instruction
+in mode 0. Mode 2 reduces the last count to 341,836. The empty-slot count
+includes instruction fetch and redirect bubbles.
+The profiler also partitions empty-slot clocks into `fetch_refill` while a
+Wishbone refill is active, `fetch_unready` while the cache is unready without
+an active refill, and `fetch_ready` while cached instruction data is ready.
+Functional units can continue running during any of these clocks.
+With the default fast profile, the 44,971,002-clock run records 37,508,908
+empty-slot clocks during refills, 808,736 with an unready cache outside a
+refill, and 3,154,041 with cached data ready. Active instructions retire on
+3,154,457 clocks and wait on 344,860 clocks.
+
+The same hand-assembly harness measures `sum_to(10)` at 122 clocks with either
+fast mode, including cold instruction fetch, and four clocks per warm
+continuing iteration. Mode 0 takes 149 clocks and seven clocks per warm
+iteration. `mix_loop(32)` falls from 4,785 to 4,416 clocks with either fast
+mode and returns `0x41090bb9`. Both routines issue zero data RAM accesses.
+
+Synthesis maps all three modes to 52 block RAMs and 1,140 distributed RAM
+primitives. Mode 0 uses 32,562 LUT4s and 12,321 flip-flops. Mode 1 uses
+33,458 LUT4s and 8,577 flip-flops. Mode 2 uses 33,652 LUT4s and 8,271
+flip-flops.
+
+The initial matched ECP5-85K −7 runs used the fixed reference pins, a 42 MHz target,
+and seeds 1 and 2. Installed router2 aborted during setup. Router1 baseline
+trials timed out after 600 seconds. A local router2 build reached routing,
+but baseline and mode 2 trials still had conflicts at their 300-second limits.
+These runs establish no routed Fmax comparison.
+
+A diagnostic placement for mode 2 estimates 31.00 MHz. Its longest CPU path
+starts in sibling replay data, passes through predicate and dispatch control,
+and ends in the CPU-side DIVS result FIFO read-data register. The path crosses
+nine LUT stages and six local mux arcs, with 28.684 ns of estimated routing
+delay, 3.115 ns of logic, and 0.460 ns of clock-to-Q delay.
+
+After promoting mode 2 to the default and lowering the target to 25 MHz,
+fresh synthesis again maps 33,652 LUT4s, 8,271 flip-flops, and 52 block RAMs.
+The production-tool placement estimates 29.04 MHz; a separate detailed
+placement estimates 30.13 MHz. Both clear the target. The complete build
+reached routing but timed out at its 480-second limit, so a routed Fmax and
+bitstream remain unavailable from this run.
+
 Use the Icarus model to get actual RTL clocks for another assembled image:
 
 ```sh
@@ -69,8 +148,9 @@ The build uses Yosys and nextpnr and writes its reports and bitstreams under
 `build/rtl/`. The reference build uses ECP5-85 CABGA381, with speed grade 7 by
 default. Set `MDMA_ECP5_LPF` to the board's pin constraints before building a
 bitstream to load on hardware. Without it, nextpnr assigns reference pins.
-`MDMA_ECP5_FREQ` sets the default timing target for clocks without a specific
-constraint. External SRAM and CDC timing depend on the board and clock sources.
+`MDMA_ECP5_FREQ` overrides the 25 MHz timing target for clocks without a
+specific constraint. External SRAM and CDC timing depend on the board and
+clock sources.
 
 ### ECP5-85 speed grade −7 timing
 
@@ -219,11 +299,11 @@ the FIFO pointer synchronization needed for CPU visibility. MEM measurements
 use the zero-wait Wishbone bench. Board-level SRAM transactions include the
 FIFO crossings and the controller waits listed above.
 
-| Unit or operation | ECP5 measured clocks |
-| --- | ---: |
-| STASH / STACK | 0 added FU cycles, readable on the next clock |
-| ARITH, LOGIC, CMP, MASK, UOP, BITCNT, SEL, PACK, UNPACK, SWIZZLE8 | 3 CPU clocks |
-| SHIFT | 4 CPU clocks |
-| MUL / MULS | 7 FU clocks |
-| DIV / DIVS | 67 FU clocks |
-| MEM store / load / swap | 2 / 3 / 4 CPU clocks |
+| Unit or operation | Registered mode 0 | Default fast mode 2 |
+| --- | ---: | ---: |
+| STASH / STACK | Readable on the next clock | Readable on the next clock |
+| ARITH, LOGIC, CMP, MASK, UOP, BITCNT, SEL, PACK, UNPACK, SWIZZLE8 | 3 CPU clocks | 1 CPU clock |
+| SHIFT | 4 CPU clocks | 1 CPU clock |
+| MUL / MULS | 7 FU clocks | 7 FU clocks |
+| DIV / DIVS | 67 FU clocks | 67 FU clocks |
+| MEM store / load / swap | 2 / 3 / 4 CPU clocks | 2 / 3 / 4 CPU clocks |

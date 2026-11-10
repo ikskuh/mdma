@@ -1,0 +1,3 @@
+# expect fault invalid_type
+ZERO -> UNPACK.ADDR, ZERO -> UNPACK.CHUNK
+CONST -> PC, CONST -> UNPACK.TYPE [imm=-1]

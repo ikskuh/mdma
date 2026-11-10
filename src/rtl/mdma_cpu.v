@@ -1,5 +1,8 @@
 // ECP5 transport network. Each input has its own FIFO. Each FU publishes all
 // sibling outputs into a single wide FIFO with independent read/write ports.
+`ifndef MDMA_FAST_ALU
+`define MDMA_FAST_ALU 2
+`endif
 module mdma_cpu (
     input wire clk, reset, invalidate_icache,
     input wire [3:0] math_clk,
@@ -21,6 +24,7 @@ module mdma_cpu (
     localparam [3:0] FAULT_RESERVED_SINK = 1, FAULT_RESERVED_SOURCE = 2,
         FAULT_MEMORY = 3, FAULT_DIV_ZERO = 4, FAULT_TYPE = 5,
         FAULT_ALIGNMENT = 6, FAULT_PC = 7, FAULT_STALL = 8;
+    localparam FAST_ALU = `MDMA_FAST_ALU;
 
     reg [63:0] fetch_pc, pc, next_pc, constant_value, saved_jump;
     reg execute_valid, draining, predicate_needed, synchronized_moves, jump_pending, saved_halt;
@@ -63,6 +67,10 @@ module mdma_cpu (
     wire [63:0] source_value [0:63];
     wire [63:0] source_ready;
     wire [31:0] result_empty, result_full, result_pop, take, publish, unit_progress, divide_fault;
+    wire pack_type_bad = |input_head[39][63:3];
+    wire unpack_type_bad = |input_head[42][63:3];
+    wire pack_alignment_bad = misaligned(input_head[38][2:0], input_head[39][2:1]);
+    wire unpack_alignment_bad = misaligned(input_head[41][2:0], input_head[42][2:1]);
 
     assign source_value[0] = 0;
     assign source_value[1] = constant_value;
@@ -198,11 +206,11 @@ module mdma_cpu (
                                        bank == 37 ? 8 : bank == 41 ? 3 : bank == 45 ? 24 : 64;
                     wire [WIDTH-1:0] operand, head;
                     wire reserved_empty;
+                    wire arriving_head = writeback_push[bank] && input_count[bank] == 1;
                     assign input_push[bank] = writeback_push[bank];
-                    // The reservation takes space immediately. The FU can
-                    // pop the head only once it has reached the RAM.
+                    localparam FORWARD = FAST_ALU && (bank < 34 || bank > 37);
                     assign input_empty[bank] = reserved_empty ||
-                                               (writeback_push[bank] && input_count[bank] == 1);
+                                               (!FORWARD && arriving_head);
                     assign input_almost_full[bank] = 0;
                     if (CONDITION) begin: truth_value
                         assign operand = |data;
@@ -213,7 +221,11 @@ module mdma_cpu (
                     end else begin: low_bits
                         assign operand = data[WIDTH-1:0];
                     end
-                    assign input_head[bank] = {{(64-WIDTH){1'b0}}, head};
+                    // A reservation includes the word in writeback. Forward
+                    // only when it is the sole reserved word; otherwise RAM
+                    // still owns the oldest head. Both FIFO pointers advance
+                    // normally if that arriving word is consumed.
+                    assign input_head[bank] = {{(64-WIDTH){1'b0}}, (FORWARD && arriving_head ? operand : head)};
                     mdma_fifo #(.WIDTH(WIDTH), .BLOCK(WIDTH == 64)) fifo (
                         .clk(clk), .reset(reset), .push(input_push[bank]), .pop(input_pop[bank]),
                         .reserve(dispatch_push[bank]),
@@ -300,7 +312,15 @@ module mdma_cpu (
                     localparam RESULT_BITS = u == FU_CMP ? OUTS : u == FU_BITCNT ? 7*OUTS :
                                              u == FU_PACK ? 136 : 64*OUTS;
                     wire [RESULT_BITS-1:0] stored_in, stored_out;
-                    wire enqueue_result = publish[u] && !draining;
+                    wire valid_result;
+                    if (u == FU_PACK) begin: pack_result
+                        assign valid_result = !FAST_ALU || (!pack_type_bad && !pack_alignment_bad);
+                    end else if (u == FU_UNPACK) begin: unpack_result
+                        assign valid_result = !FAST_ALU || (!unpack_type_bad && !unpack_alignment_bad);
+                    end else begin: untyped_result
+                        assign valid_result = 1;
+                    end
+                    wire enqueue_result = publish[u] && !draining && valid_result;
                     wire block_result = result_full[u] && !draining;
                     for (lane = 0; lane < OUTS; lane = lane + 1) begin: result_field
                         localparam BITS = u == FU_CMP ? 1 : u == FU_BITCNT ? 7 :
@@ -339,7 +359,7 @@ module mdma_cpu (
                             assign input_pop[BASE+lane] = take[u];
                         end
                         if (u == FU_SHIFT_A || u == FU_SHIFT_B) begin: shifter
-                            mdma_shift engine (
+                            mdma_shift #(.FAST(FAST_ALU)) engine (
                                 .clk(clk), .reset(reset), .allow_start(!stopped),
                                 .operands_ready(input_empty[BASE +: INS] == 0),
                                 .output_full(block_result),
@@ -354,14 +374,22 @@ module mdma_cpu (
                             for (lane = 0; lane < INS; lane = lane + 1) begin: capture
                                 assign operands_in[lane*64 +: 64] = input_head[BASE+lane];
                             end
-                            mdma_fu_pipeline #(.INPUTS(INS), .OUTPUTS(OUTS)) pipeline (
-                                .clk(clk), .reset(reset), .allow_start(!stopped),
-                                .operands_ready(input_empty[BASE +: INS] == 0),
-                                .output_full(block_result),
-                                .operands_in(operands_in), .operands(operands), .computed(computed),
-                                .take(take[u]), .publish(publish[u]), .progress(unit_progress[u]),
-                                .results(data_in)
-                            );
+                            if (FAST_ALU) begin: direct_result
+                                assign operands = operands_in;
+                                assign take[u] = !stopped && input_empty[BASE +: INS] == 0 && !block_result;
+                                assign publish[u] = take[u];
+                                assign unit_progress[u] = take[u];
+                                assign data_in = computed;
+                            end else begin: registered_result
+                                mdma_fu_pipeline #(.INPUTS(INS), .OUTPUTS(OUTS)) pipeline (
+                                    .clk(clk), .reset(reset), .allow_start(!stopped),
+                                    .operands_ready(input_empty[BASE +: INS] == 0),
+                                    .output_full(block_result),
+                                    .operands_in(operands_in), .operands(operands), .computed(computed),
+                                    .take(take[u]), .publish(publish[u]), .progress(unit_progress[u]),
+                                    .results(data_in)
+                                );
+                            end
                             if (u == FU_ARITH_A || u == FU_ARITH_B) begin: arith
                                 mdma_arith operation (a, b, computed);
                             end else if (u == FU_LOGIC_A || u == FU_LOGIC_B) begin: logic_unit
@@ -419,12 +447,14 @@ module mdma_cpu (
     assign replace_execute = !execute_valid || done;
     assign fetch_slot_ready = fetch_enabled && replace_execute && !redirect;
     assign fetch_accept = fetch_slot_ready && cache_ready;
-    wire type_fault = (take[FU_PACK] && |input_head[39][63:3]) ||
-                      (take[FU_UNPACK] && |input_head[42][63:3]);
-    wire alignment_fault = (take[FU_PACK] &&
-                             |(input_head[38][2:0] & ((3'b001 << input_head[39][2:1]) - 1'b1))) ||
-                           (take[FU_UNPACK] &&
-                             |(input_head[41][2:0] & ((3'b001 << input_head[42][2:1]) - 1'b1)));
+    function misaligned;
+        input [2:0] address;
+        input [1:0] size;
+        misaligned = |(address & ((3'b001 << size) - 1'b1));
+    endfunction
+    wire type_fault = (take[FU_PACK] && pack_type_bad) || (take[FU_UNPACK] && unpack_type_bad);
+    wire alignment_fault = (take[FU_PACK] && pack_alignment_bad) ||
+                           (take[FU_UNPACK] && unpack_alignment_bad);
 
     always @(posedge clk) begin
         if (replace_execute) begin

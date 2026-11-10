@@ -11,21 +11,48 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tests"))
 from test_behavior import FIXTURE_PATHS, FIXTURE_ROOT, load_fixture
 from mdma_asm import assemble_with_labels
+from mdma import SINK_BY_INDEX, SOURCE_BY_INDEX
 from simulator import Simulator, SimulationError
 from simulator_core import INSTANCES
 from rtl_runner import compile_bench, execute_image, prepare, write_image
 
-def benchmark_dispatch(build):
+def benchmark_dispatch(build, bench):
     source = Path(__file__).with_name("five_wide.mdma").read_text()
     image, labels = assemble_with_labels(source)
     path = build / "five_wide.hex"
     write_image(image, path)
-    bench = compile_bench(build, "mdma_tb")
     result = subprocess.run(["vvp", str(bench), "+five_wide", f"+image={path}",
                              f"+words={len(image) // 8}", f"+dump={build / 'five_wide.dump'}",
                              f"+first_pc={labels['first_dispatch']}", f"+second_pc={labels['second_dispatch']}"],
                             check=True, capture_output=True, text=True, timeout=15)
     print("\n".join(line for line in result.stdout.splitlines() if line.startswith("BENCH ")))
+
+
+def benchmark_alu(build, bench):
+    for number, instance in enumerate(INSTANCES):
+        if instance.unit.name in ('MUL', 'MULS', 'DIV', 'DIVS', 'MEM', 'STASH', 'STACK'):
+            continue
+        sinks = [port for port in SINK_BY_INDEX.values() if port.unit == instance]
+        source = next(port for port in SOURCE_BY_INDEX.values() if port.unit == instance)
+        produce = ', '.join(f'ZERO -> {port.full_name}' for port in sinks)
+        consume = f'{source.full_name} -> DISCARD'
+        assembly = '\n'.join(['producer:', produce, 'consumer:', consume] +
+                             [produce] * 4 + [consume] * 4 + ['CONST -> PC [imm=producer]'])
+        image, labels = assemble_with_labels(assembly)
+        path = build / 'alu.hex'
+        write_image(image, path)
+        result = subprocess.run(
+            ['vvp', str(bench), '+alu_latency', f'+image={path}', f'+words={len(image) // 8}',
+             f'+dump={build / "alu.dump"}', f'+alu_producer={labels["producer"]}',
+             f'+alu_consumer={labels["consumer"]}', f'+alu_unit={number}',
+             f'+alu_source={source.index}', f'+alu_sink={max(port.index for port in sinks)}'],
+            check=True, capture_output=True, text=True, timeout=15)
+        row = re.search(r'^BENCH FU \d+ ready=(\d+) use=(\d+) burst=(\d+)/(\d+)$',
+                        result.stdout, re.MULTILINE)
+        if not row or int(row[3]) != 4:
+            raise ValueError(f'{instance}: incomplete ALU benchmark: {result.stdout}')
+        print(f'BENCH {instance}: dispatch to ready {row[1]}, dispatch to use {row[2]}, '
+              f'burst {row[3]} requests in {int(row[4]) + 1} clocks')
 
 
 def serial_test(build):
@@ -69,7 +96,9 @@ def main():
         with tempfile.TemporaryDirectory(prefix="mdma-rtl-") as directory:
             build = Path(directory)
             prepare(build)
-            benchmark_dispatch(build)
+            bench = compile_bench(build, "mdma_tb")
+            benchmark_dispatch(build, bench)
+            benchmark_alu(build, bench)
         return 0
     pattern = sys.argv[1] if len(sys.argv) > 1 else ""
     fixtures = [path for path in FIXTURE_PATHS if pattern in path.relative_to(FIXTURE_ROOT).as_posix()]

@@ -1,5 +1,6 @@
 """Run an assembled image against the clocked Verilog model."""
 
+import os
 import re
 import subprocess
 import sys
@@ -24,9 +25,16 @@ def prepare(build):
         subprocess.run([sys.executable, str(RTL / "gen_ports.py")], stdout=header, check=True)
 
 
+def rtl_defines():
+    mode = os.environ.get("MDMA_FAST_ALU", "2")
+    if mode not in ("0", "1", "2"):
+        raise ValueError("MDMA_FAST_ALU must be 0, 1, or 2")
+    return [f"-DMDMA_FAST_ALU={mode}"]
+
+
 def compile_bench(build, name):
     bench = build / name
-    subprocess.run(["iverilog", "-g2012", "-I", str(build), "-s", name, "-o", str(bench),
+    subprocess.run(["iverilog", "-g2012", *rtl_defines(), "-I", str(build), "-s", name, "-o", str(bench),
                     *map(str, sorted(RTL.glob("*.v"))), str(BENCHES / (name + ".v"))], check=True)
     return bench
 

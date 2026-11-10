@@ -1,0 +1,33 @@
+# An older LHS must win over writeback; a full result FIFO retains the ninth pair.
+# expect mem64 first = 23
+# expect mem64 second = 9
+# expect mem64 last = 26
+
+CONST -> ARITH_A.LHS [imm=17]
+CONST -> ARITH_A.LHS, CONST -> ARITH_A.RHS [imm=6]
+CONST -> ARITH_A.RHS [imm=3]
+CONST -> ARITH_A.LHS, CONST -> ARITH_A.RHS [imm=7]
+CONST -> ARITH_A.LHS, CONST -> ARITH_A.RHS [imm=8]
+CONST -> ARITH_A.LHS, CONST -> ARITH_A.RHS [imm=9]
+CONST -> ARITH_A.LHS, CONST -> ARITH_A.RHS [imm=10]
+CONST -> ARITH_A.LHS, CONST -> ARITH_A.RHS [imm=11]
+CONST -> ARITH_A.LHS, CONST -> ARITH_A.RHS [imm=12]
+CONST -> ARITH_A.LHS, CONST -> ARITH_A.RHS [imm=13]
+
+CONST -> MEM.WRITE [imm=first]
+ARITH_A.ADD -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+CONST -> MEM.WRITE [imm=second]
+ARITH_A.ADD -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+ARITH_A.ADD -> DISCARD
+ARITH_A.ADD -> DISCARD
+ARITH_A.ADD -> DISCARD
+ARITH_A.ADD -> DISCARD
+ARITH_A.ADD -> DISCARD
+ARITH_A.ADD -> DISCARD
+CONST -> MEM.WRITE [imm=last]
+ARITH_A.ADD -> MEM.CHUNK, ZERO -> MEM.MASK [sync]
+
+CONST -> PC [imm=-1]
+first: .word 0
+second: .word 0
+last: .word 0
