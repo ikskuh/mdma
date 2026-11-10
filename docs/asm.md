@@ -12,16 +12,21 @@ Labels are case-sensitive absolute **byte addresses**, usable in immediates and
 `.word` data, including forward references. Labels occupy no space.
 
 ```text
-start:
-    ZERO -> STASH_A
-    CONST -> ARITH_A.RHS, STASH_A.OUT -> ARITH_A.LHS [sync]
-    ARITH_A.ADD -> STASH_A, CMP.LT -> COND
-    CONST -> PC [pred, imm=start]
-data: .word 1, -2, 0xff, start
+truncate_word:
+    STASH_A.OUT -> UNPACK.CHUNK
+  , ZERO        -> UNPACK.ADDR
+  , CONST       -> UNPACK.TYPE [imm=4]
+
+    UNPACK.VALUE -> STASH_A.IN
+  , STACK_B.TOP  -> PC
 ```
 
-Each instruction is one line with up to five comma-separated `SOURCE -> SINK`
-moves. Names come from the FIFO tables in `docs/functional-units.md`.
+The official assembly style puts one `SOURCE -> SINK` pair on each line.
+Start each continuation with a leading comma, and align the `->` arrows
+within the instruction. Put instruction tags after the last move. Each
+instruction can contain up to five moves. Single-line packs with
+comma-separated moves are also accepted. Names come from the FIFO tables
+in `docs/functional-units.md`.
 Units with a single source or sink also accept their bare name (`STASH_A`,
 `MEM` as a source, etc.). CPU FIFOs accept bare names (`ZERO`, `CONST`, `PC`, etc.)
 as well as qualified names such as `CPU.ZERO`. These shorthands are resolved

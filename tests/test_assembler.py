@@ -25,6 +25,22 @@ def decode(word):
 
 
 class AssemblerTest(unittest.TestCase):
+    def test_leading_comma_continuations(self):
+        continued = '''start: CONST -> UNPACK.TYPE  # first move
+    , ZERO              -> UNPACK.ADDR
+    # Comments can appear between moves.
+    , STASH_A.OUT       -> UNPACK.CHUNK [pred, sync, imm=4]
+done: .word start, done
+'''
+        inline = '''start: CONST -> UNPACK.TYPE, ZERO -> UNPACK.ADDR, STASH_A.OUT -> UNPACK.CHUNK [pred, sync, imm=4]
+done: .word start, done
+'''
+        self.assertEqual(assemble_with_labels(continued), assemble_with_labels(inline))
+        for source in (', ZERO -> PC', 'start:\n, ZERO -> PC', '.word 1\n, ZERO -> PC',
+                       'ZERO -> STASH_A [sync]\n, ZERO -> PC'):
+            with self.subTest(source=source), self.assertRaisesRegex(ValueError, 'before continuation'):
+                assemble(source)
+
     def test_code_efficiency_counts_immediate_slots_and_ignores_data(self):
         source = '''
 ZERO -> STASH_A, ZERO -> DISCARD

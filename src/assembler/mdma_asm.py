@@ -56,11 +56,28 @@ class MoveDensity:
         return f"Code efficiency: {percent:.2f}% used ({self.unused}/{self.total} unused move slots)"
 
 
-def parse_asm(source: str) -> Iterable[AsmLine]:
+def instruction_lines(source: str) -> Iterable[tuple[int, str]]:
+    parts: list[str] = []
+    start = 0
     for number, raw in enumerate(source.splitlines(), 1):
         line = raw.split("#", 1)[0].strip()
         if not line:
             continue
+        if line.startswith(","):
+            head = parts[0].split(":", 1)[-1].lstrip() if parts else ""
+            if "->" not in head or head.startswith(".") or "[" in parts[-1]:
+                raise ValueError(f"line {number}: expected an instruction before continuation")
+            parts.append(line)
+            continue
+        if parts:
+            yield start, " ".join(parts)
+        start, parts = number, [line]
+    if parts:
+        yield start, " ".join(parts)
+
+
+def parse_asm(source: str) -> Iterable[AsmLine]:
+    for number, line in instruction_lines(source):
         try:
             label = None
             if ":" in line:
