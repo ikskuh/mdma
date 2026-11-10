@@ -44,3 +44,6 @@ qbe-coremark *args: qbe-build
 
 qbe-coremark-ecp5 *args: qbe-build
     "{{python}}" src/qbe/coremark/run.py --ecp5 {{args}}
+
+report-status: qbe-build
+    "{{python}}" src/qbe/report_status.py

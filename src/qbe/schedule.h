@@ -45,7 +45,6 @@ typedef struct {
 
 void schedule_profile(const char *path);
 int schedule_serial_read_wait(void);
-int schedule_stack_ordered(void);
 int schedule_stack_peak(void);
 void schedule_reset_peak(void);
 int schedule_emit(FILE *out, const SchedRegion *region, int baseline_words, int baseline_cycles);

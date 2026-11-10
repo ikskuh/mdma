@@ -1,10 +1,49 @@
 # MDMA softcore
 
-The ECP5 issues up to five FIFO moves on one CPU edge. A hot cache supplies
-one instruction each clock, including an extended immediate when both words
-are cached. Fetch and predecode fill a registered execute slot. A sequential
-retirement admits the next cache hit or starts its refill on the same edge.
-A taken jump redirects fetch. FIFO status selection uses three LUT4 tiers.
+The ECP5 issues up to five FIFO moves on one CPU edge. An internal 64-word
+raw FIFO prefetches independently of execution. Its two interleaved
+32-by-65-bit distributed-RAM banks expose the first two words and their bus
+errors. The consumer removes zero, one, or two words; the FIFO never decodes
+instructions or identifies immediates. Accepted outstanding requests reserve
+space before their responses arrive.
+
+The CPU decoder consumes one opcode and, for an extended immediate, a second
+word when available. Both buffered words enter the registered execute stage
+together, giving `CONST` zero additional latency. With only the opcode ready,
+execution starts immediately and `CONST` remains unavailable until the next
+word arrives. Independent moves proceed; synchronized moves retain their
+all-ready rule. `PC_NEXT` is known from the opcode's address and mode.
+The CPU alone records a missing constant and consumes it before another
+opcode. Waiting for this word is outstanding work, not a deadlock.
+
+A PC move captures its target once. The stream flushes when that move has
+committed and the current immediate has been captured, including capture on
+the same edge. The remaining moves retain their original `CONST` and
+`PC_NEXT` while target prefetch runs. Target instructions execute after the
+current instruction retires. Halt uses the same barrier before draining FUs.
+Fetch errors travel with words and fault only when needed by the decoder;
+speculative fall-through errors disappear on redirect.
+
+`mdma_icache` lives in `mdma_soc`, outside the CPU and ahead of the instruction
+CDC bridge. It caches raw read-only bus data: 4 KiB, two ways, 64 sets, four
+64-bit words per line, with per-word validity. The payload uses four ECP5
+block RAMs. A four-entry request queue and registered lookup serve pipelined
+64-bit Wishbone reads, sustaining one hit per CPU clock. An idle queue is
+bypassed, so a hit returns one clock after request acceptance. Misses fill requested
+words through the existing single-outstanding Classic Wishbone backend.
+The 64-bit port supplies at most one word per clock; extended instructions
+consume two words, so sustained instruction throughput depends on their mix.
+
+The CPU instruction port adds `i_wb_stall`. Requests are accepted on
+`CYC && STB && !STALL`; ordered `ACK` or `ERR` completes each request.
+A redirect clears the FIFO and deasserts `CYC` for one cancellation cycle.
+The cache discards frontend requests and replies when `CYC` drops. An issued
+backend request retains its address through completion, but its canceled
+response cannot fill the cache or acknowledge a later cycle. New-cycle hits
+can proceed while that old backend beat drains. Data writes do not invalidate
+this cache; self-modifying code is unsupported.
+
+FIFO status selection uses three LUT4 tiers.
 Each of the five transfer slots selects a source through four local 16-way
 muxes and a final 4-way mux. The five selected words and sink enables are
 registered. On the following edge, each sink writes its selected slot while
@@ -13,7 +52,8 @@ writes before their data reaches RAM. Each functional unit runs independently
 as soon as its operands and result space are ready.
 
 The ECP5 has 45 independent operand FIFOs and 27 independent result banks.
-The ECP5-85 reference synthesis maps 26 of those banks to 52 block RAMs.
+The operand/result banks map to 52 block RAMs; the external bus cache adds
+four more, for 56 in the current ECP5-85 synthesis.
 The remaining banks, the MEM request queue, and the four SRAM CDC queues use
 distributed RAM. The `COND` FIFO queues eight entries, storing one truth bit
 per entry.
@@ -84,7 +124,103 @@ Mode 1 measures two clocks for 14 ALU instances and three clocks for SHIFT A/B.
 Mode 2 measures two clocks for all 16 ALU instances. Both modes sustain one
 request per clock and consecutive instructions carrying five transfers.
 
-The one-iteration board RTL measurements use 1:1 CPU, memory, and math clocks.
+### Instruction stream measurements
+
+`just report-status` with the raw FIFO, 4 KiB external cache, and default
+fast ALUs passes all result checks. CPU, memory, and math clocks are 1:1,
+with the configured board SRAM waits. Workload clocks exclude startup;
+total clocks run from boot through halt.
+
+| Workload | Previous RTL workload clocks | Stream RTL workload clocks | Stream RTL total clocks |
+| --- | ---: | ---: | ---: |
+| CoreMark | 44,908,396 | 12,051,683 | 12,912,029 |
+| `sum_to(10)` | 111 | 146 | 296 |
+| `mix_loop(32, 0x12345678, 0x9e3779b1)` | 4,149 | 1,799 | 1,997 |
+
+RTL CoreMark/MHz increases from 0.02226755 to 0.08297596. The one-clock
+simulator remains at 2,937,038 workload clocks, 3,052,575 total clocks,
+and 0.34047908 CoreMark/MHz. Its `sum_to` counts are 25/31 workload/total;
+`mix_loop` counts are 488/496.
+
+The short `sum_to` run regresses: its frequent jumps discard prefetch, and
+the cancellation, cache response, FIFO, and decode stages add target-admission
+latency. CoreMark benefits from fewer instruction misses and overlapped
+prefetch. Its profile records 5,431,701 empty-execute clocks (45.07%),
+3,154,457 retiring clocks, and 3,465,525 waiting clocks. The cache records
+4,951,016 hit lookups and 621,547 miss lookups, starting 604,880 refills. FIFO occupancy reaches 64.
+The dedicated benchmark retains consecutive five-move issue and one ALU
+request per clock; all 16 CPU-clock ALUs measure two clocks from dispatch
+to readiness and dependent use.
+
+### Exported instruction-throughput counters
+
+The ECP5 board simulation emits machine-readable `PROFILE key=value` lines.
+`just qbe-coremark-ecp5` prints them and instructions/clock (IPC) and
+clocks/instruction (CPI). `just report-status` also prints cache and stall
+tables for CoreMark, `sum_to`, and `mix_loop`. The Python RTL runner's optional
+`profile` dictionary receives these counters while its result tuple stays
+unchanged. All counters cover the same timed workload interval as its score.
+
+Cache accesses count raw-word tag lookups, including speculative work later
+canceled by a jump. `cache_hits + cache_misses == cache_lookups`.
+`refill_requests` counts backend reads actually started; a miss canceled before
+service still counts as a lookup miss. `refill_words` counts completed SRAM
+reads. Miss rate is lookup misses divided by total lookups; a prefetched miss
+can be hidden and therefore is not itself a CPU stall.
+
+The following counters partition workload clocks without overlap:
+
+| Counter | Meaning |
+| --- | --- |
+| `retired` | A completed instruction, including one skipped by predication. |
+| `const_stall` | The active instruction could finish if `CONST` were ready; all other required sources, sinks, and predication are ready. Includes constant-capture delay when that prevents completion. |
+| `instruction_stall` | Execute is empty and the next instruction cannot be admitted, excluding the stream's cancellation cycle. |
+| `redirect_stall` | Execute is empty during stream cancellation. Cancellation hidden by an active instruction does not count here. |
+| `execute_wait` | Other active-instruction waits, including FU/predicate waits concurrent with a missing constant. |
+| `decode_bubble` | Execute is empty and an instruction is being admitted on this clock. |
+
+Their sum equals `clocks`, and IPC is `retired / clocks`. The bench asserts
+both this identity and the cache lookup identity on every successful run.
+`const_stall_events` and `instruction_stall_events` count distinct runs of
+stall clocks. `const_fifo_empty` counts active-instruction clocks waiting for
+an absent extended word even when another FU also blocks completion;
+`constant_wait` additionally includes word-capture clocks. These availability
+counters can overlap execution waits and must not be added to the partition.
+
+The current CoreMark run records 903,318 CONST stalls, 4,633,187 next-instruction
+stalls, 205,239 exposed redirect clocks, 2,562,207 other execute waits, and
+593,275 decode bubbles. Together with 3,154,457 retirements these account for
+all 12,051,683 workload clocks. IPC is 0.26174411 (CPI 3.8205), and cache miss
+rate is 11.15%. There are 208,516 CONST-stall episodes, 592,134 instruction-stall
+episodes, and 710,634 clocks with the active instruction's constant word absent.
+
+### Instruction stream synthesis and timing
+
+The default stream build synthesizes to 35,846 LUT4s, 9,201 flip-flops,
+1,318 distributed-RAM primitives, and 56 block RAMs. The cache payload maps
+to four block RAMs; both raw FIFO banks map to distributed RAM.
+The new stream/cache/decoder benches run as part of `just rtl-test`.
+They separately check arbitrary raw words, pipelined cache hits and canceled
+misses, immediate readiness, early redirects, and deferred fetch faults.
+`just rtl-benchmark` retains separate implementation-timing checks.
+
+For ECP5-85 CABGA381 speed grade -7 at a 25 MHz target, production-tool
+placement estimates 25.44 MHz on the CPU clock. A separate detailed
+placement estimates 25.18 MHz. These are placement estimates, not routed
+clock guarantees. The detailed CPU path starts at the MUL operand writeback
+readiness register, passes through sink selection and dispatch/redirect
+control, and ends at the instruction FIFO head-address register. It has
+33.015 ns estimated routing, 6.236 ns logic, and 0.460 ns clock-to-Q delay.
+The multiplier datapath remains in its separate math clock domain.
+Router1 timed out after 480 seconds. A corrected router2 run timed out after
+240 seconds with routing conflicts remaining, so routed Fmax and a bitstream
+are not available. When resuming placed JSON, its saved router setting must
+also select router2; it otherwise overrides the command-line selection.
+
+### Historical ALU measurements
+
+The historical ALU comparison below predates removal of store-triggered instruction
+cache invalidation and uses 1:1 CPU, memory, and math clocks.
 The fixed-image columns use the original ECP5 scheduling profile. The
 retargeted columns use the corresponding `ecp5-fast1.conf` or
 `ecp5-fast2.conf`. All runs pass the list, matrix, and state CRC checks.
@@ -103,7 +239,12 @@ The profiler also partitions empty-slot clocks into `fetch_refill` while a
 Wishbone refill is active, `fetch_unready` while the cache is unready without
 an active refill, and `fetch_ready` while cached instruction data is ready.
 Functional units can continue running during any of these clocks.
-With the default fast profile, the 44,971,002-clock run records 37,508,908
+For the raw-stream implementation, `fetch_unready` and `fetch_ready` refer
+to FIFO head availability. Additional counters report fetched words, cache
+hits/misses, full-FIFO clocks and high-water mark, pending-constant clocks,
+and redirect-to-target-admission total/maximum latency. The historical
+measurements below used the earlier CPU-local cache.
+With the fast profile, that 44,971,002-clock run records 37,508,908
 empty-slot clocks during refills, 808,736 with an unready cache outside a
 refill, and 3,154,041 with cached data ready. Active instructions retire on
 3,154,457 clocks and wait on 344,860 clocks.
@@ -255,9 +396,12 @@ A request holds its address and controls until ACK or ERR. [Wishbone B4 specific
 
 The instruction cache uses eight two-way sets indexed by low word-address
 bits. It stores predecoded sink indices and reads the instruction and its
-extended immediate together. A miss refills one word over Wishbone. A
-completed SRAM write with enabled byte lanes invalidates its cache set and
-any pending refill for that set. Other sets remain available for fetch.
+extended immediate together. A miss refills one word over Wishbone.
+Data writes preserve instruction cache entries and pending refills.
+Self-modifying code is currently unsupported on ECP5. Load instructions and
+their embedded immediates before releasing reset.
+Removing store-triggered invalidation reduces the same CoreMark run from
+44,971,002 to 44,908,396 CPU clocks, yielding 0.02226755 CoreMark/MHz.
 Halt drains complete operand bundles and discards unread results as needed
 to make space. A fault can still stop the drain.
 

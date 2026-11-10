@@ -35,8 +35,8 @@ def read_profile(path):
             name, *fields = row
             location = f'{path}:{line}'
             if name == 'stack_push_ordered':
-                if seen_stack or fields not in (['yes'], ['no']):
-                    raise SimulationError(f'{location}: expected one stack_push_ordered yes/no entry')
+                if seen_stack or fields != ['yes']:
+                    raise SimulationError(f'{location}: expected stack_push_ordered yes (stack ordering is required)')
                 seen_stack = True
                 continue
             if name not in PROFILE_UNITS:

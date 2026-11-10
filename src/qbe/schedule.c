@@ -13,7 +13,7 @@ static const char *const unit_name[] = {
 static struct Timing {
     int latency, interval;
 } timing[UNIT_COUNT];
-static int stack_push_ordered, stack_peak;
+static int stack_peak;
 
 static void
 profile_error(const char *path, int line, const char *message, const char *name)
@@ -58,9 +58,8 @@ schedule_profile(const char *path)
         char *first = strtok(NULL, ws);
         char *second = strtok(NULL, ws);
         if (!strcmp(name, "stack_push_ordered")) {
-            if (seen_stack++ || !first || second || (strcmp(first, "yes") && strcmp(first, "no")))
-                profile_error(path, line, "expected one stack_push_ordered yes/no entry", "");
-            stack_push_ordered = !strcmp(first, "yes");
+            if (seen_stack++ || !first || second || strcmp(first, "yes"))
+                profile_error(path, line, "expected stack_push_ordered yes (stack ordering is required)", "");
             continue;
         }
         int unit;
@@ -81,12 +80,6 @@ schedule_profile(const char *path)
     for (int unit = 0; unit < CONTROL; ++unit)
         if (!timing[unit].latency)
             profile_error(path, line + 1, "missing unit ", unit_name[unit]);
-}
-
-int
-schedule_stack_ordered(void)
-{
-    return stack_push_ordered;
 }
 
 int
@@ -233,7 +226,7 @@ storage_bank(Schedule *s, Uses *uses, int node, int prefer_stack)
                 continue;
             if (uses[old].last == node || uses[old].count > 1 || uses[node].count > 1 ||
                 (bank < STACK_A && uses[old].last >= uses[node].first) ||
-                (bank >= STACK_A && (!stack_push_ordered || uses[old].first <= uses[node].last))) {
+                (bank >= STACK_A && uses[old].first <= uses[node].last)) {
                 active = 8;
                 break;
             }
@@ -904,8 +897,7 @@ verify(FILE *out, const Schedule *s, int *words, int *cycles)
          * accept a simultaneous replacement on every implementation. */
         for (int j = 0; j < b->nwrites; ++j) {
             int bank = s->node[b->writes[j]].unit;
-            int capacity = bank >= STACK_A && !stack_push_ordered ? 1 :
-                           bank < STASH_A ? 4 : bank < STACK_A ? SCHED_STASH : 8;
+            int capacity = bank < STASH_A ? 4 : bank < STACK_A ? SCHED_STASH : 8;
             if (fifo[bank].count >= capacity)
                 return 0;
         }

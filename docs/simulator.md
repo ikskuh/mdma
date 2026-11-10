@@ -71,7 +71,11 @@ consumes it.
 
 ## Unit latency
 
-All FIFOs have capacity eight. A unit takes its inputs when it starts an
+Operand and result FIFOs have capacity eight. Each STACK has sixteen places
+shared by accepted pushes and resident values. Later TOP reads wait for
+pending pushes, preserving LIFO order for every configured latency. Reads
+on an edge precede that edge's sink writes, including simultaneous stack
+exchanges. A unit takes its inputs when it starts an
 operation. Starting counts as the first tick of latency, and instructions
 can read the result on the tick after completion. The issue interval sets
 the minimum spacing between starts. An interval shorter than the latency
@@ -88,7 +92,8 @@ Default latencies (ticks):
 
 With the built-in timings, the issue interval equals the latency. A timing
 profile provides both values per unit, including separate `MEM_READ` and
-`MEM_WRITE` rows. The `stack_push_ordered` entry is a QBE scheduling hint.
+`MEM_WRITE` rows. Stack ordering is always required. Legacy
+`stack_push_ordered yes` entries are accepted; `no` is rejected.
 When combined with a profile, `--latency` changes only the latency column.
 
 ```sh

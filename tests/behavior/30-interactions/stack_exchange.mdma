@@ -1,0 +1,16 @@
+# A simultaneous push and pop reads the previous top, even when the push sink
+# precedes the pop's destination in the instruction.
+# expect mem64 old = 7
+# expect mem64 new = 13
+
+CONST -> STACK_A [imm=7]
+CONST -> STACK_A, STACK_A -> STACK_B [sync, imm=13]
+STACK_B -> MEM.CHUNK
+STACK_A -> MEM.CHUNK
+CONST -> MEM.WRITE, ZERO -> MEM.MASK [imm=old]
+CONST -> MEM.WRITE, ZERO -> MEM.MASK [imm=new]
+CONST -> MEM.READ [imm=new]
+MEM.CHUNK -> DISCARD
+CONST -> PC [imm=-1]
+old: .word 0
+new: .word 0

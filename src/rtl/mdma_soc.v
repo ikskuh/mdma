@@ -19,21 +19,29 @@ module mdma_soc (
     output wire tx_valid,
     input wire tx_ready
 );
-    wire i_cyc, i_stb, d_cyc, d_stb, d_we;
-    wire [63:0] i_adr, d_adr, d_wdata, mmio_rdata, i_sram_data, d_sram_data;
+    wire i_cyc, i_stb, i_stall, i_ack, i_err, c_cyc, c_stb, d_cyc, d_stb, d_we;
+    wire [63:0] i_adr, i_data, c_adr, d_adr, d_wdata, mmio_rdata, i_sram_data, d_sram_data;
     wire [7:0] d_sel;
-    wire mmio, mmio_ack, i_sram_ack, d_sram_ack, d_sram_complete;
-    wire i_bounds = |i_adr[63:35];
+    wire mmio, mmio_ack, i_sram_ack, d_sram_ack;
+    wire i_bounds = |c_adr[63:35];
     wire d_bounds = |d_adr[63:35];
 
     mdma_cpu cpu (
-        .clk(clk), .reset(reset), .invalidate_icache(d_sram_complete && d_we && |d_sel), .math_clk(math_clk),
+        .clk(clk), .reset(reset), .math_clk(math_clk),
         .i_wb_cyc(i_cyc), .i_wb_stb(i_stb), .i_wb_adr(i_adr),
-        .i_wb_dat(i_sram_data), .i_wb_ack(i_sram_ack), .i_wb_err(i_cyc && i_bounds),
+        .i_wb_dat(i_data), .i_wb_ack(i_ack), .i_wb_err(i_err), .i_wb_stall(i_stall),
         .d_wb_cyc(d_cyc), .d_wb_stb(d_stb), .d_wb_we(d_we), .d_wb_adr(d_adr),
         .d_wb_sel(d_sel), .d_wb_dat_o(d_wdata), .d_wb_dat_i(mmio ? mmio_rdata : d_sram_data),
         .d_wb_ack(mmio ? mmio_ack : d_sram_ack), .d_wb_err(d_cyc && !mmio && d_bounds),
         .halted(halted), .fault(fault), .ticks(ticks)
+    );
+
+    mdma_icache icache (
+        .clk(clk), .reset(reset),
+        .s_cyc(i_cyc), .s_stb(i_stb), .s_adr(i_adr), .s_stall(i_stall),
+        .s_dat(i_data), .s_ack(i_ack), .s_err(i_err),
+        .wb_cyc(c_cyc), .wb_stb(c_stb), .wb_adr(c_adr),
+        .wb_dat(i_sram_data), .wb_ack(i_sram_ack), .wb_err(c_cyc && i_bounds)
     );
 
     wire i_pending, d_pending, d_mem_we;
@@ -45,7 +53,7 @@ module mdma_soc (
 
     mdma_wb_cdc instruction (
         .cpu_clk(clk), .mem_clk(mem_clk), .reset(reset), .mem_reset(mem_reset),
-        .request(i_cyc && i_stb && !i_bounds), .payload(i_adr[34:3]),
+        .request(c_cyc && c_stb && !i_bounds), .payload(c_adr[34:3]),
         .ack(i_sram_ack), .complete(), .response(i_sram_data),
         .mem_request(i_pending), .mem_payload(i_mem_address),
         .mem_ack(ram_ack && !grant_data), .mem_response(ram_rdata)
@@ -53,7 +61,7 @@ module mdma_soc (
     mdma_wb_cdc #(.REQUEST_WIDTH(105)) data (
         .cpu_clk(clk), .mem_clk(mem_clk), .reset(reset), .mem_reset(mem_reset),
         .request(d_cyc && d_stb && !mmio && !d_bounds), .payload({d_we, d_adr[34:3], d_sel, d_wdata}),
-        .ack(d_sram_ack), .complete(d_sram_complete), .response(d_sram_data),
+        .ack(d_sram_ack), .complete(), .response(d_sram_data),
         .mem_request(d_pending), .mem_payload({d_mem_we, d_mem_address, d_mem_sel, d_mem_data}),
         .mem_ack(ram_ack && grant_data), .mem_response(ram_rdata)
     );

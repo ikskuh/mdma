@@ -4,12 +4,12 @@
 `define MDMA_FAST_ALU 2
 `endif
 module mdma_cpu (
-    input wire clk, reset, invalidate_icache,
+    input wire clk, reset,
     input wire [3:0] math_clk,
     output wire i_wb_cyc, i_wb_stb,
     output wire [63:0] i_wb_adr,
     input wire [63:0] i_wb_dat,
-    input wire i_wb_ack, i_wb_err,
+    input wire i_wb_ack, i_wb_err, i_wb_stall,
     output wire d_wb_cyc, d_wb_stb, d_wb_we,
     output wire [7:0] d_wb_sel,
     output wire [63:0] d_wb_adr, d_wb_dat_o,
@@ -26,37 +26,64 @@ module mdma_cpu (
         FAULT_ALIGNMENT = 6, FAULT_PC = 7, FAULT_STALL = 8;
     localparam FAST_ALU = `MDMA_FAST_ALU;
 
-    reg [63:0] fetch_pc, pc, next_pc, constant_value, saved_jump;
-    reg execute_valid, draining, predicate_needed, synchronized_moves, jump_pending, saved_halt;
+    reg [63:0] pc, next_pc, constant_value, saved_jump;
+    reg constant_ready, jump_redirected, halt_requested;
+    reg execute_valid, draining, predicate_needed, synchronized_moves, jump_pending;
     reg [4:0] pending, staged_mask;
     reg [63:0] staged_data [0:4];
     reg [4:0] writeback_active;
     reg [63:0] writeback_data [0:4];
 
     wire stopped = halted || fault != 0;
-    wire [63:0] fetched, extended;
-    wire [29:0] fetched_sinks;
-    wire cache_ready, fetch_error, fetch_accept, fetch_slot_ready, replace_execute;
-    wire fetch_enabled = !draining && !stopped && fetch_pc[2:0] == 0;
-    mdma_icache icache (
-        .clk(clk), .reset(reset), .request(fetch_slot_ready), .accept(fetch_accept),
-        .invalidate(invalidate_icache), .invalidate_address(d_wb_adr), .address(fetch_pc),
-        .ready(cache_ready), .error(fetch_error), .word(fetched), .immediate(extended), .sinks(fetched_sinks),
-        .wb_cyc(i_wb_cyc), .wb_stb(i_wb_stb), .wb_adr(i_wb_adr), .wb_dat(i_wb_dat),
-        .wb_ack(i_wb_ack), .wb_err(i_wb_err)
+    wire [63:0] fetch_pc, stream_word0, stream_word1;
+    wire [1:0] stream_valid, stream_error, stream_pop;
+    wire [6:0] stream_count;
+    wire fetch_error, fetch_accept, fetch_slot_ready, replace_execute;
+    wire redirect;
+    wire [63:0] target;
+    wire fetch_enabled = !draining && !halt_requested && !stopped && fetch_pc[2:0] == 0;
+    mdma_instruction_stream stream (
+        .clk(clk), .reset(reset), .enable(fetch_enabled), .flush(redirect),
+        .restart_address(target), .pop_count(stream_pop),
+        .head_address(fetch_pc), .word0(stream_word0), .word1(stream_word1),
+        .valid(stream_valid), .error(stream_error), .count(stream_count),
+        .wb_cyc(i_wb_cyc), .wb_stb(i_wb_stb), .wb_adr(i_wb_adr),
+        .wb_stall(i_wb_stall), .wb_dat(i_wb_dat), .wb_ack(i_wb_ack), .wb_err(i_wb_err)
     );
+    // Only the decoder knows that the next word is a pending constant.
+    wire pending_constant = execute_valid && !constant_ready;
+    wire constant_capture = pending_constant && stream_valid[0] && !stream_error[0] && !stopped;
+    wire [63:0] fetched = pending_constant ? stream_word1 : stream_word0;
+    wire fetched_valid = pending_constant ? stream_valid[1] : stream_valid[0];
+    wire fetched_error = pending_constant ? stream_error[1] : stream_error[0];
+    wire [63:0] fetched_address = fetch_pc + (pending_constant ? 64'd8 : 64'd0);
+    wire extended = fetched[61:60] == 1;
+    wire new_constant_ready = !extended || (!pending_constant && stream_valid[1]);
+    wire [29:0] fetched_sinks;
+    function [29:0] decode_sinks(input [63:0] instruction);
+        integer slot;
+        reg [8:0] sum;
+        begin
+            sum = 0;
+            for (slot = 0; slot < 5; slot = slot + 1) begin
+                sum = sum + {3'b0, instruction[slot*12+6 +: 6]} + (slot != 0);
+                decode_sinks[slot*6 +: 6] = sum >= 63 ? 6'd63 : sum[5:0];
+            end
+        end
+    endfunction
+    assign fetched_sinks = decode_sinks(fetched);
 
     reg [63:0] new_constant;
     always @* begin
         case (fetched[61:60])
             0: new_constant = 1;
-            1: new_constant = extended;
+            1: new_constant = stream_word1;
             2: new_constant = {52'b0, fetched[59:48]};
             default: new_constant = {{52{fetched[59]}}, fetched[59:48]};
         endcase
     end
-    wire [63:0] fetch_plus_word = fetch_pc + 64'd8;
-    wire [63:0] fetch_plus_immediate = fetch_pc + 64'd16;
+    wire [63:0] fetch_plus_word = fetched_address + 64'd8;
+    wire [63:0] fetch_plus_immediate = fetched_address + 64'd16;
     wire [63:0] fetch_next = fetched[61:60] == 1 ? fetch_plus_immediate : fetch_plus_word;
     wire instruction_ready = execute_valid && !stopped;
 
@@ -77,7 +104,9 @@ module mdma_cpu (
     assign source_value[2] = next_pc;
     assign source_value[59] = 0;
     assign source_value[60] = 0;
-    assign source_ready[2:0] = 3'b111;
+    assign source_ready[0] = 1;
+    assign source_ready[1] = constant_ready;
+    assign source_ready[2] = 1;
     assign source_ready[59] = 0;
     assign source_ready[60] = 0;
 
@@ -106,7 +135,7 @@ module mdma_cpu (
             wire [5:0] decoded_src = fetched[slot*12 +: 6];
             wire [5:0] decoded_dst = fetched_sinks[slot*6 +: 6];
             assign decoded_group[slot] = source_fu(decoded_src);
-            always @(posedge clk) if (replace_execute) begin
+            always @(posedge clk) if (fetch_accept) begin
                 src[slot] <= decoded_src;
                 dst[slot] <= decoded_dst;
                 group[slot] <= decoded_group[slot];
@@ -436,17 +465,21 @@ module mdma_cpu (
     // Sink zero can occur only in slot zero because later sinks are strictly increasing.
     wire jump_slot = pending[0] && dst[0] == 0;
     wire new_jump = commits[0] && jump_slot;
-    // Every pending move is legal and can commit when all are ready. Use
-    // readiness directly so retirement does not wait on the commit network.
-    wire done = skip || (issue && all_ready);
-    wire redirect = done && !skip && (jump_slot || jump_pending);
-    wire [63:0] target = jump_slot ? transfer[0] : saved_jump;
-    wire transfer_halts = &transfer[0];
-    // A sequential retirement can admit the next hit or start its refill.
-    // A redirect discards the lookahead before it can reach Wishbone.
+    wire moves_done = skip || (issue && all_ready);
+    wire done = execute_valid && moves_done && (constant_ready || constant_capture);
+    assign redirect = instruction_ready && !jump_redirected && (new_jump || jump_pending) &&
+                      (constant_ready || constant_capture);
+    assign target = new_jump ? transfer[0] : saved_jump;
+    wire target_halts = &target;
     assign replace_execute = !execute_valid || done;
-    assign fetch_slot_ready = fetch_enabled && replace_execute && !redirect;
-    assign fetch_accept = fetch_slot_ready && cache_ready;
+    assign fetch_slot_ready = fetch_enabled && replace_execute && !redirect &&
+                              (!pending_constant || constant_capture);
+    assign fetch_error = (pending_constant && stream_valid[0] && stream_error[0]) ||
+                         (fetch_slot_ready && fetched_valid &&
+                          (fetched_error || (extended && !pending_constant && stream_valid[1] && stream_error[1])));
+    assign fetch_accept = fetch_slot_ready && fetched_valid && !fetch_error;
+    assign stream_pop = fetch_accept ? (pending_constant || (extended && stream_valid[1]) ? 2'd2 : 2'd1) :
+                        constant_capture ? 2'd1 : 2'd0;
     function misaligned;
         input [2:0] address;
         input [1:0] size;
@@ -457,30 +490,46 @@ module mdma_cpu (
                            (take[FU_UNPACK] && unpack_alignment_bad);
 
     always @(posedge clk) begin
-        if (replace_execute) begin
-            pc <= fetch_pc;
+        if (fetch_accept) begin
+            pc <= fetched_address;
             next_pc <= fetch_next;
             constant_value <= new_constant;
+            constant_ready <= new_constant_ready;
             predicate_needed <= fetched[63];
             synchronized_moves <= fetched[62];
             pending <= fetched[61] ? 5'b01111 : 5'b11111;
             staged_mask <= 0;
             jump_pending <= 0;
+            jump_redirected <= 0;
+            halt_requested <= 0;
         end else begin
+            if (constant_capture) begin
+                constant_value <= stream_word0;
+                constant_ready <= 1;
+            end
             predicate_needed <= predicate_needed && !take_predicate;
-            pending <= pending & ~commits;
+            pending <= skip ? 5'b0 : pending & ~commits;
             staged_mask <= staged_mask | save;
             jump_pending <= jump_pending || new_jump;
+            if (redirect) begin
+                jump_redirected <= 1;
+                halt_requested <= target_halts;
+            end
         end
-        if (!jump_pending) begin
+        if (new_jump)
             saved_jump <= transfer[0];
-            saved_halt <= transfer_halts;
+        if (reset) begin
+            constant_ready <= 0;
+            pending <= 0;
+            predicate_needed <= 0;
+            jump_pending <= 0;
+            jump_redirected <= 0;
+            halt_requested <= 0;
         end
     end
 
     always @(posedge clk) begin
         if (reset) begin
-            fetch_pc <= 0;
             fault <= 0;
             halted <= 0;
             ticks <= 0;
@@ -503,18 +552,16 @@ module mdma_cpu (
                 fault <= FAULT_PC;
             else if (issue && |first_fault)
                 fault <= |(first_fault & bad_source) ? FAULT_RESERVED_SOURCE : FAULT_RESERVED_SINK;
-            else if (instruction_ready && !done && !(|commits) && !take_predicate && !work_in_flight)
+            else if (instruction_ready && !done && !pending_constant &&
+                     !(|commits) && !take_predicate && !work_in_flight)
                 fault <= FAULT_STALL;
 
-            if (fetch_accept) begin
-                fetch_pc <= fetch_next;
+            if (fetch_accept)
                 execute_valid <= 1;
-            end else if (done) begin
+            else if (done) begin
                 execute_valid <= 0;
-                if (redirect) begin
-                    fetch_pc <= target;
-                    draining <= jump_slot ? transfer_halts : saved_halt;
-                end
+                if (halt_requested || (redirect && target_halts))
+                    draining <= 1;
             end
         end
     end

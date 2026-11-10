@@ -65,7 +65,7 @@ Four different values are possible:
     - For both modes, `CONST[11:0]` will be set to `instr[59:48]`.
     - When *Immediate* is *Unsigned*, all bits in `CONST[63:12]` will be set to `0` (zero extension).
     - When *Immediate* is *Signed*, all bits in `CONST[63:12]` will be set to `instr[59]` (sign extension).
-- If *Immediate* is *Extended*, the CPU will fetch the instruction word (64 bit), and afterwards another word (64 bit) from the instruction bus, incrementing PC twice.
+- If *Immediate* is *Extended*, the following 64-bit word supplies `CONST`, and `PC_NEXT` advances by 16 bytes. The instruction can start before this word arrives: only moves reading `CONST` wait for it (or all moves for a synchronized instruction). When both words are buffered, `CONST` is available immediately.
 
 This allows most instructions to be a single instruction word, but also gives us the ability to have full 64 bit immediates.
 

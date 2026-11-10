@@ -129,17 +129,16 @@ class QbeTest(unittest.TestCase):
         address, value = expected['__mdma_result']
         self.assertEqual(int.from_bytes(sim.memory[address:address + 8], 'little'), value)
 
-    def test_stack_order_is_a_target_capability(self):
+    def test_stack_order_is_required(self):
         path = HERE / 'schedule_stack.ssa'
         nested = compile_fixture(path, MODES[3]).stdout
         self.assertGreater(self.stack_depth(nested), 1)
         with tempfile.TemporaryDirectory() as directory:
-            profile = Path(directory) / 'portable.conf'
-            profile.write_text((PROFILES / 'ecp5.conf').read_text().replace(
-                'stack_push_ordered yes\n', ''))
+            profile = Path(directory) / 'legacy.conf'
+            profile.write_text((PROFILES / 'ecp5.conf').read_text() + 'stack_push_ordered yes\n')
             result = compile_fixture(path, ('--schedule', profile))
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.stack_depth(result.stdout), 1)
+        self.assertEqual(result.stdout, nested)
         image, expected, fault = test_behavior.load_fixture(path, result.stdout)
         self.assertIsNone(fault)
         sim = test_behavior.Simulator(image, len(image) + 65536,
@@ -169,11 +168,7 @@ class QbeTest(unittest.TestCase):
 
     def test_recursive_fifo_calls_with_delayed_pushes(self):
         path = HERE / 'recursion.ssa'
-        with tempfile.TemporaryDirectory() as directory:
-            profile = Path(directory) / 'portable.conf'
-            profile.write_text((PROFILES / 'ecp5.conf').read_text().replace(
-                'stack_push_ordered yes\n', ''))
-            result = compile_fixture(path, ('--schedule', profile))
+        result = compile_fixture(path, ())
         self.assertEqual(result.returncode, 0, result.stderr)
         image, expected, fault = test_behavior.load_fixture(path, result.stdout)
         self.assertIsNone(fault)
@@ -203,6 +198,7 @@ class QbeTest(unittest.TestCase):
             (arith, arith + '\n' + arith, 'duplicate unit ARITH_A'),
             (arith, arith.replace('ARITH_A', 'ARITH_X'), 'unknown unit ARITH_X'),
             (arith, '', 'missing unit ARITH_A'),
+            (arith, 'stack_push_ordered no\n' + arith, 'expected stack_push_ordered yes'),
         ):
             with self.subTest(error=error), tempfile.TemporaryDirectory() as directory:
                 bad = Path(directory) / 'bad.conf'

@@ -121,11 +121,18 @@ class Instruction:
         if self.synchronized and not all(src.ready(self.staged) and dst.writable()
                                          for _, src, dst in pending):
             return progress
-        for i, src, dst in pending:
-            if src.ready(self.staged) and dst.writable():
-                dst.write(src.read(self.staged))
-                self.completed.add(i)
-                progress = True
+        writes = []
+        try:
+            for i, src, dst in pending:
+                if src.ready(self.staged) and dst.writable():
+                    writes.append((dst, src.read(self.staged)))
+                    self.completed.add(i)
+                    progress = True
+        finally:
+            # All reads on this edge see the old heads, including stack
+            # exchanges. Preserve earlier transfers if a later move faults.
+            for dst, value in writes:
+                dst.write(value)
         self.finished = len(self.completed) == len(self.moves)
         return progress
 
@@ -142,6 +149,7 @@ def read_word(memory, address):
 
 class Unit:
     default_latency = 1
+    output_depth = DEPTH
 
     def __init__(self, instance, state, memory, latency, interval):
         self.latency = latency
@@ -172,7 +180,7 @@ class Unit:
     def take_inputs(self, draining=False):
         if not self.has_complete_request:
             return None
-        if len(self.results) + len(self.pending) >= DEPTH and not draining:
+        if len(self.results) + len(self.pending) >= self.output_depth and not draining:
             return None
         return [queue.values.popleft() for queue in self.inputs.values()]
 
@@ -191,7 +199,7 @@ class Unit:
         while self.pending and self.pending[0][0] <= self.clock:
             _, inputs = self.pending.popleft()
             results = self.compute(*inputs)
-            if results and len(self.results) < DEPTH:
+            if results and len(self.results) < self.output_depth:
                 self.results.append({name: int(value) & MASK for name, value in results.items()})
         return active or (self.clock < self.next_issue and self.has_complete_request)
 
@@ -275,7 +283,33 @@ class StashUnit(Unit):
         return dict(OUT=value)
 
 
+class StackInput(Queue):
+    def __init__(self, unit):
+        super().__init__()
+        self.unit = unit
+
+    def writable(self):
+        return len(self.values) + len(self.unit.pending) + len(self.unit.results) < self.unit.output_depth
+
+
+class StackOutput(Output):
+    def ready(self, staged):
+        return self in staged or (
+            not self.unit.busy and not self.unit.has_complete_request and bool(self.unit.results))
+
+
 class StackUnit(Unit):
+    output_depth = 2 * DEPTH
+
+    def __init__(self, instance, state, memory, latency, interval):
+        super().__init__(instance, state, memory, latency, interval)
+        for index, info in SINK_BY_INDEX.items():
+            if info.unit == instance:
+                self.inputs['PUSH'] = state.sinks[index] = StackInput(self)
+        for index, info in SOURCE_BY_INDEX.items():
+            if info.unit == instance:
+                self.outputs['TOP'] = state.sources[index] = StackOutput(self, 'TOP')
+
     def compute(self, value):
         return dict(TOP=value)
 

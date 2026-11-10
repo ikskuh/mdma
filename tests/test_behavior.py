@@ -67,12 +67,18 @@ class BehaviorTest(unittest.TestCase):
     def test_fixtures_exist(self):
         self.assertTrue(FIXTURE_PATHS, 'tests/behavior contains no .mdma fixtures')
 
-    def check_fixture(self, path, *, assembly=None, extra_memory=0, max_ticks=100000):
+    def test_delayed_stack_fixtures(self):
+        for name in ('20-units/stack_a_forward.mdma', '20-units/stack_a_replace.mdma',
+                     '20-units/stack_b.mdma', '30-interactions/stack_exchange.mdma'):
+            with self.subTest(fixture=name):
+                self.check_fixture(FIXTURE_ROOT / name, latencies={'STACK': 6})
+
+    def check_fixture(self, path, *, assembly=None, extra_memory=0, max_ticks=100000, latencies=None):
         try:
             image, expectations, fault = load_fixture(path, assembly)
         except (OSError, ValueError) as exc:
             self.fail(f'{path.name}: {exc}')
-        sim = Simulator(image, memory_size=len(image) + extra_memory)
+        sim = Simulator(image, memory_size=len(image) + extra_memory, latencies=latencies)
         try:
             sim.run(max_ticks=max_ticks)
         except SimulationError as exc:

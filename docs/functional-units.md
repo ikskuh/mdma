@@ -6,6 +6,13 @@ Each STASH and STACK instance must hold at least eight elements. The `COND`
 predicate FIFO must hold at least eight predicates. Every other FIFO must
 support at least four elements in flight.
 
+Every accepted STACK push immediately takes its position in LIFO order.
+A subsequent instruction's TOP read refers to the newest unpopped accepted
+push. If its data is still pending, the read must wait or forward that data.
+Push and pop on the same edge read the previous top and then apply the push.
+This ordering is mandatory in every hardware implementation and simulator
+configuration.
+
 Every CMP output yields the 64-bit value `1` when its comparison is true and
 `0` when it is false.
 

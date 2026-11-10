@@ -44,7 +44,7 @@ def functional(image, labels, start_pc, end_pc, profile):
     return end - start, sim.ticks, values
 
 
-def ecp5(work, image, labels, start_pc, end_pc):
+def build_ecp5(work):
     verilator = shutil.which(os.environ.get('VERILATOR', 'verilator'))
     if not verilator:
         raise ValueError('install Verilator or set VERILATOR to its executable')
@@ -57,19 +57,53 @@ def ecp5(work, image, labels, start_pc, end_pc):
     build = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     if build.returncode:
         raise ValueError(f'Verilator build failed:\n{build.stdout}')
+    return obj / 'Vmdma_coremark_tb'
+
+
+def ecp5(work, image, labels, start_pc, end_pc, executable=None, *, profile=None):
+    """Run RTL; optionally collect integer PROFILE counters in the supplied dict."""
+    if executable is None:
+        executable = build_ecp5(work)
     path = work / 'image.hex'
     write_image(image, path)
-    result = subprocess.run([obj / 'Vmdma_coremark_tb', f'+image={path}', f'+words={len(image) // 8}',
+    result = subprocess.run([executable, f'+image={path}', f'+words={len(image) // 8}',
                              f'+start_pc={start_pc}', f'+end_pc={end_pc}',
                              *(f'+{name}_word={address // 8}' for name, address in labels.items())],
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     match = re.search(r'^COREMARK (\d+) (\d+) ((?:[0-9a-fA-F]+ ?){4})$', result.stdout, re.MULTILINE)
     if result.returncode or not match:
         raise ValueError(f'ECP5 simulation failed:\n{result.stdout}')
+    counters = {}
     for line in result.stdout.splitlines():
         if line.startswith('PROFILE '):
+            counters.update((key, int(value)) for key, value in re.findall(r'(\w+)=(\d+)', line))
             print(line, flush=True)
+    if profile is not None:
+        profile.update(counters)
+    if counters.get('retired'):
+        print(f'ECP5 instruction throughput: {counters["retired"] / int(match[1]):.8f} instructions/clock '
+              f'({int(match[1]) / counters["retired"]:.4f} clocks/instruction).', flush=True)
     return int(match[1]), int(match[2]), [int(value, 16) for value in match[3].split()]
+
+
+def compile_inputs(work):
+    cproc = shutil.which(os.environ.get('CPROC', 'cproc'))
+    if not cproc:
+        raise ValueError('install cproc or set CPROC to its executable')
+    sources = [PORT / 'kernels.c'] + [
+        UPSTREAM / f'core_{name}.c' for name in ('list_join', 'matrix', 'state', 'util')]
+    includes = ['-I', PORT, '-I', UPSTREAM]
+    native = work / 'native'
+    subprocess.run([os.environ.get('CC', 'cc'), '-std=c11', '-O0', *includes,
+                    *sources, '-o', native], check=True)
+    subprocess.run([native], check=True)
+    print('Native CoreMark CRC check passed.', flush=True)
+    inputs = []
+    for source in sources:
+        il = work / f'{source.stem}.ssa'
+        subprocess.run([cproc, '-emit-qbe', '-nostdinc', *includes, '-o', il, source], check=True)
+        inputs.append(il)
+    return inputs
 
 
 def main():
@@ -79,24 +113,9 @@ def main():
     mode.add_argument('--schedule', type=Path, help='override the scheduling profile')
     mode.add_argument('--no-schedule', action='store_true', help='run the original backend')
     args = parser.parse_args()
-    cproc = shutil.which(os.environ.get('CPROC', 'cproc'))
-    if not cproc:
-        raise ValueError('install cproc or set CPROC to its executable')
-    sources = [PORT / 'kernels.c'] + [
-        UPSTREAM / f'core_{name}.c' for name in ('list_join', 'matrix', 'state', 'util')]
-    includes = ['-I', PORT, '-I', UPSTREAM]
     with tempfile.TemporaryDirectory(prefix='mdma-coremark-') as directory:
         work = Path(directory)
-        native = work / 'native'
-        subprocess.run([os.environ.get('CC', 'cc'), '-std=c11', '-O0', *includes,
-                        *sources, '-o', native], check=True)
-        subprocess.run([native], check=True)
-        print('Native CoreMark CRC check passed.', flush=True)
-        inputs = []
-        for source in sources:
-            il = work / f'{source.stem}.ssa'
-            subprocess.run([cproc, '-emit-qbe', '-nostdinc', *includes, '-o', il, source], check=True)
-            inputs.append(il)
+        inputs = compile_inputs(work)
         asm = work / 'coremark.mdma'
         profile = args.schedule or PORT.parent / 'profiles' / ('ecp5.conf' if args.ecp5 else 'simulator.conf')
         options = ['--no-schedule'] if args.no_schedule else ['--schedule', profile]

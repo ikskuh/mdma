@@ -55,6 +55,12 @@ def benchmark_alu(build, bench):
               f'burst {row[3]} requests in {int(row[4]) + 1} clocks')
 
 
+def frontend_tests(build):
+    for name in ('mdma_stream_tb', 'mdma_icache_tb', 'mdma_decode_tb'):
+        bench = compile_bench(build, name)
+        subprocess.run(['vvp', str(bench)], check=True, timeout=30)
+
+
 def serial_test(build):
     image, labels = assemble_with_labels((ROOT / "examples/serial-echo.mdma").read_text())
     hex_path = build / "serial.hex"
@@ -130,6 +136,7 @@ def main():
                 span = str(low) if low == high else f"{low}–{high}"
                 clock = "FU" if 7 <= unit <= 10 else "CPU"
                 print(f"ECP5 latency {names[unit]}: {span} {clock} clocks")
+            frontend_tests(build)
             serial_test(build)
     print(f"{len(fixtures) - failures}/{len(fixtures)} RTL fixture runs passed")
     return int(bool(failures))

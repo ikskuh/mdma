@@ -37,9 +37,11 @@ estimates the steady-state spacing between requests accepted by the unit.
 The ECP5 estimates use the 1:1 memory and math clock configuration and
 include transport. Memory timing varies with SRAM waits and arbitration.
 
-Set `stack_push_ordered yes` only when an accepted push is visible as the
-next instruction's stack top even if an older entry is already readable.
-Omitting the setting limits each STACK to one live compiler temporary.
+STACK ordering is an architectural requirement. Later TOP reads observe the
+newest accepted, unpopped push, waiting for its data when needed. The compiler
+always relies on this rule for nested temporaries and return addresses.
+Legacy profiles containing `stack_push_ordered yes` are accepted, and
+`stack_push_ordered no` is rejected.
 Latency estimates guide scheduling. The compiler checks ordering and
 capacity separately and uses hardware readiness to tolerate stalls.
 
@@ -114,3 +116,18 @@ Each CoreMark recipe uses its matching profile by default. Pass
 `--no-schedule` for the baseline or `--schedule PATH` for a custom profile.
 In the Python run, the same profile also sets simulator FU timings.
 The runner reports image size and code efficiency before timing the run.
+
+`just report-status` rebuilds the QBE backend and builds one Verilator board
+model for all workloads. It compiles, assembles, and executes CoreMark and
+the C examples `sum_to(10)` and `mix_loop(32, 0x12345678, 0x9e3779b1)`.
+Each workload is scheduled for its target. The Python runs use
+`src/qbe/profiles/one-clock.conf`, setting every FU's latency and issue
+interval to one, including memory, multiplication, and division. The RTL
+runs use `src/qbe/profiles/ecp5.conf`.
+
+The final table includes workload clocks, total clocks from boot through
+halt, and both CoreMark/MHz scores. CoreMark/MHz uses the timed iteration,
+with one simulator tick counted as one CPU clock. Example workload clocks
+cover function entry through return to its caller. Every run checks the
+result, and CoreMark also checks all three CRCs. The external tool
+requirements are the same as for `just qbe-coremark-ecp5`.

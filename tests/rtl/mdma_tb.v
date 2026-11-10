@@ -25,10 +25,10 @@ module mdma_tb;
     always #13 math_clk[3] = !math_clk[3];
     mdma_cpu dut (
         .math_clk(math_clk),
-        .clk(clk), .reset(reset), .invalidate_icache(d_cyc && d_stb && d_we && d_in_bounds && |d_sel),
+        .clk(clk), .reset(reset),
         .i_wb_cyc(i_cyc), .i_wb_stb(i_stb), .i_wb_adr(i_addr),
         .i_wb_dat(memory[i_addr[16:3]]), .i_wb_ack(i_cyc && i_stb && i_in_bounds),
-        .i_wb_err(i_cyc && i_stb && !i_in_bounds),
+        .i_wb_err(i_cyc && i_stb && !i_in_bounds), .i_wb_stall(1'b0),
         .d_wb_cyc(d_cyc), .d_wb_stb(d_stb), .d_wb_we(d_we), .d_wb_sel(d_sel),
         .d_wb_adr(d_addr), .d_wb_dat_o(d_out), .d_wb_dat_i(memory[d_addr[16:3]]),
         .d_wb_ack(d_cyc && d_stb && d_in_bounds), .d_wb_err(d_cyc && d_stb && !d_in_bounds),

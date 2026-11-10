@@ -359,7 +359,7 @@ continuation_depth(Symbol *s)
     if (s->depth || s->visiting)
         return s->depth;
     s->visiting = 1;
-    int depth = s->indirect || (s->calls && !schedule_stack_ordered()) ? 0 : 1;
+    int depth = s->indirect ? 0 : 1;
     for (CallEdge *edge = s->calls; depth && edge; edge = edge->next) {
         Symbol *callee = lookup(edge->name, s->origin);
         if (!callee)
@@ -1387,7 +1387,7 @@ flow_sites(void)
                 Symbol *callee = i->op == Ocall && rtype(i->arg[0]) == RCon ?
                                  call_target(i->arg[0]) : NULL;
                 int peak = i->op != Ocall ? 0 : callee ? callee->stack_peak : -1;
-                int capacity = peak < 0 ? 0 : schedule_stack_ordered() ? 8 - peak : !peak;
+                int capacity = peak < 0 ? 0 : 8 - peak;
                 for (int t = Tmp0; bsiter(live, &t); ++t) {
                     if (flow_rematerialize(t))
                         continue;
