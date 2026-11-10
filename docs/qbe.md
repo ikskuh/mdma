@@ -102,6 +102,37 @@ They use the same leading `# expect mem64` and `# expect fault` directives as
 the assembly fixtures. Compiler-error cases use `# expect error <text>`.
 A fixture can include other modules by placing `*.lib.ssa` files beside it.
 
+### C workload examples
+
+Run all eleven self-checking examples in [examples/qbe](../examples/qbe),
+or pass the names you want to run. The command uses cproc from `PATH` or
+`CPROC`, assembles each program, and runs it with the simulator profile.
+It checks the program's return value and prints the image size and ticks.
+
+```sh
+just qbe-examples
+just qbe-examples quick_sort sha256 goertzel
+```
+
+| Example | Workload |
+| --- | --- |
+| `bubble_sort` | In-place passes over signed integers with duplicate keys |
+| `quick_sort` | In-place partitioning and recursive calls |
+| `fibonacci` | A loop-carried pair of 64-bit values |
+| `mat_mul` | Row-major matrix multiply with signed products and six arguments |
+| `crc32` | Reflected IEEE CRC-32 over bytes |
+| `rgba_blend` | Integer source-over compositing of straight-alpha `0xRRGGBBAA` pixels |
+| `strcpy` | A NUL-terminated string copy to an unaligned address |
+| `memmove` | Forward and backward copies over overlapping byte ranges |
+| `bresenham` | Integer rasterization of shallow and steep lines |
+| `sha256` | SHA-256 rounds, full data blocks, and one- and two-block padding |
+| `goertzel` | Single-bin spectral power with a Q14 coefficient |
+
+The SHA-256 example follows the digest and padding specification in
+[FIPS 180-4](https://csrc.nist.gov/pubs/fips/180-4/upd1/final).
+The Goertzel example uses fixed-point arithmetic for the recurrence
+from [Goertzel's original paper](https://courses.cs.washington.edu/courses/cse466/12au/calendar/Goertzel-original.pdf).
+
 `just qbe-coremark` requires cproc on PATH or through the `CPROC` environment
 variable. It runs the same kernel driver natively and on MDMA using the
 pinned CoreMark list, matrix, and state kernels. One iteration with the

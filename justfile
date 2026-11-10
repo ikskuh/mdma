@@ -39,6 +39,9 @@ qbe-build:
 qbe-test: qbe-build
     "{{python}}" tests/qbe/run.py
 
+qbe-examples *names: qbe-build
+    "{{python}}" examples/qbe/run.py {{names}}
+
 qbe-coremark *args: qbe-build
     "{{python}}" src/qbe/coremark/run.py {{args}}
 
