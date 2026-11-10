@@ -109,6 +109,59 @@ CONST -> PC [imm=start]
         with self.assertRaisesRegex(ValueError, 'unknown source'):
             assemble('ARITH_A -> PC')
 
+    def test_relative_immediate_modes(self):
+        cases = (
+            ('CONST -> PC_REL [rel=next]\nnext:', 2, 0),
+            ('CONST -> PC_REL [rel=next, imm_mode=signed]\nnext:', 3, 0),
+            ('CONST -> PC_REL [rel=next, imm_mode=extended]\nnext:', 1, 0),
+            ('CONST -> PC_REL [rel=next, imm_mode=one]\n.word 0\nnext:', 0, 1),
+            ('CONST -> PC_REL [rel=next]\n.align 32768\nnext:', 2, 4095),
+            ('loop: CONST -> CPU.PC_REL [rel=loop]', 3, -1),
+            ('loop: CONST -> PC_REL [rel=loop, imm_mode=extended]', 1, -2),
+            ('CONST -> PC_REL [imm=1, imm_mode=unsigned]', 2, 1),
+            ('.word ' + ','.join(['0'] * 2047) + '\nstart: CONST -> PC_REL [imm=-2048]', 3, -2048),
+        )
+        for source, mode, value in cases:
+            with self.subTest(mode=mode, value=value):
+                image, labels = assemble_with_labels(source)
+                address = labels.get('start', 0)
+                opcode = int.from_bytes(image[address:address + 8], 'little')
+                self.assertEqual((opcode >> 60) & 3, mode)
+                self.assertEqual(decode(opcode)[0], (1, 52))
+                if mode == 1:
+                    self.assertEqual(int.from_bytes(image[address + 8:address + 16], 'little', signed=True), value)
+                elif mode in (2, 3):
+                    self.assertEqual((opcode >> 48) & 4095, value & 4095)
+
+    def test_relative_layout_promotes_cascading_branches(self):
+        padding = '.word ' + ','.join(['0'] * 4094)
+        source = f'''CONST -> PC_REL [rel=near]
+CONST -> PC_REL [rel=far]
+{padding}
+near: .word 0, 0, 0
+far:'''
+        image = words(source)
+        self.assertEqual([image[i] >> 60 for i in (0, 2)], [1, 1])
+        self.assertEqual((image[1], image[3]), (4096, 4097))
+        five = 'ZERO -> STASH_A, ZERO -> STASH_B, ZERO -> STASH_C, ZERO -> STASH_D, CONST -> PC_REL'
+        self.assertEqual(words(five + ' [rel=next]\nnext:')[1:], [0])
+        self.assertEqual(words(five + ' [rel=next]\n.word 0\nnext:')[0] >> 60, 0)
+
+    def test_invalid_relative_immediates(self):
+        for source in (
+            'CONST -> PC_REL [rel=missing]',
+            'CONST -> PC_REL [rel=here, imm=2]\nhere:',
+            'CONST -> PC [rel=here]\nhere:',
+            'ZERO -> PC_REL [rel=here]\nhere:',
+            'ZERO -> PC, ZERO -> PC_REL',
+            'CONST -> PC_REL [imm=4096, imm_mode=unsigned]',
+            'CONST -> PC_REL [imm=-2049, imm_mode=signed]',
+            'here: CONST -> PC_REL [rel=here, imm_mode=unsigned]',
+            'CONST -> PC_REL [rel=here, imm_mode=one]\nhere:',
+        ):
+            with self.subTest(source=source), self.assertRaisesRegex(ValueError, 'line 1:'):
+                assemble(source)
+
     def test_cmp_ne_encoding(self):
         self.assertEqual(decode(words('CMP.NE -> DISCARD')[0])[0], (58, 63))
 

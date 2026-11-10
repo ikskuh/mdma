@@ -265,12 +265,12 @@ memory(unsigned bytes, int sign, int store)
     unsigned id = serial++;
     line(A " -> " A ", " A " -> LOGIC_A.LHS, CONST -> LOGIC_A.RHS [sync, imm=%u]", bytes - 1);
     move("LOGIC_A.AND", "COND");
-    line("CONST -> PC [pred, imm=__mdma_unaligned_%u]", id);
+    line("CONST -> PC_REL [pred, rel=__mdma_unaligned_%u]", id);
     if (store)
         typed_store(A, B, type);
     else
         typed_load(A, type + sign, D);
-    line("CONST -> PC [imm=__mdma_aligned_%u]", id);
+    line("CONST -> PC_REL [rel=__mdma_aligned_%u]", id);
     line("__mdma_unaligned_%u:", id);
     if (!store)
         move("ZERO", C);
@@ -420,7 +420,7 @@ fifo_call(Ins *i, Ins *args, unsigned argc)
             move(D, abi_stash[n]);
     }
     if (rtype(i->arg[0]) == RCon)
-        line("PC_NEXT -> STACK_B.PUSH, CONST -> PC [sync, imm=%s]", call_target(i->arg[0])->label);
+        line("PC_NEXT -> STACK_B.PUSH, CONST -> PC_REL [sync, rel=%s]", call_target(i->arg[0])->label);
     else {
         value(i->arg[0], "STACK_A.PUSH");
         line("PC_NEXT -> STACK_B.PUSH, STACK_A.TOP -> PC [sync]");
@@ -454,7 +454,7 @@ call(Ins *i, Ins *args, unsigned argc)
     line("CONST -> MEM.WRITE, ZERO -> MEM.MASK [imm=" CONT "]");
     line("CONST -> MEM.CHUNK [imm=__mdma_return_%u]", id);
     if (rtype(i->arg[0]) == RCon)
-        literal(call_target(i->arg[0])->label, "PC");
+        line("CONST -> PC_REL [rel=%s]", call_target(i->arg[0])->label);
     else
         value(i->arg[0], "PC");
     line("__mdma_return_%u:", id);
@@ -878,6 +878,8 @@ emit_region(Ins *first, Ins *end)
         ++cycles;
         if (read)
             cycles += schedule_serial_read_wait();
+        if (strstr(p, "rel="))
+            ++words;
         if (imm) {
             char *tail;
             int64_t value = strtoll(imm + 4, &tail, 0);
@@ -1281,7 +1283,7 @@ edge(const Symbol *f, Blk *from, Blk *to)
         load_frame(offset, D);
         store_frame(slot(p->to), D);
     }
-    line("CONST -> PC [imm=%s_b%u]", f->label, to->id);
+    line("CONST -> PC_REL [rel=%s_b%u]", f->label, to->id);
 }
 
 static void
@@ -1294,11 +1296,11 @@ jump(const Symbol *f)
         if (op == Jjnz) {
             value(block->jmp.arg, D);
             extend(D, "COND", 32, 0);
-            fputs("CONST -> PC [pred, imm=", out);
+            fputs("CONST -> PC_REL [pred, rel=", out);
             edge_label(f, block, block->s1);
             line("]");
         }
-        fputs("CONST -> PC [imm=", out);
+        fputs("CONST -> PC_REL [rel=", out);
         edge_label(f, block, op == Jjnz ? block->s2 : block->s1);
         line("]");
     } else if (op == Jret0 || op == Jretw || op == Jretl || isretbh(op)) {
@@ -1880,7 +1882,7 @@ flow_call(Ins *args, Ins *call, FlowSite *site)
     if (indirect)
         line("PC_NEXT -> STACK_B.PUSH, " A " -> PC [sync]");
     else if (park)
-        line("PC_NEXT -> STACK_B.PUSH, CONST -> PC [sync, imm=%s]", target);
+        line("PC_NEXT -> STACK_B.PUSH, CONST -> PC_REL [sync, rel=%s]", target);
     if (park)
         load_frame(0, "STACK_B.PUSH");
     if (req(call->to, R))
@@ -2368,14 +2370,14 @@ flow_function(Symbol *f)
             if (edge[0].placement == EDGE_PRED)
                 fputs(edge[0].code, out);
             else
-                line("CONST -> PC [pred, imm=%s]", flow_label(f,
+                line("CONST -> PC_REL [pred, rel=%s]", flow_label(f,
                      edge[0].placement == EDGE_OUTLINE ? block : NULL, block->s1));
             if (edge[1].placement == EDGE_INLINE)
                 fputs(edge[1].code, out);
             else if (edge[1].term.kind == TERM_RETURN)
                 move("STACK_B.TOP", "PC");
             else if (edge[1].term.kind == TERM_JUMP)
-                literal(edge[1].term.target, "PC");
+                line("CONST -> PC_REL [rel=%s]", edge[1].term.target);
         } else
             ok = 0;
     }
@@ -2798,12 +2800,12 @@ main(int argc, char **argv)
     if (!out)
         error("cannot open temporary output");
     if (optimize) {
-        line("PC_NEXT -> STACK_B.PUSH, CONST -> PC [sync, imm=%s]", entry->label);
+        line("PC_NEXT -> STACK_B.PUSH, CONST -> PC_REL [sync, rel=%s]", entry->label);
         store_global(RESULT, A);
     } else {
         line("CONST -> MEM.WRITE, ZERO -> MEM.MASK [imm=" CONT "]");
         literal("__mdma_halt", "MEM.CHUNK");
-        literal(entry->label, "PC");
+        line("CONST -> PC_REL [rel=%s]", entry->label);
         line("__mdma_halt:");
     }
     literal("-1", "PC");

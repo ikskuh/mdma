@@ -29,6 +29,8 @@ module mdma_cpu (
     reg [63:0] pc, next_pc, constant_value, saved_jump;
     reg constant_ready, jump_redirected, halt_requested;
     reg execute_valid, draining, predicate_needed, synchronized_moves, jump_pending;
+    reg [4:0] relative_slots;
+    reg pc_conflict, relative_capture, jump_relative;
     reg [4:0] pending, staged_mask;
     reg [63:0] staged_data [0:4];
     reg [4:0] writeback_active;
@@ -60,6 +62,7 @@ module mdma_cpu (
     wire extended = fetched[61:60] == 1;
     wire new_constant_ready = !extended || (!pending_constant && stream_valid[1]);
     wire [29:0] fetched_sinks;
+    wire [4:0] decoded_relative;
     function [29:0] decode_sinks(input [63:0] instruction);
         integer slot;
         reg [8:0] sum;
@@ -126,7 +129,7 @@ module mdma_cpu (
     wire all_ready = (ready_moves & pending) == pending;
     wire [4:0] faults = pending & (bad_source | invalid_sink);
     wire [4:0] stop_scan = faults | (synchronized_moves ? pending & ~ready_moves : 5'b0);
-    wire can_commit = issue && (synchronized_moves ? all_ready : !(|faults));
+    wire can_commit = issue && !pc_conflict && (synchronized_moves ? all_ready : !(|faults));
 
     wire memory_fault;
     genvar slot, bank, u, lane, bit_index, port_index;
@@ -134,13 +137,14 @@ module mdma_cpu (
         for (slot = 0; slot < 5; slot = slot + 1) begin: move
             wire [5:0] decoded_src = fetched[slot*12 +: 6];
             wire [5:0] decoded_dst = fetched_sinks[slot*6 +: 6];
+            assign decoded_relative[slot] = decoded_dst == SINK_PC_REL && (slot != 4 || !fetched[61]);
             assign decoded_group[slot] = source_fu(decoded_src);
             always @(posedge clk) if (fetch_accept) begin
                 src[slot] <= decoded_src;
                 dst[slot] <= decoded_dst;
                 group[slot] <= decoded_group[slot];
                 bad_source[slot] <= decoded_src == 59 || decoded_src == 60;
-                bad_sink[slot] <= decoded_dst == 26 || (decoded_dst >= 52 && decoded_dst <= 61);
+                bad_sink[slot] <= decoded_dst == 26 || (decoded_dst > SINK_PC_REL && decoded_dst <= 61);
                 fifo_source[slot] <= decoded_src > 2;
             end
             localparam [4:0] EARLIER = (1 << slot) - 1;
@@ -166,7 +170,8 @@ module mdma_cpu (
             // Capture the five selected payloads before distributing them to the sinks.
             always @(posedge clk) begin
                 writeback_data[slot] <= transfer[slot];
-                writeback_active[slot] <= !reset && commits[slot] && dst[slot] != 0 && dst[slot] != 63;
+                writeback_active[slot] <= !reset && commits[slot] && dst[slot] != 0 &&
+                                          !relative_slots[slot] && dst[slot] != 63;
             end
             assign save[slot] = pending[slot] && !commits[slot] && !staged_mask[slot] && fifo_source[slot] &&
                 ((consumes[0] && group[0] == group[slot]) || (consumes[1] && group[1] == group[slot]) ||
@@ -466,12 +471,21 @@ module mdma_cpu (
     // Sink zero can occur only in slot zero because later sinks are strictly increasing.
     wire jump_slot = pending[0] && dst[0] == 0;
     wire new_jump = commits[0] && jump_slot;
-    wire moves_done = skip || (issue && all_ready);
+    wire new_relative = |(commits & relative_slots);
+    wire [63:0] displacement = (writeback_data[0] & {64{relative_slots[0]}}) |
+                               (writeback_data[1] & {64{relative_slots[1]}}) |
+                               (writeback_data[2] & {64{relative_slots[2]}}) |
+                               (writeback_data[3] & {64{relative_slots[3]}}) |
+                               (writeback_data[4] & {64{relative_slots[4]}});
+    wire [63:0] relative_target = next_pc + {displacement[60:0], 3'b0};
+    // The relative payload is in writeback on the next clock. Keep next_pc
+    // live until then, even if the relative move completed the pack.
+    wire moves_done = skip || (issue && !pc_conflict && all_ready && !(|(pending & relative_slots)));
     wire done = execute_valid && moves_done && (constant_ready || constant_capture);
     assign redirect = instruction_ready && !jump_redirected && (new_jump || jump_pending) &&
                       (constant_ready || constant_capture);
-    assign target = new_jump ? transfer[0] : saved_jump;
-    wire target_halts = &target;
+    assign target = new_jump ? transfer[0] : relative_capture ? relative_target : saved_jump;
+    wire target_halts = !jump_relative && (&target);
     assign replace_execute = !execute_valid || done;
     assign fetch_slot_ready = fetch_enabled && replace_execute && !redirect &&
                               (!pending_constant || constant_capture);
@@ -501,6 +515,10 @@ module mdma_cpu (
             pending <= fetched[61] ? 5'b01111 : 5'b11111;
             staged_mask <= 0;
             jump_pending <= 0;
+            relative_slots <= decoded_relative;
+            pc_conflict <= fetched_sinks[5:0] == 0 && (|decoded_relative);
+            relative_capture <= 0;
+            jump_relative <= 0;
             jump_redirected <= 0;
             halt_requested <= 0;
         end else begin
@@ -511,7 +529,9 @@ module mdma_cpu (
             predicate_needed <= predicate_needed && !take_predicate;
             pending <= skip ? 5'b0 : pending & ~commits;
             staged_mask <= staged_mask | save;
-            jump_pending <= jump_pending || new_jump;
+            jump_pending <= jump_pending || new_jump || new_relative;
+            relative_capture <= new_relative;
+            jump_relative <= jump_relative || new_relative;
             if (redirect) begin
                 jump_redirected <= 1;
                 halt_requested <= target_halts;
@@ -519,11 +539,17 @@ module mdma_cpu (
         end
         if (new_jump)
             saved_jump <= transfer[0];
+        else if (relative_capture)
+            saved_jump <= relative_target;
         if (reset) begin
             constant_ready <= 0;
             pending <= 0;
             predicate_needed <= 0;
             jump_pending <= 0;
+            relative_slots <= 0;
+            pc_conflict <= 0;
+            relative_capture <= 0;
+            jump_relative <= 0;
             jump_redirected <= 0;
             halt_requested <= 0;
         end
@@ -551,6 +577,8 @@ module mdma_cpu (
                     halted <= 1;
             end else if (!execute_valid && fetch_pc[2:0] != 0)
                 fault <= FAULT_PC;
+            else if (issue && pc_conflict)
+                fault <= FAULT_RESERVED_SINK;
             else if (issue && |first_fault)
                 fault <= |(first_fault & bad_source) ? FAULT_RESERVED_SOURCE : FAULT_RESERVED_SINK;
             else if (instruction_ready && !done && !pending_constant &&

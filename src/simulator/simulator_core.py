@@ -6,10 +6,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'pylibs'))
-from mdma import SINK_BY_INDEX, SOURCE_BY_INDEX
+from mdma import SINK_BY_INDEX, SINK_BY_NAME, SOURCE_BY_INDEX
 
 MASK = (1 << 64) - 1
 DEPTH = 8
+PC_REL = SINK_BY_NAME['CPU.PC_REL'].index
 
 
 class SimulationError(ValueError):
@@ -93,6 +94,11 @@ class Instruction:
     completed: set = field(default_factory=set)
     predicate_checked: bool = False
     finished: bool = False
+    pc_conflict: bool = field(init=False)
+
+    def __post_init__(self):
+        self.pc_conflict = bool(self.moves and self.moves[0][1] == 0 and
+                                any(dst == PC_REL for _, dst in self.moves[1:]))
 
     @classmethod
     def decode(cls, word):
@@ -116,6 +122,8 @@ class Instruction:
             if not condition.values.popleft():
                 self.finished = True
                 return True
+        if self.pc_conflict:
+            raise SimulationError('instruction writes both PC sinks', code='reserved_sink')
         pending = [(i, state.sources[src], state.sinks[dst])
                    for i, (src, dst) in enumerate(self.moves) if i not in self.completed]
         if self.synchronized and not all(src.ready(self.staged) and dst.writable()
@@ -430,6 +438,7 @@ class BinaryStream:
         self.pc = 0
         self.next_pc = 0
         self.jump = state.sinks[0] = Queue()
+        self.relative_jump = state.sinks[PC_REL] = Queue()
         state.sinks[62] = Queue()
         state.sinks[63] = Discard()
         state.sources[0] = Constant(0)
@@ -454,7 +463,10 @@ class BinaryStream:
         return Instruction.decode(word)
 
     def advance(self):
-        self.pc = self.jump.values.popleft() if self.jump.values else self.next_pc
+        if self.relative_jump.values:
+            self.pc = (self.next_pc + (self.relative_jump.values.popleft() << 3)) & MASK
+        else:
+            self.pc = self.jump.values.popleft() if self.jump.values else self.next_pc
 
 
 INSTANCES = tuple(dict.fromkeys(info.unit for info in SINK_BY_INDEX.values() if info.unit.unit.name != 'CPU'))

@@ -21,6 +21,11 @@ calls. Fixed-size allocations belong in the entry block. The supported subset
 excludes floating-point operations, aggregate and variadic calls, TLS, and
 dynamic allocations.
 
+Direct branches and calls emit `PC_REL` with a symbolic word displacement.
+The assembler selects the immediate encoding after layout. Calls that push
+`PC_NEXT` return past the complete call pack. Indirect jumps, returns, and
+halt use absolute `PC`.
+
 ## Scheduling
 
 Scheduling is enabled by default with the embedded ECP5 board profile.

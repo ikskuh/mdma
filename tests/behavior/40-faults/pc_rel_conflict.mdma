@@ -1,0 +1,3 @@
+# expect fault reserved_sink
+# Raw ZERO -> PC and ZERO -> PC_REL in the same pack.
+.word 0x280cc0000

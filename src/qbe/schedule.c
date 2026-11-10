@@ -104,11 +104,11 @@ typedef struct {
     int time, count, sync, write_mem, pred;
     struct Transfer {
         int sink_unit, source;
-        const char *sink, *port, *imm, *fixed;
+        const char *sink, *port, *imm, *relative, *fixed;
         int recirculate, last_read;
     } move[5];
     int writes[5], nwrites;
-    const char *imm;
+    const char *imm, *relative;
 } Bundle;
 
 typedef struct {
@@ -488,8 +488,12 @@ add_move(Bundle *b, struct Transfer m)
         return 0;
     if (m.imm && b->imm && strcmp(m.imm, b->imm))
         return 0;
+    if ((m.relative && (b->relative || b->imm)) || (m.imm && b->relative))
+        return 0;
     if (m.imm)
         b->imm = m.imm;
+    if (m.relative)
+        b->relative = m.relative;
     b->move[b->count++] = m;
     return 1;
 }
@@ -675,6 +679,8 @@ bundle_order(const void *a, const void *b)
 static int
 bundle_words(const Bundle *b)
 {
+    if (b->relative)
+        return 2;
     if (!b->imm || !strcmp(b->imm, "0x1"))
         return 1;
     if (b->count <= 4) {
@@ -699,17 +705,20 @@ print_bundle(FILE *out, const Schedule *s, const Bundle *b)
             const SchedNode *src = &s->node[m.source];
             fprintf(out, "%s.%s", hardware_name(src->unit), m.port ? m.port : src->result);
         } else
-            fputs(m.imm ? "CONST" : "ZERO", out);
+            fputs(m.imm || m.relative ? "CONST" : "ZERO", out);
         fprintf(out, " -> %s.%s", hardware_name(m.sink_unit), m.sink);
     }
-    if (b->sync || b->pred || b->imm) {
+    int has_value = b->imm || b->relative;
+    if (b->sync || b->pred || has_value) {
         fputs(" [", out);
         if (b->pred)
-            fputs(b->sync || b->imm ? "pred, " : "pred", out);
+            fputs(b->sync || has_value ? "pred, " : "pred", out);
         if (b->sync)
-            fputs(b->imm ? "sync, " : "sync", out);
+            fputs(has_value ? "sync, " : "sync", out);
         if (b->imm)
             fprintf(out, "imm=%s", b->imm);
+        if (b->relative)
+            fprintf(out, "rel=%s", b->relative);
         fputc(']', out);
     }
     fputc('\n', out);
@@ -748,7 +757,8 @@ emit_terminal(Emission *emit, int *words, int *cycles)
     SchedTerm term = emit->schedule->term;
     if (term.kind != TERM_NONE) {
         Bundle tail = emit->pending;
-        struct Transfer jump = {.sink_unit = CONTROL, .sink = "PC", .imm = term.target,
+        struct Transfer jump = {.sink_unit = CONTROL, .sink = term.kind == TERM_RETURN ? "PC" : "PC_REL",
+                                .relative = term.target,
                                 .fixed = term.kind == TERM_RETURN ? "STACK_B.TOP" : NULL};
         struct Transfer continuation = {.sink_unit = STACK_B, .sink = "PUSH", .fixed = "PC_NEXT"};
         /* A terminal can share the last bundle of its own path only. Keep
@@ -1063,7 +1073,7 @@ schedule_emit(FILE *out, const SchedRegion *region, int baseline_words, int base
 enum FeedbackPort {
     F_ZERO, F_CONST, F_A_LHS, F_A_RHS, F_A_ADD, F_B_LHS, F_B_RHS, F_B_SUB,
     F_UNPACK_ADDR, F_UNPACK_TYPE, F_UNPACK_CHUNK, F_UNPACK_VALUE,
-    F_ARG, F_SEED, F_RESULT, F_CONT, F_COND, F_PC, F_DISCARD, F_PORTS
+    F_ARG, F_SEED, F_RESULT, F_CONT, F_COND, F_PC, F_PC_REL, F_DISCARD, F_PORTS
 };
 
 typedef struct {
@@ -1073,14 +1083,14 @@ typedef struct {
 typedef struct {
     FeedbackMove move[5];
     int count, pred;
-    const char *immediate;
+    const char *immediate, *relative;
 } FeedbackBundle;
 
 static const char *const feedback_name[] = {
     "ZERO", "CONST", "ARITH_A.LHS", "ARITH_A.RHS", "ARITH_A.ADD",
     "ARITH_B.LHS", "ARITH_B.RHS", "ARITH_B.SUB", "UNPACK.ADDR",
     "UNPACK.TYPE", "UNPACK.CHUNK", "UNPACK.VALUE", "STASH_A.OUT",
-    "STASH_B.OUT", "STASH_A.IN", "STACK_B.TOP", "COND", "PC", "DISCARD"
+    "STASH_B.OUT", "STASH_A.IN", "STACK_B.TOP", "COND", "PC", "PC_REL", "DISCARD"
 };
 
 static int
@@ -1101,14 +1111,14 @@ feedback_step(unsigned char *state, const FeedbackBundle *bundle, int taken)
                 return 0;
             read |= 1u << src;
         }
-        if ((write & (1u << dst)) || (dst != F_PC && dst != F_DISCARD && state[dst] >= 4))
+        if ((write & (1u << dst)) || (dst < F_PC && state[dst] >= 4))
             return 0;
         write |= 1u << dst;
     }
     for (int n = 0; n < F_PORTS; ++n) {
         if (read & (1u << n))
             --state[n];
-        if (n != F_PC && n != F_DISCARD && (write & (1u << n)))
+        if (n < F_PC && (write & (1u << n)))
             ++state[n];
     }
     const struct {
@@ -1148,6 +1158,8 @@ feedback_print(FILE *out, const FeedbackBundle *bundle)
                 feedback_name[move.source], feedback_name[move.sink]);
         if (n + 1 == bundle->count && bundle->immediate)
             fprintf(out, " [%simm=%s]", bundle->pred ? "pred, " : "", bundle->immediate);
+        if (n + 1 == bundle->count && bundle->relative)
+            fprintf(out, " [%srel=%s]", bundle->pred ? "pred, " : "", bundle->relative);
         fputc('\n', out);
     }
 }
@@ -1163,7 +1175,7 @@ schedule_countdown(FILE *out, const char *entry, const char *loop, uint32_t seed
          .immediate = !seed_arg && seed ? immediate : NULL},
         {.move = {{F_B_SUB, F_COND}, {F_B_SUB, F_B_LHS}, {F_CONST, F_B_RHS}, {F_B_SUB, F_A_RHS}},
          .count = 4},
-        {.move = {{F_A_ADD, F_A_LHS}, {F_CONST, F_PC}}, .count = 2, .pred = 1, .immediate = loop},
+        {.move = {{F_A_ADD, F_A_LHS}, {F_CONST, F_PC_REL}}, .count = 2, .pred = 1, .relative = loop},
         {.move = {{F_A_ADD, F_UNPACK_CHUNK}, {F_ZERO, F_UNPACK_ADDR}, {F_CONST, F_UNPACK_TYPE},
                   {F_B_SUB, F_DISCARD}}, .count = 4, .immediate = "4"},
         {.move = {{F_UNPACK_VALUE, F_RESULT}, {F_CONT, F_PC}}, .count = 2}

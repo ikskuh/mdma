@@ -11,7 +11,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE.parent))
 import test_behavior
-from mdma_asm import parse_asm
+from mdma_asm import assemble, parse_asm
 
 PROFILES = ROOT / 'src/qbe/profiles'
 MODES = (('--no-schedule',), (), ('--schedule', PROFILES / 'simulator.conf'),
@@ -74,11 +74,11 @@ class QbeTest(unittest.TestCase):
         self.assertEqual(len(predicates), 1)
         back_edge, = predicates
         loop = sum_label + '_countdown'
-        self.assertEqual(back_edge.immediate, loop)
+        self.assertEqual(back_edge.relative, loop)
         self.assertFalse(any(line.synchronized for line in lines))
         branch = lines.index(back_edge)
         self.assertEqual({(m.src, m.dst) for m in back_edge.ops},
-                         {('ARITH_A.ADD', 'ARITH_A.LHS'), ('CONST', 'PC')})
+                         {('ARITH_A.ADD', 'ARITH_A.LHS'), ('CONST', 'PC_REL')})
         self.assertEqual({m.dst for m in lines[branch - 1].ops if m.src == 'ARITH_B.SUB'},
                          {'COND', 'ARITH_B.LHS', 'ARITH_A.RHS'})
         self.assertEqual([line.immediate for line in lines
@@ -91,8 +91,8 @@ class QbeTest(unittest.TestCase):
         call_lines = [line for line in parse_asm(main) if line.ops]
         for n, line in enumerate(call_lines):
             if line.immediate == '0xa':
-                self.assertFalse(any(m.dst in ('PC', 'CPU.PC') for m in line.ops))
-                self.assertEqual(call_lines[n + 1].immediate, sum_label)
+                self.assertFalse(any(m.dst in ('PC', 'CPU.PC', 'PC_REL', 'CPU.PC_REL') for m in line.ops))
+                self.assertEqual(call_lines[n + 1].relative, sum_label)
                 break
         else:
             self.fail('missing literal argument 10')
@@ -103,6 +103,21 @@ class QbeTest(unittest.TestCase):
         reads = [[m.dst for m in line.ops if m.src == 'MUL.LO']
                  for line in parse_asm(result.stdout)]
         self.assertEqual([r for r in reads if r], [['ARITH_A.LHS', 'LOGIC_A.LHS']])
+
+    def test_relative_calls_return_after_short_and_extended_packs(self):
+        path = HERE / 'fifo_sum.ssa'
+        result = compile_fixture(path, ())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        assembly = result.stdout
+        call = next(line for line in parse_asm(assembly) if line.ops)
+        self.assertTrue(call.relative)
+        self.assertTrue(any(move.src == 'PC_NEXT' and move.dst == 'STACK_B.PUSH' for move in call.ops))
+        extended = assembly.replace(f'rel={call.relative}]', f'rel={call.relative}, imm_mode=extended]', 1)
+        for source, expect_extended in ((assembly, False), (extended, True)):
+            with self.subTest(extended=expect_extended):
+                opcode = int.from_bytes(assemble(source)[:8], 'little')
+                self.assertEqual((opcode >> 60) & 3 == 1, expect_extended)
+                test_behavior.BehaviorTest().check_fixture(path, assembly=source, extra_memory=65536)
 
     def test_compute_edge_layouts(self):
         result = compile_fixture(HERE / 'fifo_fu_edges.ssa', ())

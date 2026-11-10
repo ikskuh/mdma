@@ -20,7 +20,7 @@ def mark_return(assembly, entry):
     """Label the caller's continuation, including calls with extended immediates."""
     instructions = list(parse_asm(assembly))
     calls = [index for index, line in enumerate(instructions)
-             if line.immediate == entry and
+             if (line.relative or line.immediate) == entry and
              any(move.src == 'PC_NEXT' and move.dst == 'STACK_B.PUSH' for move in line.ops)]
     if len(calls) != 1:
         raise ValueError(f'expected one direct call to {entry}, found {len(calls)}')

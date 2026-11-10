@@ -34,11 +34,25 @@ by the assembler; the architecture tables contain only qualified names.
 Moves are sorted by sink for encoding; repeated sinks are
 rejected except `DISCARD`. Unused slots encode `ZERO -> DISCARD`.
 
-Optional trailing tags share one bracket block: `[pred, sync, imm=value]`.
-`CONST` defaults to 1. Numeric immediates use unsigned or signed 12-bit encoding
-when possible with at most four moves. Other values (and five-move instructions)
-use an extra 64-bit word. Label immediates always use an extra word, so layout
-needs no iterative optimization.
+Optional trailing tags share one bracket block, for example `[pred, sync, imm=value]`.
+`CONST` defaults to 1. Automatic encoding uses the implicit one when possible,
+then an unsigned or signed 12-bit immediate if the pack has at most four
+moves. Other immediates use an extra 64-bit word. An absolute label supplied
+with `imm=` uses an extra word in automatic mode.
+
+Write `CONST -> PC_REL [rel=loop]` for a relative label. The assembler
+computes `(loop - PC_NEXT) / 8` in instruction words, using the final size
+of the branch pack. It selects the short encoding when possible and
+recomputes layout when a relative immediate needs an extra word. For a
+literal displacement, use `CONST -> PC_REL [imm=-4]` to branch four words
+back from `PC_NEXT`. Use either `rel=` or `imm=` in a pack. All moves in
+the pack that read `CONST` see the same value.
+
+Set `imm_mode=one`, `unsigned`, `signed`, or `extended` to require an
+encoding. `one` requires the value 1. `unsigned` accepts 0 through 4,095
+and `signed` accepts −2,048 through 2,047, each with up to four moves.
+`extended` permits a full 64-bit immediate and up to five moves.
+`imm_mode=auto` is the default.
 
 The command prints code efficiency to stderr after a successful assembly.
 It reports unused slots out of five slots per encoded instruction word.

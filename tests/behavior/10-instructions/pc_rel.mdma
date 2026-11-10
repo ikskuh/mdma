@@ -1,0 +1,23 @@
+# expect mem64 result = 42
+
+CONST -> STASH_A [imm=0x2000000000000005]
+CONST -> STASH_B [imm=42]
+STASH_A -> PC_REL
+CONST -> PC [imm=3]
+.word 0, 0, 0, 0
+
+start:
+    ZERO  -> COND
+    CONST -> PC_REL [pred, rel=wrong]
+    ZERO  -> COND
+    .word 0x8000000280cc0000 # False predicate skips even a conflicting raw pack.
+    CONST -> COND
+    CONST -> PC_REL [pred, sync, rel=store, imm_mode=extended]
+wrong:
+    CONST -> PC [imm=3]
+store:
+    CONST   -> MEM.WRITE [imm=result]
+    STASH_B -> MEM.CHUNK
+  , ZERO    -> MEM.MASK [sync]
+    CONST   -> PC [imm=-1]
+result: .word 0

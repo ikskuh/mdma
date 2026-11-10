@@ -68,7 +68,7 @@ class SourceInfo(FifoInfoBase):
 
 __CPU = FunctionUnit(
     name="CPU",
-    sinks=("PC", "*Reserved[26]*", *(f"*Reserved[{index}]*" for index in range(52, 62)), "COND", "DISCARD"),
+    sinks=("PC", "*Reserved[26]*", "PC_REL", *(f"*Reserved[{index}]*" for index in range(53, 62)), "COND", "DISCARD"),
     sources=("ZERO", "CONST", "PC_NEXT", *(f"*Reserved[{index}]*" for index in range(59, 61))),
 ).singleton()
 
@@ -162,7 +162,7 @@ __sinks = (
     SinkInfo(index=49, unit=STASH_D, name="IN"),
     SinkInfo(index=50, unit=STACK_A, name="PUSH"),
     SinkInfo(index=51, unit=STACK_B, name="PUSH"),
-    SinkInfo(index=52, unit=__CPU, name="*Reserved[52]*"),
+    SinkInfo(index=52, unit=__CPU, name="PC_REL"),
     SinkInfo(index=53, unit=__CPU, name="*Reserved[53]*"),
     SinkInfo(index=54, unit=__CPU, name="*Reserved[54]*"),
     SinkInfo(index=55, unit=__CPU, name="*Reserved[55]*"),

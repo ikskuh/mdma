@@ -69,6 +69,13 @@ Four different values are possible:
 
 This allows most instructions to be a single instruction word, but also gives us the ability to have full 64 bit immediates.
 
+A move to `CPU.PC_REL` branches to `PC_NEXT + (displacement << 3)` modulo
+2⁶⁴. A displacement counts 64-bit instruction words, including extended
+immediate words. The target is word-aligned and subject to the usual fetch
+bounds check. The halt sentinel belongs to the absolute `CPU.PC` sink.
+An instruction that executes with both PC sinks faults with `reserved_sink`
+before committing any moves. A false predicate skips both moves.
+
 ## Functional Units
 
 A functional unit implements the actual computation, and has zero or more sinks and sources.

@@ -72,7 +72,7 @@ Every CMP output yields the 64-bit value `1` when its comparison is true and
 | 49         | STASH           | `D`      | `IN`      |                                                             |
 | 50         | STACK           | `A`      | `PUSH`    |                                                             |
 | 51         | STACK           | `B`      | `PUSH`    |                                                             |
-| 52         | *reserved*      |          |           |                                                             |
+| 52         | *CPU*           |          | `PC_REL`  | Branch to `PC_NEXT + (value << 3)` modulo 2⁶⁴. The value counts 64-bit instruction words. |
 | 53         | *reserved*      |          |           |                                                             |
 | 54         | *reserved*      |          |           |                                                             |
 | 55         | *reserved*      |          |           |                                                             |

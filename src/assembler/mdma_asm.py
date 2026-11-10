@@ -24,6 +24,8 @@ def assembler_names(table):
 
 SOURCES = assembler_names(SOURCE_BY_NAME)
 SINKS = assembler_names(SINK_BY_NAME)
+PC_REL = SINKS["PC_REL"].index
+IMMEDIATE_MODES = {"one": 0, "extended": 1, "unsigned": 2, "signed": 3}
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -40,6 +42,8 @@ class AsmLine:
     immediate: str | None
     synchronized: bool
     predicate: bool
+    relative: str | None = None
+    imm_mode: str = "auto"
     words: tuple[str, ...] = ()
     alignment: int = 0
 
@@ -87,6 +91,8 @@ def parse_asm(source: str) -> Iterable[AsmLine]:
             ops = []
             words = ()
             immediate = None
+            relative = None
+            imm_mode = "auto"
             tags = set()
             alignment = 0
             if line.split(maxsplit=1)[:1] == [".align"]:
@@ -111,15 +117,21 @@ def parse_asm(source: str) -> Iterable[AsmLine]:
                     line, tail = line[:-1].split("[", 1)
                     for tag in tail.split(","):
                         tag = tag.strip()
-                        match = re.fullmatch(r"imm\s*=\s*(.+)", tag)
-                        name = "imm" if match else tag
+                        match = re.fullmatch(r"(imm|rel|imm_mode)\s*=\s*(.+)", tag)
+                        name = match[1] if match else tag
                         if not match and name not in {"pred", "sync"}:
                             raise ValueError(f"unknown tag {tag!r}")
                         if name in tags:
                             raise ValueError(f"duplicate {name!r}")
                         tags.add(name)
-                        if match:
-                            immediate = match[1].strip()
+                        if name == "imm":
+                            immediate = match[2].strip()
+                        elif name == "rel":
+                            relative = match[2].strip()
+                        elif name == "imm_mode":
+                            imm_mode = match[2].strip()
+                            if imm_mode != "auto" and imm_mode not in IMMEDIATE_MODES:
+                                raise ValueError(f"unknown immediate mode {imm_mode!r}")
                 if "]" in line:
                     raise ValueError("unexpected ']'")
                 for op in line.split(","):
@@ -127,8 +139,15 @@ def parse_asm(source: str) -> Iterable[AsmLine]:
                     if len(parts) != 2 or not all(part.strip() for part in parts):
                         raise ValueError(f"invalid move {op.strip()!r}")
                     ops.append(AsmOp(src=parts[0].strip(), dst=parts[1].strip()))
+                if relative is not None:
+                    if immediate is not None:
+                        raise ValueError("rel and imm cannot be combined")
+                    if not any(SOURCES.get(op.src) == SOURCES["CONST"] and
+                               SINKS.get(op.dst) == SINKS["PC_REL"] for op in ops):
+                        raise ValueError("rel requires CONST -> PC_REL")
             yield AsmLine(number=number, label=label, ops=tuple(ops), immediate=immediate,
-                          synchronized="sync" in tags, predicate="pred" in tags, words=words,
+                          synchronized="sync" in tags, predicate="pred" in tags,
+                          relative=relative, imm_mode=imm_mode, words=words,
                           alignment=alignment)
         except ValueError as exc:
             raise ValueError(f"line {number}: {exc}") from exc
@@ -139,16 +158,24 @@ def integer(value: str) -> int:
 
 
 def immediate_mode(line: AsmLine) -> int:
+    if line.imm_mode != "auto":
+        return IMMEDIATE_MODES[line.imm_mode]
+    if line.relative is not None:
+        return 0  # Provisional single-word size for relaxation.
     if line.immediate is None:
         return 0
     try:
         value = integer(line.immediate)
     except ValueError:
-        # ponytail: label references always use an extra word; avoids iterative layout.
+        # Absolute labels retain their existing encoding.
         return 1
+    return numeric_mode(value, len(line.ops))
+
+
+def numeric_mode(value: int, moves: int) -> int:
     if value == 1:
         return 0
-    if len(line.ops) <= 4:
+    if moves <= 4:
         if 0 <= value <= 4095:
             return 2
         if -2048 <= value < 0:
@@ -156,7 +183,7 @@ def immediate_mode(line: AsmLine) -> int:
     return 1
 
 
-def resolve(value: str, labels: dict[str, int]) -> int:
+def literal_value(value: str, labels: dict[str, int]) -> int:
     if value in labels:
         result = labels[value]
     else:
@@ -166,7 +193,11 @@ def resolve(value: str, labels: dict[str, int]) -> int:
             raise ValueError(f"unknown label or invalid integer {value!r}") from None
     if not -(1 << 63) <= result < (1 << 64):
         raise ValueError(f"value out of 64-bit range: {value}")
-    return result & ((1 << 64) - 1)
+    return result
+
+
+def resolve(value: str, labels: dict[str, int]) -> int:
+    return literal_value(value, labels) & ((1 << 64) - 1)
 
 
 def resolve_word(value: str, labels: dict[str, int]) -> int:
@@ -187,20 +218,36 @@ def assemble(source: str) -> bytes:
 def assemble_with_labels(source: str, *, density: MoveDensity | None = None) -> tuple[bytes, dict[str, int]]:
     """Assemble a binary and return its absolute byte addresses by label."""
     lines = tuple(parse_asm(source))
-    labels = {}
-    address = 0
-    for line in lines:
-        if line.alignment:
-            address += -address % line.alignment
-        if line.label is not None:
-            if line.label in labels:
-                raise ValueError(f"line {line.number}: duplicate label {line.label!r}")
-            labels[line.label] = address
-        address += 8 * (len(line.words) if line.words else
-                        1 + (immediate_mode(line) == 1) if line.ops else 0)
+    modes = [immediate_mode(line) for line in lines]
+    while True:
+        labels = {}
+        addresses = []
+        address = 0
+        for line, mode in zip(lines, modes):
+            if line.alignment:
+                address += -address % line.alignment
+            if line.label is not None:
+                if line.label in labels:
+                    raise ValueError(f"line {line.number}: duplicate label {line.label!r}")
+                labels[line.label] = address
+            addresses.append(address)
+            address += 8 * (len(line.words) if line.words else
+                            1 + (mode == 1) if line.ops else 0)
+        promoted = False
+        for index, line in enumerate(lines):
+            if line.relative is None:
+                continue
+            if line.relative not in labels:
+                raise ValueError(f"line {line.number}: unknown relative label {line.relative!r}")
+            if line.imm_mode == "auto" and modes[index] != 1:
+                offset = (labels[line.relative] - addresses[index] - 8) // 8
+                modes[index] = numeric_mode(offset, len(line.ops))
+                promoted |= modes[index] == 1
+        if not promoted:
+            break
 
     output = bytearray()
-    for line in lines:
+    for line, mode in zip(lines, modes):
         try:
             if line.alignment:
                 output.extend(bytes(-len(output) % line.alignment))
@@ -208,7 +255,6 @@ def assemble_with_labels(source: str, *, density: MoveDensity | None = None) -> 
             if line.words:
                 words = [resolve_word(value, labels) for value in line.words]
             elif line.ops:
-                mode = immediate_mode(line)
                 slots = 4 if mode in (2, 3) else 5
                 if len(line.ops) > slots:
                     raise ValueError(f"at most {slots} moves allowed")
@@ -223,6 +269,8 @@ def assemble_with_labels(source: str, *, density: MoveDensity | None = None) -> 
                 sinks = [dst for dst, _ in moves if dst != 63]
                 if len(sinks) != len(set(sinks)):
                     raise ValueError("duplicate sink in instruction")
+                if 0 in sinks and PC_REL in sinks:
+                    raise ValueError("instruction writes both PC sinks")
                 moves.extend([(63, 0)] * (slots - len(moves)))
                 word = (int(line.predicate) << 63) | (int(line.synchronized) << 62) | (mode << 60)
                 previous = -1
@@ -230,10 +278,20 @@ def assemble_with_labels(source: str, *, density: MoveDensity | None = None) -> 
                     offset = max(0, dst - previous - 1)
                     word |= (src | (offset << 6)) << (12 * slot)
                     previous = dst
-                value = resolve(line.immediate, labels) if line.immediate is not None else 1
+                if line.relative is not None:
+                    displacement = labels[line.relative] - len(output) - 8 * (1 + (mode == 1))
+                    if displacement % 8:
+                        raise ValueError("relative target must be word aligned")
+                    value = displacement // 8
+                else:
+                    value = literal_value(line.immediate, labels) if line.immediate is not None else 1
+                if ((mode == 0 and value != 1) or (mode == 2 and not 0 <= value <= 4095) or
+                        (mode == 3 and not -2048 <= value <= 2047) or
+                        (mode == 1 and not -(1 << 63) <= value < (1 << 64))):
+                    raise ValueError("immediate does not fit selected mode")
                 if mode in (2, 3):
                     word |= (value & 4095) << 48
-                words = [word, value] if mode == 1 else [word]
+                words = [word, value & ((1 << 64) - 1)] if mode == 1 else [word]
                 if density is not None:
                     density.total += 5 * len(words)
                     density.unused += moves.count((63, 0))

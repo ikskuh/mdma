@@ -72,15 +72,23 @@ module mdma_decode_tb;
     integer scenario = 0, independent = 0, constant_moves = 0, redirect_count = 0;
     integer warm_seen = 0, last_nop = -2, nop_run = 0, clock = 0;
     integer warm_nops;
+    integer relative_commit_clock = -1;
+    reg relative_hit = 0, relative_miss = 0;
     reg pc_first = 0, early_redirect = 0;
     always @(posedge clk) if (!reset) begin
         clock = clock + 1;
         if (dut.dispatch_push[46] && !dut.constant_ready) independent = independent + 1;
         if (dut.dispatch_push[47]) constant_moves = constant_moves + 1;
         if (dut.new_jump && !dut.constant_ready) pc_first = 1;
+        if (dut.new_relative) relative_commit_clock = clock;
+        if (scenario == 10 && dut.stream.redirect_hit) relative_hit = 1;
+        if (scenario == 11 && dut.stream.restart) relative_miss = 1;
         if (dut.redirect) begin
             redirect_count = redirect_count + 1;
             if (!dut.done) early_redirect = 1;
+            if (scenario == 10 && redirect_count == 1 &&
+                (relative_commit_clock != clock - 1 || dut.target != 32))
+                $fatal(1, "relative target did not redirect on the clock after commit");
         end
         if (scenario == 1 && dut.execute_valid && dut.pc == 16) begin
             if (!dut.constant_ready || dut.constant_value !== 64'h123456789abcdef0)
@@ -225,6 +233,39 @@ module mdma_decode_tb;
             $fatal(1, "unused constant lost instruction boundary");
         hold_literal = 0;
         finish_ok;
+
+        // A relative move in the second slot uses the registered payload
+        // and can seek within the already-buffered window.
+        scenario = 10;
+        setup;
+        memory[0] = one(0, 34, 0); memory[1] = one(38, 63, 0);
+        memory[2] = two(0, 46, 1, 52, 0);
+        memory[3] = one(1, 0, 2) | (64'd3 << 48);
+        memory[4] = one(1, 0, 1); memory[5] = -1;
+        hold_data = 1; redirect_count = 0; reset = 0;
+        while (dut.stream.received != dut.stream.WORDS) @(negedge clk);
+        hold_data = 0;
+        finish_ok;
+        if (!relative_hit || !dut.source_ready[43] || redirect_count != 2)
+            $fatal(1, "resident relative redirect lost its sibling move");
+
+        // A relative offset from a FIFO may arrive before an extended
+        // immediate used by a different move. Keep both values across a miss.
+        scenario = 11;
+        setup;
+        memory[0] = one(1, 46, 2) | (64'd21 << 48);
+        memory[1] = two(1, 47, 43, 52, 1); memory[2] = 64'habcdef;
+        memory[24] = one(1, 0, 1); memory[25] = -1;
+        literal_address = 16; hold_literal = 1;
+        relative_commit_clock = -1; early_redirect = 0; redirect_count = 0; reset = 0;
+        while (relative_commit_clock < 0) @(negedge clk);
+        repeat (8) @(negedge clk);
+        if (redirect_count != 0 || fault != 0) $fatal(1, "relative redirect destroyed pending constant");
+        hold_literal = 0;
+        finish_ok;
+        if (!early_redirect || !relative_miss || dut.source_value[44] !== 64'habcdef || redirect_count != 2)
+            $fatal(1, "relative redirect miss lost its target or remaining move");
+
         $display("PASS decoder immediate readiness, early redirects, throughput, predication, faults");
         $finish;
     end
