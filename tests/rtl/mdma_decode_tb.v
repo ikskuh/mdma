@@ -71,6 +71,7 @@ module mdma_decode_tb;
     endtask
     integer scenario = 0, independent = 0, constant_moves = 0, redirect_count = 0;
     integer warm_seen = 0, last_nop = -2, nop_run = 0, clock = 0;
+    integer warm_nops;
     reg pc_first = 0, early_redirect = 0;
     always @(posedge clk) if (!reset) begin
         clock = clock + 1;
@@ -86,7 +87,7 @@ module mdma_decode_tb;
                 $fatal(1, "buffered constant acquired artificial latency");
             if (dut.dispatch_push[46] && dut.dispatch_push[47]) warm_seen = 1;
         end
-        if (scenario == 1 && dut.done && dut.pc >= 32 && dut.pc < 96) begin
+        if (scenario == 1 && dut.done && dut.pc >= 32 && dut.pc < 8*(4 + warm_nops)) begin
             if (clock == last_nop + 1) nop_run = nop_run + 1;
             last_nop = clock;
         end
@@ -113,12 +114,13 @@ module mdma_decode_tb;
         setup;
         memory[0] = one(0, 34, 0); memory[1] = one(38, 63, 0);
         memory[2] = two(1, 46, 1, 47, 1); memory[3] = 64'h123456789abcdef0;
-        memory[12] = one(1, 0, 1); memory[13] = -1;
+        warm_nops = dut.stream.WORDS < 12 ? dut.stream.WORDS - 4 : 8;
+        memory[4+warm_nops] = one(1, 0, 1); memory[5+warm_nops] = -1;
         hold_data = 1; reset = 0;
-        while (dut.stream_count != 64) @(negedge clk);
+        while (dut.stream.received != dut.stream.WORDS) @(negedge clk);
         hold_data = 0;
         finish_ok;
-        if (!warm_seen || nop_run < 7) $fatal(1, "warm instruction/constant throughput");
+        if (!warm_seen || nop_run != warm_nops - 1) $fatal(1, "warm instruction/constant throughput");
 
         // PC commits before the missing constant; redirect on its capture,
         // while the CONST -> STASH_B move still remains to execute.

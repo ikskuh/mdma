@@ -104,24 +104,43 @@ def main():
         print(f'| {name} | {target} | {timed:,} | {total:,} | {score} |')
 
     print('\nECP5 instruction/cache statistics cover the same workload clocks. Cache lookups include speculative words.')
-    print('| Workload | Retired instructions | Instructions/clock | I-cache lookups | Misses | Miss rate |')
-    print('| --- | ---: | ---: | ---: | ---: | ---: |')
+    print('| Workload | Retired instructions | Instructions/clock | I-cache hits | I-cache misses | Miss rate | SRAM refills |')
+    print('| --- | ---: | ---: | ---: | ---: | ---: | ---: |')
     for name, timed, counters in rtl_profiles:
         accesses = counters['cache_lookups']
         misses = counters['cache_misses']
         rate = 100 * misses / accesses if accesses else 0
         print(f'| {name} | {counters["retired"]:,} | {counters["retired"] / timed:.8f} | '
-              f'{accesses:,} | {misses:,} | {rate:.2f}% |')
+              f'{counters["cache_hits"]:,} | {misses:,} | {rate:.2f}% | {counters["refill_words"]:,} |')
 
-    print('\nClock categories below plus retired instructions sum to workload clocks; each instruction retires on one clock.')
+    stream = rtl_profiles[0][2]
+    ahead = stream['ahead_words']
+    print(f'\nInstruction stream holds {stream["stream_words"]} words '
+          f'with {ahead} ahead and {stream["stream_words"] - ahead} retained.')
+    print('| Workload | Resident redirect hits | Redirect misses | Redirect to admit (avg / max clocks) | History evictions | Peak unread words | Full-window clocks |')
+    print('| --- | ---: | ---: | ---: | ---: | ---: | ---: |')
+    for name, _, counters in rtl_profiles:
+        admitted = counters['redirects_admitted']
+        latency = f'{counters["redirect_to_admit_total"] / admitted:.2f} / {counters["redirect_to_admit_max"]}' if admitted else '—'
+        print(f'| {name} | {counters["resident_redirect_hits"]:,} | {counters["resident_redirect_misses"]:,} | '
+              f'{latency} | {counters["history_evictions"]:,} | {counters["stream_highwater"]:,} | {counters["window_full"]:,} |')
+
+    print('\nClock categories below plus retired instructions sum to workload clocks.')
     print('CONST stalls mean that supplying CONST would let the instruction finish. Concurrent FU/predicate waits are other execute waits.')
-    print('Next-instruction stalls exclude redirect cancellation and clocks admitting an instruction into an empty execute slot.')
+    print('Next-instruction stalls exclude redirect lookup, cancellation, and clocks admitting an instruction into an empty execute slot.')
     print('| Workload | CONST stalls | Next-instruction stalls | Redirect stalls | Other execute waits | Decode bubbles |')
     print('| --- | ---: | ---: | ---: | ---: | ---: |')
     for name, _, counters in rtl_profiles:
         values = ' | '.join(f'{counters[key]:,}' for key in
                             ('const_stall', 'instruction_stall', 'redirect_stall', 'execute_wait', 'decode_bubble'))
         print(f'| {name} | {values} |')
+
+    print('\nCONST word-absent clocks can overlap other execution waits.')
+    print('| Workload | CONST stall episodes | Next-instruction stall episodes | CONST word-absent clocks |')
+    print('| --- | ---: | ---: | ---: |')
+    for name, _, counters in rtl_profiles:
+        print(f'| {name} | {counters["const_stall_events"]:,} | {counters["instruction_stall_events"]:,} | '
+              f'{counters["const_fifo_empty"]:,} |')
 
 
 if __name__ == '__main__':

@@ -29,7 +29,21 @@ def rtl_defines():
     mode = os.environ.get("MDMA_FAST_ALU", "2")
     if mode not in ("0", "1", "2"):
         raise ValueError("MDMA_FAST_ALU must be 0, 1, or 2")
-    return [f"-DMDMA_FAST_ALU={mode}"]
+    defines = [f"-DMDMA_FAST_ALU={mode}"]
+    words = os.environ.get("MDMA_STREAM_WORDS")
+    ahead = os.environ.get("MDMA_STREAM_AHEAD_WORDS")
+    if words is not None:
+        if words not in ("8", "16", "32"):
+            raise ValueError("MDMA_STREAM_WORDS must be 8, 16, or 32")
+        defines.append(f"-DMDMA_STREAM_WORDS={words}")
+    if ahead is not None:
+        if words is None:
+            source = (RTL / "mdma_instruction_stream.v").read_text()
+            words = re.search(r"^`define MDMA_STREAM_WORDS (\d+)$", source, re.MULTILINE)[1]
+        if not re.fullmatch(r"[1-9][0-9]?", ahead) or not 2 <= int(ahead) <= int(words) - 2:
+            raise ValueError("MDMA_STREAM_AHEAD_WORDS must leave at least two words on each side")
+        defines.append(f"-DMDMA_STREAM_AHEAD_WORDS={ahead}")
+    return defines
 
 
 def compile_bench(build, name):

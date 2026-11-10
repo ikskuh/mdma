@@ -53,10 +53,13 @@ module mdma_coremark_tb;
     // is ready. A simultaneous FU/predicate wait remains an execute wait.
     wire const_stall = board.soc.cpu.pending_constant && !board.soc.cpu.done &&
         (board.soc.cpu.skip || (board.soc.cpu.issue && ready_except_constant));
+    wire redirect_busy = board.soc.cpu.stream.cancel_cycle || board.soc.cpu.stream.redirect_lookup;
+    integer resident_redirect_hits = 0, resident_redirect_misses = 0, history_evictions = 0;
     wire instruction_stall = !board.soc.cpu.execute_valid && !board.soc.cpu.fetch_accept &&
-        !board.soc.cpu.stream.cancel_cycle;
-    integer stream_full = 0, stream_highwater = 0, constant_wait = 0;
+        !redirect_busy;
+    integer stream_full = 0, stream_highwater = 0, window_full = 0, constant_wait = 0;
     integer redirect_clock = 0, redirect_to_admit_total = 0, redirect_to_admit_max = 0;
+    integer redirects_admitted = 0;
     reg redirect_waiting = 0;
 
     initial begin
@@ -109,22 +112,31 @@ module mdma_coremark_tb;
                 end
             end else if (board.soc.cpu.fetch_accept)
                 decode_bubbles = decode_bubbles + 1;
-            else if (board.soc.cpu.stream.cancel_cycle)
+            else if (redirect_busy)
                 redirect_stalls = redirect_stalls + 1;
             else
                 instruction_stalls = instruction_stalls + 1;
-            if (board.soc.cpu.stream_count == 64)
+            if (board.soc.cpu.stream_count == board.soc.cpu.stream.WORDS)
                 stream_full = stream_full + 1;
+            if (board.soc.cpu.stream.full)
+                window_full = window_full + 1;
             if (board.soc.cpu.stream_count > stream_highwater)
                 stream_highwater = board.soc.cpu.stream_count;
             if (board.soc.cpu.pending_constant)
                 constant_wait = constant_wait + 1;
+            if (board.soc.cpu.stream.redirect_hit)
+                resident_redirect_hits = resident_redirect_hits + 1;
+            if (board.soc.cpu.stream.restart)
+                resident_redirect_misses = resident_redirect_misses + 1;
+            if (board.soc.cpu.stream.evict)
+                history_evictions = history_evictions + 1;
             if (board.soc.cpu.redirect) begin
                 redirects = redirects + 1;
                 redirect_clock = clocks;
                 redirect_waiting = 1;
             end else if (redirect_waiting && board.soc.cpu.fetch_accept) begin
                 redirect_waiting = 0;
+                redirects_admitted = redirects_admitted + 1;
                 redirect_to_admit_total = redirect_to_admit_total + clocks - redirect_clock;
                 if (clocks - redirect_clock > redirect_to_admit_max)
                     redirect_to_admit_max = clocks - redirect_clock;
@@ -175,8 +187,11 @@ module mdma_coremark_tb;
                      refill_words, redirects, data_reads, data_writes);
             $display("PROFILE fetched_words=%0d cache_hits=%0d cache_misses=%0d stream_full=%0d stream_highwater=%0d constant_wait=%0d",
                      fetched_words, cache_hits, cache_misses, stream_full, stream_highwater, constant_wait);
-            $display("PROFILE redirect_to_admit_total=%0d redirect_to_admit_max=%0d",
-                     redirect_to_admit_total, redirect_to_admit_max);
+            $display("PROFILE stream_words=%0d ahead_words=%0d resident_redirect_hits=%0d resident_redirect_misses=%0d history_evictions=%0d",
+                     board.soc.cpu.stream.WORDS, board.soc.cpu.stream.AHEAD_WORDS,
+                     resident_redirect_hits, resident_redirect_misses, history_evictions);
+            $display("PROFILE window_full=%0d redirects_admitted=%0d redirect_to_admit_total=%0d redirect_to_admit_max=%0d",
+                     window_full, redirects_admitted, redirect_to_admit_total, redirect_to_admit_max);
             $display("COREMARK %0d %0d %h %h %h %h", end_clock - start_clock, clocks,
                      memory[list_word], memory[matrix_word], memory[state_word], memory[result_word]);
             $finish;

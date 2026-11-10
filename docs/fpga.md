@@ -1,11 +1,19 @@
 # MDMA softcore
 
-The ECP5 issues up to five FIFO moves on one CPU edge. An internal 64-word
-raw FIFO prefetches independently of execution. Its two interleaved
-32-by-65-bit distributed-RAM banks expose the first two words and their bus
-errors. The consumer removes zero, one, or two words; the FIFO never decodes
-instructions or identifies immediates. Accepted outstanding requests reserve
-space before their responses arrive.
+The ECP5 issues up to five FIFO moves on one CPU edge. Its internal
+instruction stream prefetches raw words independently of execution. Two
+interleaved distributed RAM banks expose the first two unread words and
+their bus errors. The decoder can consume zero, one, or two words per clock.
+
+The banks form a rolling window. During initial fill the stream can reserve
+every slot. Once full, it makes room for a fetch only by evicting a consumed
+word beyond the configured history. The lookahead budget includes the head
+word, unread words, and reservations for pending or accepted requests.
+`MDMA_STREAM_WORDS` sets the total capacity to 8, 16, or 32 words and
+defaults to 16. `MDMA_STREAM_AHEAD_WORDS` sets the lookahead and defaults
+to half the total, giving eight words each of lookahead and history.
+A split must leave at least two words on each side. These overrides work
+with the FPGA build and both RTL simulation runners.
 
 The CPU decoder consumes one opcode and, for an extended immediate, a second
 word when available. Both buffered words enter the registered execute stage
@@ -16,10 +24,12 @@ all-ready rule. `PC_NEXT` is known from the opcode's address and mode.
 The CPU alone records a missing constant and consumes it before another
 opcode. Waiting for this word is outstanding work, not a deadlock.
 
-A PC move captures its target once. The stream flushes when that move has
-committed and the current immediate has been captured, including capture on
-the same edge. The remaining moves retain their original `CONST` and
-`PC_NEXT` while target prefetch runs. Target instructions execute after the
+A PC move captures its target once. Once that move has committed and the
+current immediate has been captured, the stream registers the target for
+a one-clock lookup. A resident target moves the decoder cursor while the
+prefetch frontier stays in place. After a backward seek, existing lookahead
+can exceed the configured budget until the head catches up. The remaining
+moves retain their original `CONST` and `PC_NEXT` while target prefetch runs. Target instructions execute after the
 current instruction retires. Halt uses the same barrier before draining FUs.
 Fetch errors travel with words and fault only when needed by the decoder;
 speculative fall-through errors disappear on redirect.
@@ -36,7 +46,10 @@ consume two words, so sustained instruction throughput depends on their mix.
 
 The CPU instruction port adds `i_wb_stall`. Requests are accepted on
 `CYC && STB && !STALL`; ordered `ACK` or `ERR` completes each request.
-A redirect clears the FIFO and deasserts `CYC` for one cancellation cycle.
+A redirect miss resets the window and deasserts `CYC` for one cancellation
+cycle. A resident hit keeps the bus cycle and in-flight reads. A slot is
+reserved before its request is presented, so an already stalled request
+has space even if a backward seek moves the head.
 The cache discards frontend requests and replies when `CYC` drops. An issued
 backend request retains its address through completion, but its canceled
 response cannot fill the cache or acknowledge a later cycle. New-cycle hits
@@ -91,7 +104,7 @@ unsigned math instances share their family's RTL through a constant parameter.
 ```sh
 just rtl-test
 just rtl-benchmark
-src/rtl/build.sh build/rtl 7
+src/rtl/build.sh build/rtl 8
 ```
 
 The behavior suite compares halt, fault codes, and memory against the
@@ -124,7 +137,45 @@ Mode 1 measures two clocks for 14 ALU instances and three clocks for SHIFT A/B.
 Mode 2 measures two clocks for all 16 ALU instances. Both modes sustain one
 request per clock and consecutive instructions carrying five transfers.
 
-### Instruction stream measurements
+### Rolling buffer depth sweep
+
+The sweep used the same assembled workloads and board model at each depth.
+All CoreMark CRCs passed. Timing used ECP5-85 CABGA381 speed grade −7, a
+25 MHz CPU target, default fast ALUs, and the same local nextpnr build with
+two threads, parallel placement refinement, and unconstrained reference
+pins. Router2 trials on seed 1 reached their 240-second limit with
+conflicts remaining. The table uses placement estimates throughout.
+
+| Capacity / lookahead | CoreMark clocks | CPU MHz, seeds 1 / 2 / 3 | Median MHz | Estimated iterations per second | `sum_to` clocks | `mix_loop` clocks |
+| --- | ---: | --- | ---: | ---: | ---: | ---: |
+| 64, hard flush (`799733a`) | 12,051,683 | 30.20 / 29.80 / 30.24 | 30.20 | 2.506 | 146 | 1,799 |
+| 8 / 4 | 12,470,387 | 26.98 / 30.62 / 24.97 | 26.98 | 2.164 | 96 | 1,991 |
+| **16 / 8** | **12,344,287** | **30.87 / 29.17 / 26.28** | **29.17** | **2.363** | **81** | **1,890** |
+| 32 / 16 | 12,368,878 | 28.25 / 30.71 / 27.58 | 28.25 | 2.284 | 81 | 1,860 |
+
+The provisional default is 16 words with eight words of lookahead. It
+ranks first among the rolling buffers by median CPU Fmax times CoreMark/MHz.
+Compared with the hard-flush baseline, it shortens `sum_to(10)` by 65 clocks
+and reduces estimated CoreMark throughput by 5.7%. CoreMark has 15,358
+resident redirects out of 213,576, while every one of the 11 timed
+`sum_to` redirects hits. The extra lookup clock on misses accounts for
+most of CoreMark's clock increase.
+
+Both stream banks infer distributed RAM at all depths. Each rolling design
+uses 1,284 distributed RAM write cells and 56 block RAMs overall, versus
+1,318 and 56 in the hard-flush baseline. The median 16-word placement uses
+47,884 combinational cells and 9,394 flip-flops. Its longest CPU path goes
+from the STASH_B occupancy register through payload selection and redirect
+control to the stream head address. The estimated delay is 34.284 ns,
+including 30.530 ns of routing.
+
+To repeat the 16-word simulation with a different split, run
+`MDMA_STREAM_WORDS=16 MDMA_STREAM_AHEAD_WORDS=4 just report-status`.
+The same overrides apply to `just fpga-build`. The ECP5 profiler exports
+`stream_words`, `ahead_words`, `resident_redirect_hits`,
+`resident_redirect_misses`, and `history_evictions`.
+
+### Original 64-word stream measurements
 
 `just report-status` with the raw FIFO, 4 KiB external cache, and default
 fast ALUs passes all result checks. CPU, memory, and math clocks are 1:1,
@@ -174,8 +225,8 @@ The following counters partition workload clocks without overlap:
 | --- | --- |
 | `retired` | A completed instruction, including one skipped by predication. |
 | `const_stall` | The active instruction could finish if `CONST` were ready; all other required sources, sinks, and predication are ready. Includes constant-capture delay when that prevents completion. |
-| `instruction_stall` | Execute is empty and the next instruction cannot be admitted, excluding the stream's cancellation cycle. |
-| `redirect_stall` | Execute is empty during stream cancellation. Cancellation hidden by an active instruction does not count here. |
+| `instruction_stall` | Execute is empty and the next instruction cannot be admitted, excluding redirect lookup and cancellation. |
+| `redirect_stall` | Execute is empty during redirect lookup or cancellation. Work hidden by an active instruction does not count here. |
 | `execute_wait` | Other active-instruction waits, including FU/predicate waits concurrent with a missing constant. |
 | `decode_bubble` | Execute is empty and an instruction is being admitted on this clock. |
 
@@ -187,16 +238,16 @@ an absent extended word even when another FU also blocks completion;
 `constant_wait` additionally includes word-capture clocks. These availability
 counters can overlap execution waits and must not be added to the partition.
 
-The current CoreMark run records 903,318 CONST stalls, 4,633,187 next-instruction
+The original 64-word stream’s CoreMark run records 903,318 CONST stalls, 4,633,187 next-instruction
 stalls, 205,239 exposed redirect clocks, 2,562,207 other execute waits, and
 593,275 decode bubbles. Together with 3,154,457 retirements these account for
 all 12,051,683 workload clocks. IPC is 0.26174411 (CPI 3.8205), and cache miss
 rate is 11.15%. There are 208,516 CONST-stall episodes, 592,134 instruction-stall
 episodes, and 710,634 clocks with the active instruction's constant word absent.
 
-### Instruction stream synthesis and timing
+### Original 64-word stream synthesis and timing
 
-The default stream build synthesizes to 35,846 LUT4s, 9,201 flip-flops,
+The original 64-word stream synthesizes to 35,846 LUT4s, 9,201 flip-flops,
 1,318 distributed-RAM primitives, and 56 block RAMs. The cache payload maps
 to four block RAMs; both raw FIFO banks map to distributed RAM.
 The new stream/cache/decoder benches run as part of `just rtl-test`.
@@ -286,8 +337,8 @@ python src/simulator/simulator.py program.bin --rtl-timing ecp5
 ```
 
 The build uses Yosys and nextpnr and writes its reports and bitstreams under
-`build/rtl/`. The reference build uses ECP5-85 CABGA381, with speed grade 7 by
-default. Set `MDMA_ECP5_LPF` to the board's pin constraints before building a
+`build/rtl/`. The reference build targets the LFE5UM5G-85F-8BG381 (ECP5-5G, 85K,
+381-ball caBGA, speed grade −8). Set `MDMA_ECP5_LPF` to the board's pin constraints before building a
 bitstream to load on hardware. Without it, nextpnr assigns reference pins.
 `MDMA_ECP5_FREQ` overrides the 25 MHz timing target for clocks without a
 specific constraint. External SRAM and CDC timing depend on the board and
