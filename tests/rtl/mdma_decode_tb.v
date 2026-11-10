@@ -7,7 +7,8 @@ module mdma_decode_tb;
     reg reset = 1;
     reg [63:0] memory [0:255], requests [0:127];
     integer rd = 0, wr = 0, queued = 0;
-    wire i_cyc, i_stb, d_cyc, halted;
+    wire i_cyc = dut.stream.active;
+    wire i_stb, d_cyc, halted;
     wire [63:0] i_adr;
     wire [3:0] fault;
     reg hold_literal = 0, hold_data = 0;
@@ -17,11 +18,10 @@ module mdma_decode_tb;
     wire response_error = response && response_address == fault_address;
     mdma_cpu dut (
         .clk(clk), .reset(reset), .math_clk({4{clk}}),
-        .i_wb_cyc(i_cyc), .i_wb_stb(i_stb), .i_wb_adr(i_adr), .i_wb_stall(1'b0),
-        .i_wb_dat(memory[response_address[10:3]]),
-        .i_wb_ack(response && !response_error), .i_wb_err(response_error),
-        .d_wb_cyc(d_cyc), .d_wb_stb(), .d_wb_we(), .d_wb_sel(), .d_wb_adr(), .d_wb_dat_o(),
-        .d_wb_dat_i(data_value), .d_wb_ack(d_cyc && !hold_data), .d_wb_err(1'b0),
+        .i_req_valid(i_stb), .i_req_addr(i_adr), .i_req_ready(1'b1),
+        .i_rsp_data(memory[response_address[10:3]]), .i_rsp_valid(response), .i_rsp_error(response_error),
+        .d_req_valid(d_cyc), .d_req_write(), .d_req_mask(), .d_req_addr(), .d_req_data(),
+        .d_req_ready(!hold_data), .d_rsp_data(data_value), .d_rsp_valid(d_cyc && !hold_data), .d_rsp_error(1'b0),
         .halted(halted), .fault(fault), .ticks()
     );
     always @(posedge clk) begin

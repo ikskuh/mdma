@@ -34,27 +34,18 @@ current instruction retires. Halt uses the same barrier before draining FUs.
 Fetch errors travel with words and fault only when needed by the decoder;
 speculative fall-through errors disappear on redirect.
 
-`mdma_icache` lives in `mdma_soc`, outside the CPU and ahead of the instruction
-CDC bridge. It caches raw read-only bus data: 4 KiB, two ways, 64 sets, four
-64-bit words per line, with per-word validity. The payload uses four ECP5
-block RAMs. A four-entry request queue and registered lookup serve pipelined
-64-bit Wishbone reads, sustaining one hit per CPU clock. An idle queue is
-bypassed, so a hit returns one clock after request acceptance. Misses fill requested
-words through the existing single-outstanding Classic Wishbone backend.
-The 64-bit port supplies at most one word per clock; extended instructions
-consume two words, so sustained instruction throughput depends on their mix.
+The stream fetches directly from CPU-clock BRAM through a native 64-bit port.
+A request transfers when valid and ready are both high. Its ordered reply,
+including any address error, is sampled on the next clock. The instruction
+port supplies up to one raw word per clock. Extended instructions consume
+two words, so sustained instruction throughput depends on the instruction mix.
 
-The CPU instruction port adds `i_wb_stall`. Requests are accepted on
-`CYC && STB && !STALL`; ordered `ACK` or `ERR` completes each request.
-A redirect miss resets the window and deasserts `CYC` for one cancellation
-cycle. A resident hit keeps the bus cycle and in-flight reads. A slot is
-reserved before its request is presented, so an already stalled request
-has space even if a backward seek moves the head.
-The cache discards frontend requests and replies when `CYC` drops. An issued
-backend request retains its address through completion, but its canceled
-response cannot fill the cache or acknowledge a later cycle. New-cycle hits
-can proceed while that old backend beat drains. Data writes do not invalidate
-this cache; self-modifying code is unsupported.
+A redirect miss clears the rolling window and waits one cycle for any
+discarded reply before issuing the next request. A resident hit keeps
+in-flight reads. The stream reserves a slot before presenting a request, so
+a stalled request retains space even if a backward seek moves the head.
+Stores leave buffered instruction words intact. Self-modifying code is
+unsupported.
 
 FIFO status selection uses three LUT4 tiers.
 Each of the five transfer slots selects a source through four local 16-way
@@ -65,11 +56,10 @@ writes before their data reaches RAM. Each functional unit runs independently
 as soon as its operands and result space are ready.
 
 The ECP5 has 45 independent operand FIFOs and 27 independent result banks.
-The operand/result banks map to 52 block RAMs; the external bus cache adds
-four more, for 56 in the current ECP5-85 synthesis.
-The remaining banks, the MEM request queue, and the four SRAM CDC queues use
-distributed RAM. The `COND` FIFO queues eight entries, storing one truth bit
-per entry.
+The operand/result banks map to 52 block RAMs. Program and data memory adds
+128, for 180 of the target’s 208 blocks in either port mode. The remaining
+FIFO banks and the MEM request queue use distributed RAM. The `COND` FIFO
+queues eight entries, storing one truth bit per entry.
 Narrow operands use local distributed RAM. CMP, BITCNT, and PACK store
 6, 21, and 136 bits per result generation and expand their fields to 64-bit
 words at the transport interface.
@@ -91,9 +81,7 @@ Bits 0 through 3 are MUL, MULS, DIV, and DIVS. Each has dedicated dual-clock
 operand and result FIFOs with synchronized Gray pointers. Supply all four
 clock inputs, or connect selected inputs to the same clock on the board.
 The full and empty flags use Gray-code comparisons in their local domains.
-The SRAM interface has a separate `mem_clk`. Instruction and data requests
-each cross through dedicated request and reply FIFOs. Arbitration and SRAM
-pin timing run on `mem_clk`. UART MMIO runs on the CPU clock.
+BRAM and UART MMIO run on the CPU clock.
 
 Each functional-unit family has its own Verilog module. Elaboration connects
 the selected operation to the common FIFO and pipeline signals. Signed and
@@ -104,7 +92,7 @@ unsigned math instances share their family's RTL through a constant parameter.
 ```sh
 just rtl-test
 just rtl-benchmark
-src/rtl/build.sh build/rtl 8
+MDMA_BRAM_IMAGE=program.bin just fpga-build
 ```
 
 The behavior suite compares halt, fault codes, and memory against the
@@ -132,12 +120,44 @@ Result FIFO space gates consumption, and invalid PACK/UNPACK requests raise
 the usual faults before a result is enqueued.
 
 The ALU benchmark reports both dispatch-to-readiness and dispatch-to-dependent
-use with a warm cache. Four consecutive requests measure issue interval.
+use with buffered instructions. Four consecutive requests measure the
+issue interval.
 Mode 1 measures two clocks for 14 ALU instances and three clocks for SHIFT A/B.
 Mode 2 measures two clocks for all 16 ALU instances. Both modes sustain one
 request per clock and consecutive instructions carrying five transfers.
 
-### Rolling buffer depth sweep
+### BRAM performance
+
+The following runs use the same ECP5 scheduling profile and 16-word stream
+configuration. The workload excludes setup and teardown. All CoreMark CRCs
+and example results pass.
+
+| Board memory | CoreMark workload clocks | CoreMark/MHz | `sum_to` workload clocks | `mix_loop` workload clocks |
+| --- | ---: | ---: | ---: | ---: |
+| External SRAM | 12,344,287 | 0.08100913 | 81 | 1,890 |
+| Single-port BRAM | 6,359,670 | 0.15724086 | 48 | 1,600 |
+| Dual-port BRAM | 6,349,569 | 0.15749100 | 48 | 1,600 |
+
+CoreMark's 103,967 instruction-port wait clocks in single-port mode overlap
+mostly with execution or buffered fetch. Dual port removes those waits and
+saves 10,101 timed clocks.
+
+On the LFE5UM5G-85F-8BG381, the placement comparison used a 25 MHz target,
+unconstrained reference pins, and the same three seeds and nextpnr settings.
+
+| BRAM mode | CPU MHz, seeds 1 / 2 / 3 | Median MHz |
+| --- | --- | ---: |
+| Single port | 39.74 / 44.36 / 46.05 | 44.36 |
+| Dual port | 41.65 / 41.84 / 43.78 | 41.84 |
+
+The higher placement median makes single port the provisional default.
+Router2 trials timed out with conflicts remaining, so routed timing is
+unconfirmed. The median single-port placement's critical CPU path starts
+at the CPU-side MULS result FIFO pointer. It passes through move readiness
+and dispatch and ends at a slot payload register. Interconnect accounts
+for 19.29 ns of its 22.54 ns estimated delay.
+
+### Historical SRAM rolling buffer depth sweep
 
 The sweep used the same assembled workloads and board model at each depth.
 All CoreMark CRCs passed. Timing used ECP5-85 CABGA381 speed grade −7, a
@@ -153,7 +173,7 @@ conflicts remaining. The table uses placement estimates throughout.
 | **16 / 8** | **12,344,287** | **30.87 / 29.17 / 26.28** | **29.17** | **2.363** | **81** | **1,890** |
 | 32 / 16 | 12,368,878 | 28.25 / 30.71 / 27.58 | 28.25 | 2.284 | 81 | 1,860 |
 
-The provisional default is 16 words with eight words of lookahead. It
+This sweep selected 16 words with eight words of lookahead. It
 ranks first among the rolling buffers by median CPU Fmax times CoreMark/MHz.
 Compared with the hard-flush baseline, it shortens `sum_to(10)` by 65 clocks
 and reduces estimated CoreMark throughput by 5.7%. CoreMark has 15,358
@@ -207,17 +227,16 @@ to readiness and dependent use.
 
 The ECP5 board simulation emits machine-readable `PROFILE key=value` lines.
 `just qbe-coremark-ecp5` prints them and instructions/clock (IPC) and
-clocks/instruction (CPI). `just report-status` also prints cache and stall
+clocks/instruction (CPI). `just report-status` also prints BRAM and stall
 tables for CoreMark, `sum_to`, and `mix_loop`. The Python RTL runner's optional
 `profile` dictionary receives these counters while its result tuple stays
 unchanged. All counters cover the same timed workload interval as its score.
 
-Cache accesses count raw-word tag lookups, including speculative work later
-canceled by a jump. `cache_hits + cache_misses == cache_lookups`.
-`refill_requests` counts backend reads actually started; a miss canceled before
-service still counts as a lookup miss. `refill_words` counts completed SRAM
-reads. Miss rate is lookup misses divided by total lookups; a prefetched miss
-can be hidden and therefore is not itself a CPU stall.
+BRAM counters count accepted instruction reads (including speculative
+fetches), data reads, and data writes. An instruction port wait is a clock
+when a valid instruction request loses arbitration. I-cache hits, misses,
+and refills are unavailable with direct BRAM fetch. Resident stream hits and
+misses continue to count redirects that can or cannot reuse buffered words.
 
 The following counters partition workload clocks without overlap:
 
@@ -231,7 +250,7 @@ The following counters partition workload clocks without overlap:
 | `decode_bubble` | Execute is empty and an instruction is being admitted on this clock. |
 
 Their sum equals `clocks`, and IPC is `retired / clocks`. The bench asserts
-both this identity and the cache lookup identity on every successful run.
+this identity on every successful run.
 `const_stall_events` and `instruction_stall_events` count distinct runs of
 stall clocks. `const_fifo_empty` counts active-instruction clocks waiting for
 an absent extended word even when another FU also blocks completion;
@@ -250,9 +269,10 @@ episodes, and 710,634 clocks with the active instruction's constant word absent.
 The original 64-word stream synthesizes to 35,846 LUT4s, 9,201 flip-flops,
 1,318 distributed-RAM primitives, and 56 block RAMs. The cache payload maps
 to four block RAMs; both raw FIFO banks map to distributed RAM.
-The new stream/cache/decoder benches run as part of `just rtl-test`.
-They separately check arbitrary raw words, pipelined cache hits and canceled
-misses, immediate readiness, early redirects, and deferred fetch faults.
+That design used a dedicated cache bench alongside the stream and decoder
+benches. The current `just rtl-test` suite checks BRAM arbitration and byte
+writes alongside arbitrary raw words, immediate readiness, early redirects,
+and deferred fetch faults.
 `just rtl-benchmark` retains separate implementation-timing checks.
 
 For ECP5-85 CABGA381 speed grade -7 at a 25 MHz target, production-tool
@@ -330,7 +350,7 @@ placement estimates 30.13 MHz. Both clear the target. The complete build
 reached routing but timed out at its 480-second limit, so a routed Fmax and
 bitstream remain unavailable from this run.
 
-Use the Icarus model to get actual RTL clocks for another assembled image:
+Use the core-only Icarus model to measure RTL clocks with an ideal memory port:
 
 ```sh
 python src/simulator/simulator.py program.bin --rtl-timing ecp5
@@ -341,10 +361,9 @@ The build uses Yosys and nextpnr and writes its reports and bitstreams under
 381-ball caBGA, speed grade −8). Set `MDMA_ECP5_LPF` to the board's pin constraints before building a
 bitstream to load on hardware. Without it, nextpnr assigns reference pins.
 `MDMA_ECP5_FREQ` overrides the 25 MHz timing target for clocks without a
-specific constraint. External SRAM and CDC timing depend on the board and
-clock sources.
+specific constraint.
 
-### ECP5-85 speed grade −7 timing
+### Historical ECP5-85 speed grade −7 timing
 
 The cache-coherence build before FIFO width compaction estimated 33.35 MHz for the CPU, 67.02 MHz
 for memory, and 70.28, 59.36, 57.86, and 84.73 MHz for MUL, MULS, DIV, and
@@ -438,46 +457,36 @@ addresses, literals and memory chunks. The prototype's best placement
 passes the 42 MHz target and its route attempt timed out with unresolved
 congestion.
 
-## Buses and board interfaces
+## Memory and board interfaces
 
-`mdma_cpu` exposes separate 64-bit Wishbone Classic masters for instruction
-fetch and data access. Addresses are byte addresses. The instruction master
-always reads all eight lanes. The data master uses active-high byte selects.
-A request holds its address and controls until ACK or ERR. [Wishbone B4 specification](https://cdn.opencores.org/downloads/wbspec_b4.pdf)
+`mdma_cpu` exposes independent native instruction and data request ports.
+Both use 64-bit byte addresses. The data port also carries write data and
+active-high byte enables. Requests hold their address and controls until
+accepted. The SoC checks the entire address before converting it to a BRAM
+word index. The memory range is `0x00000`–`0x3ffff`. Data-port UART
+addresses take precedence over the BRAM bounds check.
 
-The instruction cache uses eight two-way sets indexed by low word-address
-bits. It stores predecoded sink indices and reads the instruction and its
-extended immediate together. A miss refills one word over Wishbone.
-Data writes preserve instruction cache entries and pending refills.
-Self-modifying code is currently unsupported on ECP5. Load instructions and
-their embedded immediates before releasing reset.
-Removing store-triggered invalidation reduces the same CoreMark run from
-44,971,002 to 44,908,396 CPU clocks, yielding 0.02226755 CoreMark/MHz.
+The board uses a single 32,768 × 64-bit BRAM array. In single-port mode a
+BRAM data access takes priority over instruction fetch. In dual-port mode
+instruction fetch and data access can complete together. A write with any
+enabled byte lane delays an instruction read of the same word until a later
+clock. Byte masks use native write enables. A MEM swap sends an ordered
+read followed by a write and returns the original read data.
+
+`MDMA_BRAM_IMAGE` is an assembled little-endian binary loaded at address
+zero through the FPGA bitstream. The build pads the image with zeros to
+256 KiB and rejects empty or oversized binaries. The current CoreMark RTL
+image uses 127,264 bytes plus 65,536 bytes reserved for the stack, leaving
+69,344 bytes. The simulation runners use the same image conversion.
+`MDMA_BRAM_PORTS=1` (default) or `2` selects the port mode for FPGA builds
+and RTL simulations.
+
 Halt drains complete operand bundles and discards unread results as needed
 to make space. A fault can still stop the drain.
 
-The SoC routes both masters to shared SRAM and maps the UART on the data
-master. `mdma_ecp5` connects directly to the SRAM's 32 word-address lines,
-64 bidirectional data lines, and active-low CS, OE, and WE. Masked writes
-perform read-modify-write. The controller defaults to two read clocks and two
-write-pulse clocks, with separate write setup and hold phases.
-
-With default wait states, the SRAM controller acknowledges a read, full
-write, and masked write in 4, 6, and 8 memory clocks respectively. CPU-visible
-round-trip time also includes the request and reply FIFO crossings.
-The board bench measured the first data request of each kind at the following
-clock ratios. These are simulation clock settings.
-
-| CPU clock | Memory clock | Read | Full write | Masked write |
-| ---: | ---: | ---: | ---: | ---: |
-| 100 MHz | 62.5 MHz | 16 CPU clocks | 19 CPU clocks | 23 CPU clocks |
-| 100 MHz | 166.7 MHz | 7 CPU clocks | 8 CPU clocks | 9 CPU clocks |
-
-Load the assembled little-endian binary into SRAM starting at word address
-zero before releasing reset. The default UART bit period is 104 clocks,
-approximately 115200 baud at 12 MHz. `CLOCKS_PER_BIT` controls that ratio.
-The byte handshake in `mdma_soc` can also connect directly to an external
-USART module.
+The default UART bit period is 104 clocks, approximately 115200 baud at
+12 MHz. `CLOCKS_PER_BIT` controls that ratio. The byte handshake in
+`mdma_soc` can also connect directly to an external USART module.
 
 | Byte address | Register | Behavior |
 | --- | --- | --- |
@@ -491,8 +500,8 @@ USART module.
 The Icarus measurements count the first operand pop through result enqueue,
 inclusive. The ECP5 math measurements use the individual FU clocks and exclude
 the FIFO pointer synchronization needed for CPU visibility. MEM measurements
-use the zero-wait Wishbone bench. Board-level SRAM transactions include the
-FIFO crossings and the controller waits listed above.
+use a core-only mock that replies on the request edge. The board BRAM adds
+one clock per memory beat, so a swap adds two clocks before contention.
 
 | Unit or operation | Registered mode 0 | Default fast mode 2 |
 | --- | ---: | ---: |

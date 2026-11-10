@@ -14,7 +14,7 @@ from mdma_asm import assemble_with_labels
 from mdma import SINK_BY_INDEX, SOURCE_BY_INDEX
 from simulator import Simulator, SimulationError
 from simulator_core import INSTANCES
-from rtl_runner import compile_bench, execute_image, prepare, write_image
+from rtl_runner import compile_bench, execute_image, prepare, write_bram_image, write_image
 
 def benchmark_dispatch(build, bench):
     source = Path(__file__).with_name("five_wide.mdma").read_text()
@@ -56,20 +56,30 @@ def benchmark_alu(build, bench):
 
 
 def frontend_tests(build):
-    for name in ('mdma_stream_tb', 'mdma_icache_tb', 'mdma_decode_tb'):
+    for name in ('mdma_stream_tb', 'mdma_bram_tb', 'mdma_decode_tb'):
         bench = compile_bench(build, name)
         subprocess.run(['vvp', str(bench)], check=True, timeout=30)
 
 
-def serial_test(build):
+def board_tests(build):
     image, labels = assemble_with_labels((ROOT / "examples/serial-echo.mdma").read_text())
     hex_path = build / "serial.hex"
-    write_image(image, hex_path)
+    write_bram_image(image, hex_path)
     bench = compile_bench(build, "mdma_serial_tb")
-    for mem_half_period in (8, 3):
-        subprocess.run(["vvp", str(bench), f"+image={hex_path}", f"+words={len(image) // 8}",
-                        f"+cell={labels['cell'] // 8}", f"+readback={labels['readback'] // 8}",
-                        f"+mem_half_period={mem_half_period}"], check=True)
+    subprocess.run(["vvp", str(bench), f"+image={hex_path}", "+words=32768",
+                    f"+cell={labels['cell'] // 8}", f"+readback={labels['readback'] // 8}"],
+                   check=True, timeout=20)
+    bounds_cases = (
+        'CONST -> PC [imm=0x40000]',
+        'CONST -> PC [imm=0x100000000]',
+        'CONST -> MEM.READ [imm=0x100000000]\nMEM.CHUNK -> DISCARD',
+        'CONST -> MEM.WRITE [imm=0x100000000]\nZERO -> MEM.CHUNK, ZERO -> MEM.MASK',
+    )
+    for source in bounds_cases:
+        image, _ = assemble_with_labels(source + '\n')
+        write_bram_image(image, hex_path)
+        subprocess.run(['vvp', str(bench), f'+image={hex_path}', '+words=32768', '+expect_fault=3'],
+                       check=True, timeout=20)
 
 
 def compare(fixture, build, bench):
@@ -137,7 +147,7 @@ def main():
                 clock = "FU" if 7 <= unit <= 10 else "CPU"
                 print(f"ECP5 latency {names[unit]}: {span} {clock} clocks")
             frontend_tests(build)
-            serial_test(build)
+            board_tests(build)
     print(f"{len(fixtures) - failures}/{len(fixtures)} RTL fixture runs passed")
     return int(bool(failures))
 

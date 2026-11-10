@@ -12,6 +12,18 @@ rtl_defines=$(PYTHONPATH=src/simulator python3 -c 'from rtl_runner import rtl_de
 mkdir -p "$out"
 python3 src/rtl/gen_ports.py >"$out/mdma_ports.vh"
 
+: "${MDMA_BRAM_IMAGE:?Set MDMA_BRAM_IMAGE to an assembled MDMA binary}"
+PYTHONPATH=src/simulator python3 - "$MDMA_BRAM_IMAGE" "$out/bram.hex" <<'PYIMAGE'
+import sys
+from pathlib import Path
+from rtl_runner import write_bram_image
+
+try:
+    write_bram_image(Path(sys.argv[1]).read_bytes(), Path(sys.argv[2]))
+except (OSError, ValueError) as exc:
+    sys.exit(f"BRAM image: {exc}")
+PYIMAGE
+
 pins=(--lpf-allow-unconstrained)
 router=()
 if [[ -n ${MDMA_ECP5_LPF:-} ]]; then
@@ -25,7 +37,7 @@ if [[ -n ${MDMA_ECP5_ROUTER:-} ]]; then
 fi
 
 yosys -Q -T -q -l "$out/ecp5-synth.log" \
-    -p "read_verilog $rtl_defines -I$out src/rtl/*.v; synth_ecp5 -top mdma_ecp5 -json $out/ecp5.json"
+    -p "read_verilog $rtl_defines -I$out src/rtl/*.v; chparam -set INIT_FILE \"$out/bram.hex\" mdma_ecp5; synth_ecp5 -top mdma_ecp5 -json $out/ecp5.json"
 part="$out/ecp5-$speed"
 "${NEXTPNR_ECP5:-nextpnr-ecp5}" --um5g-85k --package CABGA381 --speed "$speed" --freq "${MDMA_ECP5_FREQ:-25}" \
     --json "$out/ecp5.json" "${pins[@]}" "${router[@]}" \

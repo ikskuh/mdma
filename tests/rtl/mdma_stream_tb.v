@@ -8,7 +8,8 @@ module mdma_stream_tb;
     wire [63:0] head, word0, word1, adr;
     wire [1:0] valid, error;
     wire [6:0] count;
-    wire cyc, stb;
+    wire cyc = dut.active;
+    wire stb;
     integer clock = 0;
     reg pause_replies = 0, force_stall = 0;
     wire stall = force_stall || clock % 7 == 0;
@@ -26,9 +27,9 @@ module mdma_stream_tb;
     mdma_instruction_stream dut (
         .clk(clk), .reset(reset), .enable(1'b1), .flush(flush), .restart_address(restart),
         .pop_count(pop), .head_address(head), .word0(word0), .word1(word1),
-        .valid(valid), .error(error), .count(count), .wb_cyc(cyc), .wb_stb(stb),
-        .wb_adr(adr), .wb_stall(stall), .wb_dat(contents(response_address)),
-        .wb_ack(ack && !err), .wb_err(err)
+        .valid(valid), .error(error), .count(count), .req_valid(stb),
+        .req_addr(adr), .req_ready(!stall), .rsp_data(contents(response_address)),
+        .rsp_valid(ack), .rsp_error(err)
     );
     reg [63:0] expected_head = 0;
     integer consumed = 0, pairs = 0, full_seen = 0, fault_seen = 0;

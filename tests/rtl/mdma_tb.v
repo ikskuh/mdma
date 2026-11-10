@@ -8,7 +8,7 @@ module mdma_tb;
     integer words, cycles, lane, max_clocks;
     reg [4095:0] image_path, dump_path;
 
-    wire i_cyc, i_stb, d_cyc, d_stb, d_we;
+    wire i_req, d_req, d_we;
     wire [63:0] i_addr, d_addr, d_out;
     wire [7:0] d_sel;
     wire halted;
@@ -26,19 +26,18 @@ module mdma_tb;
     mdma_cpu dut (
         .math_clk(math_clk),
         .clk(clk), .reset(reset),
-        .i_wb_cyc(i_cyc), .i_wb_stb(i_stb), .i_wb_adr(i_addr),
-        .i_wb_dat(memory[i_addr[16:3]]), .i_wb_ack(i_cyc && i_stb && i_in_bounds),
-        .i_wb_err(i_cyc && i_stb && !i_in_bounds), .i_wb_stall(1'b0),
-        .d_wb_cyc(d_cyc), .d_wb_stb(d_stb), .d_wb_we(d_we), .d_wb_sel(d_sel),
-        .d_wb_adr(d_addr), .d_wb_dat_o(d_out), .d_wb_dat_i(memory[d_addr[16:3]]),
-        .d_wb_ack(d_cyc && d_stb && d_in_bounds), .d_wb_err(d_cyc && d_stb && !d_in_bounds),
+        .i_req_valid(i_req), .i_req_addr(i_addr), .i_req_ready(1'b1),
+        .i_rsp_valid(i_req), .i_rsp_error(!i_in_bounds), .i_rsp_data(memory[i_addr[16:3]]),
+        .d_req_valid(d_req), .d_req_write(d_we), .d_req_mask(d_sel), .d_req_ready(1'b1),
+        .d_req_addr(d_addr), .d_req_data(d_out), .d_rsp_data(memory[d_addr[16:3]]),
+        .d_rsp_valid(d_req), .d_rsp_error(!d_in_bounds),
         .halted(halted), .fault(fault), .ticks(ticks)
     );
 
     always @(posedge clk) begin
         if (!reset && $test$plusargs("trace"))
             $display("TRACE clock=%0d pc=%#h", cycles, dut.pc);
-        if (d_cyc && d_stb && d_in_bounds && d_we)
+        if (d_req && d_in_bounds && d_we)
             for (lane = 0; lane < 8; lane = lane + 1)
                 if (d_sel[lane])
                     memory[d_addr[16:3]][lane*8 +: 8] <= d_out[lane*8 +: 8];
@@ -80,7 +79,7 @@ module mdma_tb;
             mem_started = cycles;
             mem_kind = next_mem_request;
         end
-        if (dut.publish[17] || (d_cyc && d_we && d_in_bounds && mem_kind == 1))
+        if (dut.publish[17] || (d_req && d_we && d_in_bounds && mem_kind == 1))
             $display("LATENCY %0d %0d", 27 + mem_kind, cycles - mem_started + 1);
     end
 

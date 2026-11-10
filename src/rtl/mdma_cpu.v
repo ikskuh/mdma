@@ -6,15 +6,15 @@
 module mdma_cpu (
     input wire clk, reset,
     input wire [3:0] math_clk,
-    output wire i_wb_cyc, i_wb_stb,
-    output wire [63:0] i_wb_adr,
-    input wire [63:0] i_wb_dat,
-    input wire i_wb_ack, i_wb_err, i_wb_stall,
-    output wire d_wb_cyc, d_wb_stb, d_wb_we,
-    output wire [7:0] d_wb_sel,
-    output wire [63:0] d_wb_adr, d_wb_dat_o,
-    input wire [63:0] d_wb_dat_i,
-    input wire d_wb_ack, d_wb_err,
+    output wire i_req_valid,
+    output wire [63:0] i_req_addr,
+    input wire i_req_ready, i_rsp_valid, i_rsp_error,
+    input wire [63:0] i_rsp_data,
+    output wire d_req_valid, d_req_write,
+    output wire [7:0] d_req_mask,
+    output wire [63:0] d_req_addr, d_req_data,
+    input wire d_req_ready, d_rsp_valid, d_rsp_error,
+    input wire [63:0] d_rsp_data,
     output reg halted,
     output reg [3:0] fault,
     output reg [31:0] ticks
@@ -47,8 +47,8 @@ module mdma_cpu (
         .restart_address(target), .pop_count(stream_pop),
         .head_address(fetch_pc), .word0(stream_word0), .word1(stream_word1),
         .valid(stream_valid), .error(stream_error), .count(stream_count),
-        .wb_cyc(i_wb_cyc), .wb_stb(i_wb_stb), .wb_adr(i_wb_adr),
-        .wb_stall(i_wb_stall), .wb_dat(i_wb_dat), .wb_ack(i_wb_ack), .wb_err(i_wb_err)
+        .req_valid(i_req_valid), .req_addr(i_req_addr), .req_ready(i_req_ready),
+        .rsp_valid(i_rsp_valid), .rsp_error(i_rsp_error), .rsp_data(i_rsp_data)
     );
     // Only the decoder knows that the next word is a pending constant.
     wire pending_constant = execute_valid && !constant_ready;
@@ -376,9 +376,10 @@ module mdma_cpu (
                             .data_head(input_head[36]), .mask_head(input_head[37]),
                             .take_read(take[u]), .take_store(take_store), .output_full(block_result),
                             .publish(publish[u]), .progress(unit_progress[u]), .bus_fault(memory_fault),
-                            .result(data_in), .wb_cyc(d_wb_cyc), .wb_stb(d_wb_stb), .wb_we(d_wb_we),
-                            .wb_sel(d_wb_sel), .wb_adr(d_wb_adr), .wb_dat_o(d_wb_dat_o),
-                            .wb_dat_i(d_wb_dat_i), .wb_ack(d_wb_ack), .wb_err(d_wb_err)
+                            .result(data_in), .req_valid(d_req_valid), .req_write(d_req_write),
+                            .req_mask(d_req_mask), .req_addr(d_req_addr), .req_data(d_req_data),
+                            .req_ready(d_req_ready), .rsp_valid(d_rsp_valid),
+                            .rsp_error(d_rsp_error), .rsp_data(d_rsp_data)
                         );
                         assign input_pop[34] = take[u];
                         assign input_pop[37:35] = {3{take_store}};

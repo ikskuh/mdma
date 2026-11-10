@@ -95,7 +95,7 @@ def main():
                 print('Result checks passed.', flush=True)
 
     print('\nSimulator ticks are treated as CPU clocks. Every simulator FU has latency and issue interval 1.')
-    print('ECP5 RTL uses the configured ALUs, 1:1 CPU/memory/math clocks, and the board SRAM waits.')
+    print('ECP5 RTL uses CPU-clock BRAM and a 1:1 math-to-CPU clock ratio.')
     print('Workload clocks cover the CoreMark iteration or one function call. Total clocks cover boot through halt.')
     print('CoreMark/MHz is 1,000,000 divided by the timed iteration clocks.\n')
     print('| Workload | Target | Workload clocks | Total clocks | CoreMark/MHz |')
@@ -103,15 +103,14 @@ def main():
     for name, target, timed, total, score in rows:
         print(f'| {name} | {target} | {timed:,} | {total:,} | {score} |')
 
-    print('\nECP5 instruction/cache statistics cover the same workload clocks. Cache lookups include speculative words.')
-    print('| Workload | Retired instructions | Instructions/clock | I-cache hits | I-cache misses | Miss rate | SRAM refills |')
+    print('\nI-cache hits, misses, and refills are unavailable with direct BRAM fetch.')
+    print(f'ECP5 BRAM port mode is {rtl_profiles[0][2]["bram_ports"]}.')
+    print('| Workload | Retired instructions | Instructions/clock | BRAM instruction reads | BRAM data reads | BRAM data writes | Instruction port wait clocks |')
     print('| --- | ---: | ---: | ---: | ---: | ---: | ---: |')
     for name, timed, counters in rtl_profiles:
-        accesses = counters['cache_lookups']
-        misses = counters['cache_misses']
-        rate = 100 * misses / accesses if accesses else 0
-        print(f'| {name} | {counters["retired"]:,} | {counters["retired"] / timed:.8f} | '
-              f'{counters["cache_hits"]:,} | {misses:,} | {rate:.2f}% | {counters["refill_words"]:,} |')
+        values = ' | '.join(f'{counters[key]:,}' for key in
+                            ('bram_instruction_reads', 'bram_data_reads', 'bram_data_writes', 'bram_instruction_port_wait'))
+        print(f'| {name} | {counters["retired"]:,} | {counters["retired"] / timed:.8f} | {values} |')
 
     stream = rtl_profiles[0][2]
     ahead = stream['ahead_words']

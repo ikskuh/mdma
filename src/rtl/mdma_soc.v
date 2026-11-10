@@ -1,17 +1,11 @@
-// UART MMIO stays on the CPU clock. The two SRAM masters meet only after
-// crossing into the memory domain, where the arbiter holds the grant to ACK.
-module mdma_soc (
-    input wire clk, mem_clk, reset, mem_reset,
+module mdma_soc #(
+    parameter INIT_FILE = ""
+) (
+    input wire clk, reset,
     input wire [3:0] math_clk,
     output wire halted,
     output wire [3:0] fault,
     output wire [31:0] ticks,
-    output wire ram_cyc, ram_stb, ram_we,
-    output wire [31:0] ram_word_address,
-    output wire [63:0] ram_wdata,
-    output wire [7:0] ram_sel,
-    input wire ram_ack,
-    input wire [63:0] ram_rdata,
     input wire [7:0] rx_data,
     input wire rx_valid,
     output wire rx_ready,
@@ -19,72 +13,49 @@ module mdma_soc (
     output wire tx_valid,
     input wire tx_ready
 );
-    wire i_cyc, i_stb, i_stall, i_ack, i_err, c_cyc, c_stb, d_cyc, d_stb, d_we;
-    wire [63:0] i_adr, i_data, c_adr, d_adr, d_wdata, mmio_rdata, i_sram_data, d_sram_data;
-    wire [7:0] d_sel;
-    wire mmio, mmio_ack, i_sram_ack, d_sram_ack;
-    wire i_bounds = |c_adr[63:35];
-    wire d_bounds = |d_adr[63:35];
+    wire i_valid, i_ready, d_valid, d_ready, d_write;
+    wire [63:0] i_addr, d_addr, d_data, i_result, d_result, mmio_data;
+    wire [7:0] d_mask;
+    wire mmio, mmio_ready;
+    wire i_ram_ready, d_ram_ready, i_ram_reply, d_ram_reply;
+    wire i_bounds = |i_addr[63:18];
+    wire d_bounds = |d_addr[63:18];
+    reg i_error, d_error, mmio_reply;
+    reg [63:0] mmio_result;
+
+    assign i_ready = !reset && (i_bounds || i_ram_ready);
+    assign d_ready = !reset && (mmio ? mmio_ready : d_bounds || d_ram_ready);
+    always @(posedge clk) begin
+        i_error <= i_valid && i_ready && i_bounds;
+        d_error <= d_valid && d_ready && !mmio && d_bounds;
+        mmio_reply <= d_valid && d_ready && mmio;
+        if (d_valid && d_ready && mmio)
+            mmio_result <= mmio_data;
+    end
 
     mdma_cpu cpu (
         .clk(clk), .reset(reset), .math_clk(math_clk),
-        .i_wb_cyc(i_cyc), .i_wb_stb(i_stb), .i_wb_adr(i_adr),
-        .i_wb_dat(i_data), .i_wb_ack(i_ack), .i_wb_err(i_err), .i_wb_stall(i_stall),
-        .d_wb_cyc(d_cyc), .d_wb_stb(d_stb), .d_wb_we(d_we), .d_wb_adr(d_adr),
-        .d_wb_sel(d_sel), .d_wb_dat_o(d_wdata), .d_wb_dat_i(mmio ? mmio_rdata : d_sram_data),
-        .d_wb_ack(mmio ? mmio_ack : d_sram_ack), .d_wb_err(d_cyc && !mmio && d_bounds),
+        .i_req_valid(i_valid), .i_req_addr(i_addr), .i_req_ready(i_ready),
+        .i_rsp_valid(i_ram_reply || i_error), .i_rsp_error(i_error), .i_rsp_data(i_result),
+        .d_req_valid(d_valid), .d_req_write(d_write), .d_req_addr(d_addr), .d_req_mask(d_mask),
+        .d_req_data(d_data), .d_req_ready(d_ready),
+        .d_rsp_valid(d_ram_reply || mmio_reply || d_error), .d_rsp_error(d_error),
+        .d_rsp_data(mmio_reply ? mmio_result : d_result),
         .halted(halted), .fault(fault), .ticks(ticks)
     );
 
-    mdma_icache icache (
+    mdma_bram #(.INIT_FILE(INIT_FILE)) bram (
         .clk(clk), .reset(reset),
-        .s_cyc(i_cyc), .s_stb(i_stb), .s_adr(i_adr), .s_stall(i_stall),
-        .s_dat(i_data), .s_ack(i_ack), .s_err(i_err),
-        .wb_cyc(c_cyc), .wb_stb(c_stb), .wb_adr(c_adr),
-        .wb_dat(i_sram_data), .wb_ack(i_sram_ack), .wb_err(c_cyc && i_bounds)
+        .i_valid(i_valid && !i_bounds), .i_addr(i_addr[17:3]), .i_ready(i_ram_ready),
+        .i_reply(i_ram_reply), .i_data(i_result),
+        .d_valid(d_valid && !mmio && !d_bounds), .d_write(d_write), .d_addr(d_addr[17:3]),
+        .d_data(d_data), .d_mask(d_mask), .d_ready(d_ram_ready),
+        .d_reply(d_ram_reply), .d_result(d_result)
     );
-
-    wire i_pending, d_pending, d_mem_we;
-    wire [31:0] i_mem_address, d_mem_address;
-    wire [7:0] d_mem_sel;
-    wire [63:0] d_mem_data;
-    reg busy, owner_data;
-    wire grant_data = busy ? owner_data : d_pending;
-
-    mdma_wb_cdc instruction (
-        .cpu_clk(clk), .mem_clk(mem_clk), .reset(reset), .mem_reset(mem_reset),
-        .request(c_cyc && c_stb && !i_bounds), .payload(c_adr[34:3]),
-        .ack(i_sram_ack), .complete(), .response(i_sram_data),
-        .mem_request(i_pending), .mem_payload(i_mem_address),
-        .mem_ack(ram_ack && !grant_data), .mem_response(ram_rdata)
-    );
-    mdma_wb_cdc #(.REQUEST_WIDTH(105)) data (
-        .cpu_clk(clk), .mem_clk(mem_clk), .reset(reset), .mem_reset(mem_reset),
-        .request(d_cyc && d_stb && !mmio && !d_bounds), .payload({d_we, d_adr[34:3], d_sel, d_wdata}),
-        .ack(d_sram_ack), .complete(), .response(d_sram_data),
-        .mem_request(d_pending), .mem_payload({d_mem_we, d_mem_address, d_mem_sel, d_mem_data}),
-        .mem_ack(ram_ack && grant_data), .mem_response(ram_rdata)
-    );
-
-    assign ram_cyc = !mem_reset && (grant_data ? d_pending : i_pending);
-    assign ram_stb = ram_cyc;
-    assign ram_we = grant_data && d_mem_we;
-    assign ram_word_address = grant_data ? d_mem_address : i_mem_address;
-    assign ram_sel = grant_data ? d_mem_sel : 8'hff;
-    assign ram_wdata = d_mem_data;
-
-    always @(posedge mem_clk) begin
-        if (mem_reset || ram_ack)
-            busy <= 0;
-        else if (!busy && ram_cyc) begin
-            busy <= 1;
-            owner_data <= grant_data;
-        end
-    end
 
     mdma_mmio serial_mmio (
-        .cyc(d_cyc), .stb(d_stb), .we(d_we), .adr(d_adr), .wdata(d_wdata), .sel(d_sel),
-        .selected(mmio), .ack(mmio_ack), .rdata(mmio_rdata),
+        .req_valid(d_valid && !reset), .we(d_write), .adr(d_addr), .wdata(d_data), .sel(d_mask),
+        .selected(mmio), .ready(mmio_ready), .rdata(mmio_data),
         .rx_data(rx_data), .rx_valid(rx_valid), .rx_ready(rx_ready),
         .tx_data(tx_data), .tx_valid(tx_valid), .tx_ready(tx_ready)
     );

@@ -16,11 +16,10 @@ module mdma_instruction_stream #(
     output wire [63:0] word0, word1,
     output wire [1:0] valid, error,
     output reg [6:0] count,
-    output wire wb_cyc, wb_stb,
-    output reg [63:0] wb_adr,
-    input wire wb_stall,
-    input wire [63:0] wb_dat,
-    input wire wb_ack, wb_err
+    output wire req_valid,
+    output reg [63:0] req_addr,
+    input wire req_ready, rsp_valid, rsp_error,
+    input wire [63:0] rsp_data
 );
     localparam INDEX_BITS = $clog2(WORDS);
     localparam [6:0] CAPACITY = WORDS;
@@ -42,17 +41,18 @@ module mdma_instruction_stream #(
     assign word1 = second[63:0];
     assign error = {second[64], first[64]};
     assign valid = redirect_lookup ? 2'b0 : {count >= 2, count != 0};
-    assign wb_cyc = enable && !reset && !cancel_cycle;
-    assign wb_stb = wb_cyc && request_pending;
-    wire request = wb_stb && !wb_stall;
-    wire response = wb_cyc && (outstanding != 0 || request) && (wb_ack || wb_err);
+    wire active = enable && !reset && !cancel_cycle;
+    assign req_valid = active && request_pending;
+    wire request = req_valid && req_ready;
+    // The response from a request accepted on a miss edge expires during cancellation.
+    wire response = active && (outstanding != 0 || request) && rsp_valid;
     wire [6:0] received = history + count;
     wire [6:0] occupied = received + outstanding + {6'b0, request_pending};
 
     // A full ring can grow at the tail only by reclaiming history beyond
     // the budget. That also puts reserved lookahead below AHEAD_WORDS.
     wire full = occupied == CAPACITY;
-    wire reserve_word = wb_cyc && !fetch_failed && !(response && wb_err) &&
+    wire reserve_word = active && !fetch_failed && !(response && rsp_error) &&
                         !flush && !redirect_lookup && (!request_pending || request) &&
                         (!full || history > HISTORY_WORDS);
     wire evict = reserve_word && full;
@@ -69,9 +69,9 @@ module mdma_instruction_stream #(
     always @(posedge clk) begin
         if (response && !restart) begin
             if (write_pointer[0])
-                odd_words[write_pointer[INDEX_BITS-1:1]] <= {wb_err, wb_dat};
+                odd_words[write_pointer[INDEX_BITS-1:1]] <= {rsp_error, rsp_data};
             else
-                even_words[write_pointer[INDEX_BITS-1:1]] <= {wb_err, wb_dat};
+                even_words[write_pointer[INDEX_BITS-1:1]] <= {rsp_error, rsp_data};
         end
         if (reset || restart) begin
             write_pointer <= reset ? {INDEX_BITS{1'b0}} : restart_pc[3 +: INDEX_BITS];
@@ -106,12 +106,12 @@ module mdma_instruction_stream #(
             if (evict)
                 oldest_address <= oldest_address + 64'd8;
             if (reserve_word) begin
-                wb_adr <= next_address;
+                req_addr <= next_address;
                 next_address <= next_address + 64'd8;
             end
             if (response) begin
                 write_pointer <= write_pointer + 1'b1;
-                if (wb_err)
+                if (rsp_error)
                     fetch_failed <= 1;
             end
         end

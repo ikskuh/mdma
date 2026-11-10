@@ -1,5 +1,5 @@
 # Echo two received bytes over the byte-wide USART at MMIO address 0xfffffff8.
-# Check that a masked SRAM store can be read back on the same system.
+# Check that a masked BRAM store can be read back on the same system.
 CONST -> MEM.WRITE [imm=cell]
 CONST -> MEM.CHUNK, ZERO -> MEM.MASK [imm=0x123456789abcdef0]
 CONST -> MEM.WRITE [imm=cell]

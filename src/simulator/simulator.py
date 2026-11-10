@@ -134,7 +134,7 @@ def main():
                         help='override unit/family latency; repeatable')
     parser.add_argument('--profile', type=Path, help='load a QBE latency and issue-interval profile')
     parser.add_argument('--trace', action='store_true')
-    parser.add_argument('--rtl-timing', choices=('ecp5',), help='execute the RTL with zero-wait Wishbone slaves')
+    parser.add_argument('--rtl-timing', choices=('ecp5',), help='execute the core RTL with ideal memory ports')
     parser.add_argument('--dump-memory', type=Path, help='write final memory after successful halt')
     args = parser.parse_args()
     if args.max_ticks <= 0 or (args.memory_size is not None and args.memory_size <= 0):

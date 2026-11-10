@@ -34,8 +34,9 @@ row per unit instance, in CPU clocks. `#` starts a comment. Latency measures
 from dispatch of the last operand to the first readable result. For
 `MEM_WRITE` it measures through the write acknowledgement. Issue interval
 estimates the steady-state spacing between requests accepted by the unit.
-The ECP5 estimates use the 1:1 memory and math clock configuration and
-include transport. Memory timing varies with SRAM waits and arbitration.
+The ECP5 profile assumes a 1:1 math-to-CPU clock ratio. Its memory estimates
+come from the SRAM design. The BRAM benchmarks retain the profile to compare
+identical machine code against that baseline.
 
 STACK ordering is an architectural requirement. Later TOP reads observe the
 newest accepted, unpopped push, waiting for its data when needed. The compiler
@@ -106,11 +107,11 @@ The simulator has a 50 million tick limit for the whole run.
 
 `just qbe-coremark-ecp5` runs the same workload on the ECP5 board RTL. It uses
 Verilator on PATH or through the `VERILATOR` environment variable. The
-testbench runs all clock domains at the same frequency and uses the board's
-default two-clock SRAM read and write delays. It measures CPU clocks between
+testbench runs all clock domains at the same frequency and uses the 256 KiB
+on-chip BRAM. It measures CPU clocks between
 the iteration entry and a marker before the final CRC checks, then reports
 one million divided by that count as the RTL CoreMark/MHz estimate. This is
-a single-iteration kernel run using simulated SRAM.
+a single-iteration kernel run.
 
 Each CoreMark recipe uses its matching profile by default. Pass
 `--no-schedule` for the baseline or `--schedule PATH` for a custom profile.

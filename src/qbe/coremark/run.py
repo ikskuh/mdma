@@ -14,7 +14,7 @@ ROOT = PORT.parents[2]
 UPSTREAM = ROOT / 'vendor/coremark'
 sys.path[:0] = [str(ROOT / 'src/assembler'), str(ROOT / 'src/simulator')]
 from mdma_asm import MoveDensity, assemble_with_labels
-from rtl_runner import RTL, prepare, rtl_defines, write_image
+from rtl_runner import BRAM_BYTES, RTL, prepare, rtl_defines, write_bram_image
 from simulator import Simulator
 
 
@@ -65,8 +65,8 @@ def ecp5(work, image, labels, start_pc, end_pc, executable=None, *, profile=None
     if executable is None:
         executable = build_ecp5(work)
     path = work / 'image.hex'
-    write_image(image, path)
-    result = subprocess.run([executable, f'+image={path}', f'+words={len(image) // 8}',
+    write_bram_image(image, path)
+    result = subprocess.run([executable, f'+image={path}', f'+words={BRAM_BYTES // 8}',
                              f'+start_pc={start_pc}', f'+end_pc={end_pc}',
                              *(f'+{name}_word={address // 8}' for name, address in labels.items())],
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -108,7 +108,7 @@ def compile_inputs(work):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--ecp5', action='store_true', help='simulate the full board RTL with SRAM')
+    parser.add_argument('--ecp5', action='store_true', help='simulate the full board RTL with BRAM')
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--schedule', type=Path, help='override the scheduling profile')
     mode.add_argument('--no-schedule', action='store_true', help='run the original backend')
@@ -144,7 +144,7 @@ def main():
     unit = 'CPU clocks' if args.ecp5 else 'simulator ticks'
     print(f'Timed one iteration in {timed:,} {unit}. Halted after {total:,} {unit}.')
     if args.ecp5:
-        print(f'ECP5 RTL CoreMark/MHz estimate {1_000_000 / timed:.8f} (SRAM:CPU and math:CPU at 1:1).')
+        print(f'ECP5 RTL CoreMark/MHz estimate {1_000_000 / timed:.8f} (BRAM on the CPU clock and math:CPU at 1:1).')
 
 
 if __name__ == '__main__':

@@ -20,6 +20,19 @@ def write_image(image, path):
                             for i in range(0, len(image), 8)))
 
 
+BRAM_BYTES = 256 * 1024
+
+
+def bram_image(image):
+    if not 0 < len(image) <= BRAM_BYTES:
+        raise ValueError("BRAM image must contain 1 to 262144 bytes")
+    return image.ljust(BRAM_BYTES, b'\0')
+
+
+def write_bram_image(image, path):
+    write_image(bram_image(image), path)
+
+
 def prepare(build):
     with (build / "mdma_ports.vh").open("w") as header:
         subprocess.run([sys.executable, str(RTL / "gen_ports.py")], stdout=header, check=True)
@@ -30,6 +43,11 @@ def rtl_defines():
     if mode not in ("0", "1", "2"):
         raise ValueError("MDMA_FAST_ALU must be 0, 1, or 2")
     defines = [f"-DMDMA_FAST_ALU={mode}"]
+    ports = os.environ.get("MDMA_BRAM_PORTS")
+    if ports is not None:
+        if ports not in ("1", "2"):
+            raise ValueError("MDMA_BRAM_PORTS must be 1 or 2")
+        defines.append(f"-DMDMA_BRAM_PORTS={ports}")
     words = os.environ.get("MDMA_STREAM_WORDS")
     ahead = os.environ.get("MDMA_STREAM_AHEAD_WORDS")
     if words is not None:

@@ -8,16 +8,16 @@ module mdma_mem (
     input wire output_full,
     output wire publish, progress, bus_fault,
     output wire [63:0] result,
-    output wire wb_cyc, wb_stb,
-    output wire wb_we,
-    output reg [7:0] wb_sel,
-    output reg [63:0] wb_adr,
-    output wire [63:0] wb_dat_o,
-    input wire [63:0] wb_dat_i,
-    input wire wb_ack, wb_err
+    output wire req_valid, req_write,
+    output reg [7:0] req_mask,
+    output reg [63:0] req_addr,
+    output wire [63:0] req_data,
+    input wire req_ready, rsp_valid, rsp_error,
+    input wire [63:0] rsp_data
 );
     localparam IDLE = 0, READ = 1, WRITE = 2, RESULT = 3;
     reg [1:0] state;
+    reg sent;
     reg [3:0] queued_reads, queued_stores;
     reg [1:0] request;
     reg [63:0] write_address, write_data, read_data;
@@ -37,42 +37,45 @@ module mdma_mem (
     );
     assign take_read = start && next_request[1];
     assign take_store = start && next_request[0];
-    assign wb_cyc = enable && (state == READ || state == WRITE);
-    assign wb_stb = wb_cyc;
-    assign wb_we = state == WRITE;
-    assign wb_dat_o = write_data;
+    assign req_valid = enable && !sent && (state == READ || state == WRITE);
+    assign req_write = state == WRITE;
+    assign req_data = write_data;
+    wire accepted = req_valid && req_ready;
+    wire reply = enable && (sent || accepted) && rsp_valid;
     assign publish = enable && state == RESULT;
     assign result = read_data;
-    assign bus_fault = wb_cyc && wb_err;
+    assign bus_fault = reply && rsp_error;
     assign progress = queue_request || start || state != IDLE;
 
     always @(posedge clk) begin
         if (reset) begin
             state <= IDLE;
+            sent <= 0;
             queued_reads <= 0;
             queued_stores <= 0;
         end else if (enable) begin
+            sent <= (sent || accepted) && !reply;
             queued_reads <= queued_reads + (queue_request && new_read) - take_read;
             queued_stores <= queued_stores + (queue_request && new_store) - take_store;
             case (state)
                 IDLE: if (start) begin
                     request <= next_request;
-                    wb_adr <= next_request[1] ? {read_head[63:3], 3'b0} : {write_head[63:3], 3'b0};
+                    req_addr <= next_request[1] ? {read_head[63:3], 3'b0} : {write_head[63:3], 3'b0};
                     write_address <= {write_head[63:3], 3'b0};
                     write_data <= data_head;
                     byte_mask <= mask_head[7:0];
-                    wb_sel <= next_request[1] ? 8'hff : ~mask_head[7:0];
+                    req_mask <= next_request[1] ? 8'hff : ~mask_head[7:0];
                     state <= next_request[1] ? READ : WRITE;
                 end
-                READ: if (wb_ack && !wb_err) begin
-                    read_data <= wb_dat_i;
+                READ: if (reply && !rsp_error) begin
+                    read_data <= rsp_data;
                     if (request[0]) begin
-                        wb_adr <= write_address;
-                        wb_sel <= ~byte_mask;
+                        req_addr <= write_address;
+                        req_mask <= ~byte_mask;
                     end
                     state <= request[0] ? WRITE : RESULT;
                 end
-                WRITE: if (wb_ack && !wb_err) begin
+                WRITE: if (reply && !rsp_error) begin
                     state <= request[1] ? RESULT : IDLE;
                 end
                 RESULT: state <= IDLE;
