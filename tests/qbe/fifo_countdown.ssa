@@ -1,0 +1,46 @@
+# expect mem64 __mdma_result = 55406
+function w $seeded(w %n, w %seed) {
+@start
+    jmp @condition
+@condition
+    %count =w phi @start %n, @body %next
+    %sum =w phi @start %seed, @body %updated
+    %test =w cnew %count, 0
+    jnz %test, @body, @done
+@body
+    %updated =w add %count, %sum
+    %next =w sub %count, 1
+    jmp @condition
+@done
+    ret %sum
+}
+
+function w $guarded(w %n) {
+@start
+    jmp @condition
+@condition
+    %count =w phi @start %n, @body %next
+    %sum =w phi @start 0, @body %updated
+    jnz %count, @body, @done
+@body
+    %updated =w add %sum, 3
+    %next =w sub %count, 1
+    jmp @condition
+@done
+    ret %sum
+}
+
+export function w $main() {
+@start
+    %zero =w call $seeded(w 0, w 55)
+    %wrap =w call $seeded(w 3, w 4294967294)
+    %guard_zero =w call $guarded(w 0)
+    %guard_three =w call $guarded(w 2)
+    %a =w mul %zero, 1000
+    %b =w mul %wrap, 100
+    %c =w mul %guard_zero, 10000
+    %d =w add %a, %b
+    %e =w add %d, %c
+    %r =w add %e, %guard_three
+    ret %r
+}

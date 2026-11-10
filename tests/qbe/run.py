@@ -45,11 +45,13 @@ class QbeTest(unittest.TestCase):
         sim, ecp5 = [compile_fixture(path, mode).stdout for mode in MODES[2:]]
         self.assertNotEqual(sim, ecp5)
         for asm in (sim, ecp5):
-            bundles = [line for line in parse_asm(asm) if len(line.ops) == 5]
-            self.assertTrue(any(len({move.dst.split('.')[0] for move in line.ops}) >= 3
-                                for line in bundles))
             self.assertRegex(asm, r'STASH_([A-D])\.OUT -> STASH_\1\.IN')
             self.assertIn('MUL.LO -> ARITH_', asm)
+        for asm, expected in ((sim, True), (ecp5, False)):
+            jointly_issued = any(
+                {'ARITH_A.LHS', 'LOGIC_A.LHS'} <= {move.dst for move in line.ops}
+                for line in parse_asm(asm))
+            self.assertEqual(jointly_issued, expected)
         self.assertEqual(compile_fixture(path, ()).stdout, ecp5)
 
     def test_queued_fu_results_retire_in_order(self):
@@ -62,19 +64,26 @@ class QbeTest(unittest.TestCase):
         self.assertEqual([dst for _, dst in reads], ['ARITH_A.LHS', 'LOGIC_A.LHS'])
         self.assertLess(issues[-1], reads[0][0])
 
-    def test_sum_loop_packs_control_edges(self):
+    def test_sum_loop_uses_fifo_feedback(self):
         result = compile_fixture(HERE / 'fifo_sum.ssa', ())
         self.assertEqual(result.returncode, 0, result.stderr)
         sum_label = '__mdma_g1_73756d5f746f'
         asm = result.stdout.split(sum_label + ':\n', 1)[1].split('__mdma_g0_6d61696e:', 1)[0]
         lines = [line for line in parse_asm(asm) if line.ops]
         predicates = [line for line in lines if line.predicate]
-        self.assertEqual(len(predicates), 2)
-        guard, back_edge = predicates
-        self.assertTrue(any(m.src == 'ZERO' and m.dst.startswith('STASH_') for m in guard.ops))
-        self.assertEqual(guard.immediate, back_edge.immediate)
-        self.assertNotIn(sum_label + '_e', asm)
-        self.assertTrue(any({m.dst for m in line.ops} >= {'CPU.PC', 'CPU.DISCARD'}
+        self.assertEqual(len(predicates), 1)
+        back_edge, = predicates
+        loop = sum_label + '_countdown'
+        self.assertEqual(back_edge.immediate, loop)
+        self.assertFalse(any(line.synchronized for line in lines))
+        branch = lines.index(back_edge)
+        self.assertEqual({(m.src, m.dst) for m in back_edge.ops},
+                         {('ARITH_A.ADD', 'ARITH_A.LHS'), ('CONST', 'PC')})
+        self.assertEqual({m.dst for m in lines[branch - 1].ops if m.src == 'ARITH_B.SUB'},
+                         {'COND', 'ARITH_B.LHS', 'ARITH_A.RHS'})
+        self.assertEqual([line.immediate for line in lines
+                          if any(m.dst == 'UNPACK.TYPE' for m in line.ops)], ['4'])
+        self.assertTrue(any({m.src for m in line.ops} == {'UNPACK.VALUE', 'STACK_B.TOP'}
                             for line in lines))
 
         # A call target label cannot share CONST with a different argument.
@@ -87,6 +96,38 @@ class QbeTest(unittest.TestCase):
                 break
         else:
             self.fail('missing literal argument 10')
+
+    def test_compute_fanout_packs_reads_of_the_same_result(self):
+        result = compile_fixture(HERE / 'schedule_fanout.ssa', ())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        reads = [[m.dst for m in line.ops if m.src == 'MUL.LO']
+                 for line in parse_asm(result.stdout)]
+        self.assertEqual([r for r in reads if r], [['ARITH_A.LHS', 'LOGIC_A.LHS']])
+
+    def test_compute_edge_layouts(self):
+        result = compile_fixture(HERE / 'fifo_fu_edges.ssa', ())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        carry, join, mismatch = re.split(
+            r'^__mdma_g[01]_[0-9a-f]+:\n', result.stdout, flags=re.MULTILINE)[1:4]
+        self.assertNotRegex(carry, r'MUL.LO -> (STASH|STACK)')
+        self.assertIn('MUL.LO -> LOGIC_A.LHS', carry)
+        self.assertIn('MUL.LO -> ARITH_A.LHS', carry)
+        self.assertIn('ARITH_A.ADD -> LOGIC_A.LHS', join)
+        self.assertIn('MUL.LO -> STASH_', mismatch)
+        self.assertIn('ARITH_A.ADD -> STASH_', mismatch)
+
+    def test_countdown_feedback_with_delayed_units(self):
+        path = HERE / 'fifo_countdown.ssa'
+        result = compile_fixture(path, ())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.count('_countdown:'), 1)
+        image, expected, fault = test_behavior.load_fixture(path, result.stdout)
+        self.assertIsNone(fault)
+        sim = test_behavior.Simulator(image, len(image) + 65536,
+                                     latencies={'ARITH': 9, 'UNPACK': 6, 'STASH': 3})
+        sim.run()
+        address, value = expected['__mdma_result']
+        self.assertEqual(int.from_bytes(sim.memory[address:address + 8], 'little'), value)
 
     def test_stack_order_is_a_target_capability(self):
         path = HERE / 'schedule_stack.ssa'

@@ -22,7 +22,7 @@ typedef struct {
 typedef struct {
     enum SchedUnit unit;
     const char *result;
-    int count;
+    int count, pinned;
     SchedMove move[5];
 } SchedNode;
 
@@ -38,6 +38,7 @@ typedef struct {
     int count, fifo_flow;
     SchedNode node[SCHED_NODES];
     int live_out[4][SCHED_STASH]; /* STASH contents in FIFO order at region exit. */
+    int result_out[STASH_A]; /* At most one retained result per compute FU. */
     int saved[8]; /* STACK_A values retained across a call, in push order. */
     SchedTerm term;
 } SchedRegion;
@@ -48,5 +49,7 @@ int schedule_stack_ordered(void);
 int schedule_stack_peak(void);
 void schedule_reset_peak(void);
 int schedule_emit(FILE *out, const SchedRegion *region, int baseline_words, int baseline_cycles);
+
+int schedule_countdown(FILE *out, const char *entry, const char *loop, uint32_t seed, int seed_arg);
 
 #endif

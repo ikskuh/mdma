@@ -526,7 +526,7 @@ instruction(Ins *i)
 /* The block-local optimizer uses SSA IDs until it lowers the region to moves. */
 static SchedRegion scheduled;
 static SchedValue *scheduled_value, scheduled_sp;
-static unsigned char *scheduled_known;
+static unsigned char *scheduled_known, *uncanonical_word;
 static int schedule_overflow, fifo_only;
 static size_t *fifo_spill;
 
@@ -834,6 +834,7 @@ sched_region(Ins *first, Ins *end, int words, int cycles)
     scheduled.term = (SchedTerm){0};
     scheduled_sp = (SchedValue){0};
     memset(scheduled.live_out, 0, sizeof scheduled.live_out);
+    memset(scheduled.result_out, 0, sizeof scheduled.result_out);
     memset(scheduled.saved, 0, sizeof scheduled.saved);
     scheduled_sp = (SchedValue){0};
     memset(scheduled_known, 0, fn->ntmp * sizeof *scheduled_known);
@@ -1124,6 +1125,11 @@ promote_locals(void)
     simplify_values();
     simplcfg(fn);
     filluse(fn);
+}
+
+static void
+rotate_loops(void)
+{
     for (Blk *b = fn->start; b; b = b->link)
         if (rotate_loop(b)) {
             fillcfg(fn);
@@ -1132,6 +1138,101 @@ promote_locals(void)
     simplcfg(fn);
     filluse(fn);
     simplify_values();
+}
+
+static Ref
+incoming_value(Phi *phi, Blk *from)
+{
+    for (unsigned n = 0; n < phi->narg; ++n)
+        if (phi->blk[n] == from)
+            return phi->arg[n];
+    return R;
+}
+
+static int
+is_constant(Ref ref, uint32_t value)
+{
+    return plain_constant(ref) && (uint32_t)fn->con[ref.val].bits.i == value;
+}
+
+static int
+countdown_function(const Symbol *symbol)
+{
+    Blk *entry = fn->start, *header = entry->s1;
+    if (entry->jmp.type != Jjmp || !header || header->jmp.type != Jjnz ||
+        header->npred != 2 || !header->phi || !header->phi->link || header->phi->link->link)
+        return 0;
+    Blk *body = header->s1, *exit = header->s2;
+    if (body == entry || exit == entry || body == header || exit == header || body == exit ||
+        body->phi || exit->phi || body->npred != 1 || exit->npred != 1 ||
+        body->jmp.type != Jjmp || body->s1 != header || exit->jmp.type != Jretw)
+        return 0;
+
+    Ref params[2] = {R, R};
+    unsigned nargs = 0;
+    for (Ins *i = entry->ins; i < entry->ins + entry->nins; ++i) {
+        if (i->op == Onop || i->op == Odbgloc)
+            continue;
+        if (nargs == 2 || i->op != Opar || i->cls != Kw)
+            return 0;
+        params[nargs++] = i->to;
+    }
+    if (!nargs)
+        return 0;
+    Phi *sum = header->phi, *count = sum->link;
+    if (!req(sum->to, exit->jmp.arg)) {
+        count = sum;
+        sum = sum->link;
+    }
+    if (!req(sum->to, exit->jmp.arg) || sum->cls != Kw || count->cls != Kw ||
+        !req(incoming_value(count, entry), params[0]))
+        return 0;
+    Ref seed = incoming_value(sum, entry);
+    int seed_arg = nargs == 2;
+    if (seed_arg ? !req(seed, params[1]) : !plain_constant(seed))
+        return 0;
+
+    Ref test = count->to;
+    for (Ins *i = header->ins; i < header->ins + header->nins; ++i) {
+        if (i->op == Onop || i->op == Odbgloc)
+            continue;
+        if (!req(test, count->to) || i->op != Ocmpw + Cine ||
+            !((req(i->arg[0], count->to) && is_constant(i->arg[1], 0)) ||
+              (req(i->arg[1], count->to) && is_constant(i->arg[0], 0))))
+            return 0;
+        test = i->to;
+    }
+    if (!req(test, header->jmp.arg))
+        return 0;
+    for (Ins *i = exit->ins; i < exit->ins + exit->nins; ++i)
+        if (i->op != Onop && i->op != Odbgloc)
+            return 0;
+
+    Ref next = incoming_value(count, body), accumulated = incoming_value(sum, body);
+    int updates = 0;
+    for (Ins *i = body->ins; i < body->ins + body->nins; ++i) {
+        if (i->op == Onop || i->op == Odbgloc)
+            continue;
+        if (i->cls != Kw)
+            return 0;
+        if (req(i->to, next) && i->op == Osub && req(i->arg[0], count->to) &&
+            is_constant(i->arg[1], 1))
+            updates |= 1;
+        else if (req(i->to, accumulated) && i->op == Oadd &&
+                 ((req(i->arg[0], sum->to) && req(i->arg[1], count->to)) ||
+                  (req(i->arg[1], sum->to) && req(i->arg[0], count->to))))
+            updates |= 2;
+        else
+            return 0;
+    }
+    if (updates != 3)
+        return 0;
+    /* The extra zero iteration leaves the sum unchanged. Its decrement is
+     * drained on exit, and word normalization is only needed at the ABI. */
+    char *loop = alloc(strlen(symbol->label) + sizeof "_countdown");
+    sprintf(loop, "%s_countdown", symbol->label);
+    return schedule_countdown(out, symbol->label, loop,
+                              seed_arg ? 0 : (uint32_t)fn->con[seed.val].bits.i, seed_arg);
 }
 
 static void
@@ -1306,7 +1407,17 @@ flow_sites(void)
 
 typedef struct {
     int in[FIFO_ARGS * SCHED_STASH], out[FIFO_ARGS * SCHED_STASH];
+    int result_in[STASH_A], result_out[STASH_A];
 } FlowBlock;
+
+typedef struct {
+    enum SchedUnit unit;
+    const char *port;
+} ResultHome;
+
+static ResultHome *result_home;
+static unsigned char *blocked_result;
+static int failed_result;
 
 static int
 flow_uses_home(Blk *b, int t)
@@ -1325,6 +1436,8 @@ static int failed_temp;
 static void
 flow_retry_home(const FlowBlock *layout)
 {
+    for (int unit = 0; unit < STASH_A && !failed_result; ++unit)
+        failed_result = layout->result_in[unit] ? layout->result_in[unit] : layout->result_out[unit];
     for (int n = FIFO_ARGS * SCHED_STASH; n-- > 0;) {
         int candidates[] = {layout->in[n], layout->out[n]};
         for (unsigned k = 0; k < sizeof candidates / sizeof *candidates; ++k) {
@@ -1415,6 +1528,156 @@ flow_homes(void)
     return layout;
 }
 
+static ResultHome
+producer_home(int temp)
+{
+    Ins *i = fn->tmp[temp].def;
+    if (!i || i->cls != Kl)
+        return (ResultHome){0};
+    switch (i->op) {
+    case Oadd: return (ResultHome){ARITH_A, "ADD"};
+    case Osub: return (ResultHome){ARITH_A, "SUB"};
+    case Omul: return (ResultHome){MUL, "LO"};
+    case Oand: return (ResultHome){LOGIC_A, "AND"};
+    case Oor: return (ResultHome){LOGIC_A, "OR"};
+    case Oxor: return (ResultHome){LOGIC_A, "XOR"};
+    case Oneg: return (ResultHome){UOP_A, "NEG"};
+    case Oshl: return (ResultHome){SHIFT_A, "LSL"};
+    case Oshr: return (ResultHome){SHIFT_A, "LSR"};
+    case Osar: return (ResultHome){SHIFT_A, "ASR"};
+    default: return (ResultHome){0};
+    }
+}
+
+static void
+clear_home(int *layout, int temp)
+{
+    for (int n = 0; n < FIFO_ARGS * SCHED_STASH; ++n)
+        if (layout[n] == temp)
+            layout[n] = 0;
+}
+
+/* Limit inter-block carrying to the consuming region, so an ordinary ABI
+ * boundary never inherits a compute result with no assigned owner. */
+static int
+result_consumed_in(int temp, Blk *b)
+{
+    Tmp *t = &fn->tmp[temp];
+    for (unsigned n = 0; n < t->nuse; ++n)
+        if (t->use[n].bid == b->id) {
+            Use *use = &t->use[n];
+            Ins *end = use->type == UJmp ? b->ins + b->nins :
+                       use->type == UIns ? use->u.ins : b->ins;
+            if (use->type == UPhi || (use->type == UIns && flow_barrier(use->u.ins)))
+                return 0;
+            for (Ins *i = b->ins; i < end; ++i)
+                if (isarg(i->op) || i->op == Ocall || flow_barrier(i))
+                    return 0;
+            return 1;
+        }
+    return 0;
+}
+
+static void
+carry_direct(FlowBlock *layout, Blk *from, int temp, ResultHome home)
+{
+    Tmp *t = &fn->tmp[temp];
+    Blk *targets[] = {from->s1, from->s2};
+    int uses[2] = {0};
+    for (unsigned n = 0; n < t->nuse; ++n) {
+        Use *use = &t->use[n];
+        int edge = targets[0] && use->bid == targets[0]->id ? 0 :
+                   targets[1] && use->bid == targets[1]->id ? 1 : -1;
+        if (edge < 0 || use->type == UPhi || ++uses[edge] > 1)
+            return;
+    }
+    for (int edge = 0; edge < 2; ++edge)
+        if (targets[edge] && (targets[edge] == from || targets[edge]->npred != 1 ||
+            layout[targets[edge]->id].result_in[home.unit] || !uses[edge] ||
+            !result_consumed_in(temp, targets[edge])))
+            return;
+    layout[from->id].result_out[home.unit] = temp;
+    result_home[temp] = home;
+    clear_home(layout[from->id].out, temp);
+    for (int edge = 0; edge < 2; ++edge)
+        if (targets[edge]) {
+            FlowBlock *to = &layout[targets[edge]->id];
+            to->result_in[home.unit] = temp;
+            clear_home(to->in, temp);
+        }
+}
+
+static void
+carry_phi(FlowBlock *layout, Blk *to, Phi *phi)
+{
+    int temp = phi->to.val;
+    if (phi->cls != Kl || phi->narg < 2 || fifo_spill[temp] || blocked_result[temp] ||
+        fn->tmp[temp].nuse != 1 || !result_consumed_in(temp, to))
+        return;
+    ResultHome common = {0};
+    for (unsigned n = 0; n < phi->narg; ++n) {
+        Ref arg = phi->arg[n];
+        Blk *from = phi->blk[n];
+        if (rtype(arg) != RTmp || blocked_result[arg.val] || fifo_spill[arg.val] ||
+            from == to || from->jmp.type != Jjmp)
+            return;
+        Tmp *t = &fn->tmp[arg.val];
+        if (t->bid != from->id || t->nuse != 1)
+            return;
+        ResultHome home = producer_home(arg.val);
+        if (!home.port || layout[from->id].result_out[home.unit] ||
+            (common.port && (home.unit != common.unit || strcmp(home.port, common.port))))
+            return;
+        common = home;
+    }
+    if (layout[to->id].result_in[common.unit])
+        return;
+    layout[to->id].result_in[common.unit] = temp;
+    result_home[temp] = common;
+    clear_home(layout[to->id].in, temp);
+    for (unsigned n = 0; n < phi->narg; ++n) {
+        int arg = phi->arg[n].val;
+        FlowBlock *from = &layout[phi->blk[n]->id];
+        from->result_out[common.unit] = arg;
+        result_home[arg] = common;
+        clear_home(from->out, arg);
+    }
+}
+
+static void
+flow_result_homes(FlowBlock *layout)
+{
+    result_home = alloc(fn->ntmp * sizeof *result_home);
+    for (Blk *b = fn->start; b; b = b->link) {
+        for (Phi *phi = b->phi; phi; phi = phi->link)
+            carry_phi(layout, b, phi);
+        if (!b->s1)
+            continue;
+        for (int t = Tmp0; bsiter(b->out, &t); ++t) {
+            if (fn->tmp[t].bid != b->id || blocked_result[t] || fifo_spill[t] || result_home[t].port)
+                continue;
+            ResultHome home = producer_home(t);
+            if (home.port && !layout[b->id].result_out[home.unit])
+                carry_direct(layout, b, t, home);
+        }
+    }
+}
+
+static void
+flow_seed_results(const FlowBlock *layout)
+{
+    for (int unit = 0; unit < STASH_A; ++unit) {
+        int temp = layout->result_in[unit];
+        if (!temp)
+            continue;
+        SchedValue seed = sched_node(unit, result_home[temp].port, 0, NULL);
+        if (seed.node)
+            scheduled.node[seed.node - 1].pinned = 1;
+        scheduled_value[temp] = seed;
+        scheduled_known[temp] = 1;
+    }
+}
+
 static void
 flow_seed(int bank, int temp)
 {
@@ -1425,7 +1688,7 @@ flow_seed(int bank, int temp)
 static SchedValue
 flow_word(Ref ref)
 {
-    if (rtype(ref) == RTmp && fn->tmp[ref.val].cls == Kw)
+    if (rtype(ref) == RTmp && fn->tmp[ref.val].cls == Kw && !uncanonical_word[ref.val])
         return sched_value(ref);
     if (rtype(ref) == RCon && fn->con[ref.val].type != CAddr) {
         if (fn->con[ref.val].flt)
@@ -1443,8 +1706,10 @@ flow_begin(const int *input)
     scheduled.term = (SchedTerm){0};
     scheduled_sp = (SchedValue){0};
     memset(scheduled.live_out, 0, sizeof scheduled.live_out);
+    memset(scheduled.result_out, 0, sizeof scheduled.result_out);
     memset(scheduled.saved, 0, sizeof scheduled.saved);
     memset(scheduled_known, 0, fn->ntmp * sizeof *scheduled_known);
+    memset(uncanonical_word, 0, fn->ntmp * sizeof *uncanonical_word);
     for (int n = 0; n < FIFO_ARGS * SCHED_STASH; ++n)
         if (input[n])
             flow_seed(n % FIFO_ARGS, input[n]);
@@ -1463,6 +1728,8 @@ flow_finish(const int *wanted, SchedValue *result)
     for (int n = 0; n < FIFO_ARGS * SCHED_STASH; ++n)
         if (wanted[n])
             used[result[n].node] = 1;
+    for (int unit = 0; unit < STASH_A; ++unit)
+        used[scheduled.result_out[unit]] = 1;
     for (int n = 0; n < 8 && scheduled.saved[n]; ++n)
         used[scheduled.saved[n]] = 1;
     int condition = 0;
@@ -1674,9 +1941,43 @@ flow_inline(Ins *i, FlowSite *site)
 }
 
 static int
+low_word_use(const Ins *i)
+{
+    if (i->cls != Kw)
+        return 0;
+    switch (i->op) {
+    case Oadd: case Osub: case Omul: case Oneg:
+    case Oand: case Oor: case Oxor: case Oshl: case Ocopy:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+static int
+defer_word(Ins *producer, const Ins *region_end)
+{
+    if (!low_word_use(producer))
+        return 0;
+    Tmp *tmp = &fn->tmp[producer->to.val];
+    for (unsigned n = 0; n < tmp->nuse; ++n) {
+        Use *use = &tmp->use[n];
+        if (use->bid != block->id || use->type == UPhi)
+            return 0;
+        if (use->type == UJmp) {
+            if (region_end != block->ins + block->nins || block->jmp.type == Jretl)
+                return 0;
+        } else if (use->type != UIns || use->u.ins >= region_end || !low_word_use(use->u.ins))
+            return 0;
+    }
+    return 1;
+}
+
+static int
 flow_block(FlowBlock *layout, FlowSite *sites, SchedTerm term)
 {
     flow_begin(layout->in);
+    flow_seed_results(layout);
     unsigned params = 0;
     if (block == fn->start) {
         while (params < block->nins && ispar(block->ins[params].op)) {
@@ -1690,6 +1991,7 @@ flow_block(FlowBlock *layout, FlowSite *sites, SchedTerm term)
             scheduled_known[dst.val] = 1;
         }
     }
+    const Ins *region_end = block->ins + params;
     for (Ins *i = block->ins + params; i < block->ins + block->nins && !schedule_overflow; ++i) {
         if (i->op == Onop || i->op == Odbgloc)
             continue;
@@ -1715,8 +2017,21 @@ flow_block(FlowBlock *layout, FlowSite *sites, SchedTerm term)
         SchedValue result = isalloc(i->op) ? sched_address(objects[i->to.val]) : sched_instruction(i);
         if (req(i->to, R))
             continue;
-        if (i->cls == Kw && !INRANGE(i->op, Ocmpw, Ocmpl1))
-            result = sched_extend(result, 32, 0);
+        if (i->cls == Kw && !INRANGE(i->op, Ocmpw, Ocmpl1)) {
+            if (region_end <= i) {
+                Ins *end = i + 1;
+                while (end < block->ins + block->nins && !isarg(end->op) &&
+                       end->op != Ocall && !flow_barrier(end))
+                    ++end;
+                region_end = end;
+            }
+            if (defer_word(i, region_end))
+                uncanonical_word[i->to.val] = 1;
+            else
+                result = sched_extend(result, 32, 0);
+        }
+        if (result.node && result_home[i->to.val].port)
+            scheduled.node[result.node - 1].pinned = 1;
         scheduled_value[i->to.val] = result;
         scheduled_known[i->to.val] = 1;
     }
@@ -1746,6 +2061,9 @@ flow_block(FlowBlock *layout, FlowSite *sites, SchedTerm term)
     for (int n = 0; n < FIFO_ARGS * SCHED_STASH; ++n)
         if (layout->out[n])
             result[n] = sched_value(TMP(layout->out[n]));
+    for (int unit = 0; unit < STASH_A; ++unit)
+        if (layout->result_out[unit])
+            scheduled.result_out[unit] = sched_value(TMP(layout->result_out[unit])).node;
     scheduled.term = term;
     if (returning) {
         int abi[FIFO_ARGS * SCHED_STASH] = {1};
@@ -1757,17 +2075,39 @@ flow_block(FlowBlock *layout, FlowSite *sites, SchedTerm term)
 static Ref
 flow_phi_arg(Blk *from, Phi *phi)
 {
-    for (unsigned n = 0; n < phi->narg; ++n)
-        if (phi->blk[n] == from)
-            return phi->arg[n];
-    error("missing phi input");
-    return R;
+    Ref arg = incoming_value(phi, from);
+    if (req(arg, R))
+        error("missing phi input");
+    return arg;
 }
 
 static int
 flow_edge(Blk *from, Blk *to, const FlowBlock *layout, SchedTerm term)
 {
-    flow_begin(layout[from->id].out);
+    const FlowBlock *source = &layout[from->id], *target = &layout[to->id];
+    flow_begin(source->out);
+    for (int unit = 0; unit < STASH_A; ++unit) {
+        int incoming = target->result_in[unit], produced = source->result_out[unit];
+        if (!incoming && !produced)
+            continue;
+        if (!incoming || !produced)
+            return 0;
+        Ref arg = TMP(incoming);
+        for (Phi *phi = to->phi; phi; phi = phi->link)
+            if (req(phi->to, arg)) {
+                arg = flow_phi_arg(from, phi);
+                break;
+            }
+        if (!req(arg, TMP(produced)))
+            return 0;
+        SchedValue seed = sched_node(unit, result_home[produced].port, 0, NULL);
+        if (!seed.node)
+            return 0;
+        scheduled.node[seed.node - 1].pinned = 1;
+        scheduled_value[produced] = seed;
+        scheduled_known[produced] = 1;
+        scheduled.result_out[unit] = seed.node;
+    }
     SchedValue result[FIFO_ARGS * SCHED_STASH] = {{0}};
     for (int n = 0; n < FIFO_ARGS * SCHED_STASH; ++n) {
         int temp = layout[to->id].in[n];
@@ -1857,6 +2197,9 @@ flow_exit_is_return(Blk *b, const FlowBlock *layout)
         return 0;
     for (int i = 1; i < FIFO_ARGS * SCHED_STASH; ++i)
         if (layout[b->id].in[i])
+            return 0;
+    for (int unit = 0; unit < STASH_A; ++unit)
+        if (layout[b->id].result_in[unit])
             return 0;
     for (Ins *i = b->ins; i < b->ins + b->nins; ++i)
         if (i->op != Onop && i->op != Odbgloc)
@@ -1950,6 +2293,7 @@ flow_function(Symbol *f)
     FlowBlock *layout = flow_homes();
     if (!layout)
         return 0;
+    flow_result_homes(layout);
     FlowSite *sites = flow_sites();
     frame_size = align_up(frame_size, 16);
     if (frame_size > INT64_MAX)
@@ -2094,13 +2438,14 @@ static int
 try_fifo_function(Symbol *f)
 {
     forced_spill = alloc(fn->ntmp * sizeof *forced_spill);
+    blocked_result = alloc(fn->ntmp * sizeof *blocked_result);
     unsigned label_base = serial;
     FILE *saved = out;
     /* Limit retries when the FIFO order would require an expensive shuffle. */
     for (int attempt = 0; attempt < 5; ++attempt) {
         char *assembly = NULL;
         size_t size = 0;
-        failed_temp = 0;
+        failed_temp = failed_result = 0;
         out = open_memstream(&assembly, &size);
         if (!out)
             error("cannot buffer FIFO function");
@@ -2118,9 +2463,12 @@ try_fifo_function(Symbol *f)
         schedule_reset_peak();
         if (!attempt && schedule_overflow && split_long_blocks())
             continue;
-        if (!failed_temp)
+        if (failed_result)
+            blocked_result[failed_result] = 1;
+        else if (failed_temp)
+            forced_spill[failed_temp] = 1;
+        else
             break;
-        forced_spill[failed_temp] = 1;
     }
     return 0;
 }
@@ -2179,8 +2527,12 @@ function(Fn *parsed)
     int main_entry = f->module == 0 && strcmp(f->name, "main") == 0;
     if (optimize) {
         promote_locals();
+        if (!main_entry && countdown_function(f))
+            goto emitted;
+        rotate_loops();
         scheduled_value = alloc(fn->ntmp * sizeof *scheduled_value);
         scheduled_known = alloc(fn->ntmp * sizeof *scheduled_known);
+        uncanonical_word = alloc(fn->ntmp * sizeof *uncanonical_word);
         if (!main_entry || !fn->start->nins || !ispar(fn->start->ins[0].op)) {
             int valid_entry = 1;
             for (Blk *b = fn->start; b; b = b->link)

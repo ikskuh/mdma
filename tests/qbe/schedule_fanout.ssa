@@ -1,0 +1,15 @@
+# expect mem64 __mdma_result = 41
+function w $fanout(l %x, l %y) {
+@start
+    %product =l mul %x, %y
+    %a =l add %product, %x
+    %b =l xor %product, %y
+    %r =w add %a, %b
+    ret %r
+}
+
+export function w $main() {
+@start
+    %r =w call $fanout(l 4, l 5)
+    ret %r
+}

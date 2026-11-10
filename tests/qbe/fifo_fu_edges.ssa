@@ -1,0 +1,56 @@
+# expect mem64 __mdma_result = 71
+function l $carry(w %test, l %x, l %y) {
+@start
+    %a =l mul %x, %y
+    jnz %test, @left, @right
+@left
+    %b =l add %a, %x
+    ret %b
+@right
+    %c =l xor %a, %y
+    ret %c
+}
+
+function l $join(w %test, l %x, l %y) {
+@start
+    jnz %test, @left, @right
+@left
+    %a =l add %x, 8
+    jmp @merge
+@right
+    %b =l add %y, 6
+    jmp @merge
+@merge
+    %p =l phi @left %a, @right %b
+    %r =l xor %p, 1
+    ret %r
+}
+
+function l $mismatch(w %test, l %x, l %y) {
+@start
+    jnz %test, @left, @right
+@left
+    %a =l add %x, 8
+    jmp @merge
+@right
+    %b =l mul %y, 6
+    jmp @merge
+@merge
+    %p =l phi @left %a, @right %b
+    %r =l xor %p, 1
+    ret %r
+}
+
+export function w $main() {
+@start
+    %a =l call $carry(w 1, l 4, l 5)
+    %b =l call $carry(w 0, l 4, l 5)
+    %c =l call $join(w 1, l 4, l 5)
+    %d =l call $join(w 0, l 4, l 5)
+    %x =l add %a, %b
+    %y =l add %c, %d
+    %m =l call $mismatch(w 0, l 4, l 1)
+    %z =l add %m, %y
+    %r =w add %x, %z
+    ret %r
+}

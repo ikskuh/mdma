@@ -122,9 +122,9 @@ typedef struct {
     SchedNode node[NODES];
     int count, fifo_flow;
     unsigned short edge[NODES][NODES];
-    int when[NODES], bundle_count;
+    int when[NODES], group[NODES], bundle_count;
     int live_out[4][SCHED_STASH];
-    int saved[8];
+    int saved[8], result_out[STASH_A];
     Bundle bundle[NODES];
     SchedTerm term;
 } Schedule;
@@ -167,7 +167,7 @@ choose_units(SchedNode *nodes, int count)
             ready[i] = start + 1;
             continue;
         }
-        if (unit == ARITH_A || unit == LOGIC_A || unit == SHIFT_A || unit == UOP_A) {
+        if (!n->pinned && (unit == ARITH_A || unit == LOGIC_A || unit == SHIFT_A || unit == UOP_A)) {
             int a = start > next[unit] ? start : next[unit];
             int b = start > next[unit + 1] ? start : next[unit + 1];
             if (b + timing[unit + 1].latency < a + timing[unit].latency)
@@ -260,14 +260,73 @@ record_use(Uses *use, int at)
     use->last = at;
 }
 
+/* Try one retirement bundle for the uses of a generation. The graph
+ * and bundle verifier will reject a merge that cannot issue together. */
 static int
-expand(Schedule *s, const SchedRegion *region, Uses *uses, int reorder)
+join_consumers(const SchedNode *nodes, int count, int source, int *groups)
+{
+    int members[5], moves = 0, n = 0;
+    const char *imm = NULL;
+    for (int i = source + 1; i <= count; ++i) {
+        const SchedNode *node = &nodes[i];
+        int uses = 0;
+        for (int j = 0; j < node->count; ++j)
+            uses |= node->move[j].value.node == source;
+        if (!uses)
+            continue;
+        if (groups[i] != i || node->unit == HOLD || node->unit == MEM_READ ||
+            node->unit == MEM_WRITE || moves + node->count > 5)
+            return 0;
+        for (int j = 0; j < node->count; ++j) {
+            const char *arg = node->move[j].value.imm;
+            if (arg && imm && strcmp(imm, arg))
+                return 0;
+            if (arg)
+                imm = arg;
+        }
+        moves += node->count;
+        members[n++] = i;
+    }
+    if (n < 2)
+        return 0;
+    for (int i = 1; i < n; ++i)
+        groups[members[i]] = members[0];
+    return 1;
+}
+
+static void
+unpack_masks(SchedNode *nodes, int count)
+{
+    for (int i = 1; i <= count; ++i) {
+        SchedNode *node = &nodes[i];
+        if (node->pinned || node->unit != LOGIC_A || node->count != 2 || strcmp(node->result, "AND"))
+            continue;
+        const char *mask = node->move[1].value.imm;
+        const char *type = mask && !strcmp(mask, "0xffffffff") ? "0x4" :
+                           mask && !strcmp(mask, "0xffff") ? "0x2" : NULL;
+        /* The alternate UNPACK request also needs an immediate. */
+        if (!type || node->move[0].value.imm)
+            continue;
+        SchedValue word = node->move[0].value;
+        *node = (SchedNode){.unit = UNPACK, .result = "VALUE", .count = 3,
+                            .move = {{"CHUNK", word}, {"ADDR", {0}}, {"TYPE", {.imm = type}}}};
+    }
+}
+
+static int
+expand(Schedule *s, const SchedRegion *region, Uses *uses, int reorder, int fanout, int unpack)
 {
     SchedNode input[SCHED_NODES + 1];
     Uses original[SCHED_NODES + 1] = {{0}};
     int map[SCHED_NODES + 1] = {0}, hold[SCHED_NODES + 1] = {0};
+    int launch[SCHED_NODES + 1] = {0};
+    int groups[SCHED_NODES + 1], shared[SCHED_NODES + 1] = {0};
     memcpy(input + 1, region->node, region->count * sizeof *input);
+    if (unpack)
+        unpack_masks(input, region->count);
     choose_units(input, region->count);
+    for (int i = 1; i <= region->count; ++i)
+        groups[i] = i;
     for (int i = 1; i <= region->count; ++i)
         for (int j = 0; j < input[i].count; ++j) {
             int src = input[i].move[j].value.node;
@@ -275,6 +334,10 @@ expand(Schedule *s, const SchedRegion *region, Uses *uses, int reorder)
                 record_use(&original[src], i);
         }
 
+    if (fanout)
+        for (int i = 1; i <= region->count; ++i)
+            if (input[i].unit < STASH_A && original[i].count > 1)
+                shared[i] = join_consumers(input, region->count, i, groups);
     int later[UNIT_COUNT][4] = {{0}};
     for (int i = region->count; i > 0; --i) {
         int unit = input[i].unit;
@@ -284,11 +347,11 @@ expand(Schedule *s, const SchedRegion *region, Uses *uses, int reorder)
         /* Materialize outputs with several consumers or whose intended reads
          * would overtake another generation on the same result FIFO. */
         int next_pop = next ? (hold[next] ? next : original[next].first) : 0;
-        hold[i] = original[i].count > 1 ||
+        hold[i] = (original[i].count > 1 && !shared[i]) ||
                   (next && (original[i].last == next_pop ||
                             (!reorder && original[i].last > next_pop))) ||
                   (!reorder && fourth && original[i].last >= fourth);
-        if (hold[i] && !strcmp(input[i].result, "ADDR") && unit == PACK)
+        if (hold[i] && (!input[i].count || (!strcmp(input[i].result, "ADDR") && unit == PACK)))
             return 0; /* PACK's siblings are only used together by a store. */
         for (int j = 3; j > 0; --j)
             later[unit][j] = later[unit][j - 1];
@@ -297,6 +360,9 @@ expand(Schedule *s, const SchedRegion *region, Uses *uses, int reorder)
     for (int i = 1; i <= region->count; ++i) {
         int at = ++s->count;
         s->node[at] = input[i];
+        /* The leader is the first consumer, so it has already been mapped. */
+        launch[i] = at;
+        s->group[at] = launch[groups[i]];
         for (int j = 0; j < input[i].count; ++j) {
             SchedValue *v = &s->node[at].move[j].value;
             if (v->node) {
@@ -310,6 +376,7 @@ expand(Schedule *s, const SchedRegion *region, Uses *uses, int reorder)
         map[i] = at;
         if (hold[i]) {
             map[i] = ++s->count;
+            s->group[s->count] = s->count;
             s->node[s->count] = (SchedNode){
                 .unit = HOLD, .count = 1, .move = {{NULL, {at, NULL, NULL}}}
             };
@@ -323,6 +390,14 @@ expand(Schedule *s, const SchedRegion *region, Uses *uses, int reorder)
                 s->live_out[bank][n] = id;
                 record_use(&uses[id], s->count + 1);
             }
+        }
+    for (int bank = 0; bank < STASH_A; ++bank)
+        if (region->result_out[bank]) {
+            int id = map[region->result_out[bank]];
+            if (s->node[id].unit != (enum SchedUnit)bank)
+                return 0;
+            s->result_out[bank] = id;
+            record_use(&uses[id], s->count + 1);
         }
     for (int n = 0; n < 8 && region->saved[n]; ++n) {
         int id = map[region->saved[n]];
@@ -383,10 +458,11 @@ build_graph(Schedule *s, const Uses *uses, int reorder)
         last_read[r] = 0;
         if (unit >= STASH_A || !n->result)
             continue;
-        if (!uses[i].count || pop[unit] == uses[i].first || history[unit][3] == i ||
+        if (!uses[i].count || pop[unit] > s->count || pop[unit] == uses[i].first || history[unit][3] == i ||
             (!reorder && (pop[unit] > uses[i].first || history[unit][3] > i)))
             return 0;
-        dependency(s, pop[unit], uses[i].first, 1);
+        if (uses[i].first <= s->count)
+            dependency(s, pop[unit], uses[i].first, 1);
         pop[unit] = uses[i].last;
         dependency(s, history[unit][3], i, 1);
         for (int k = 3; k > 0; --k)
@@ -459,6 +535,36 @@ pack(Bundle *b, const Schedule *s, const Uses *uses, int at)
 }
 
 static int
+collapse_groups(Schedule *s)
+{
+    unsigned short (*edge)[NODES] = emalloc(sizeof s->edge);
+    int ok = 1;
+    for (int i = 1; i <= s->count; ++i)
+        for (int j = 1; j <= s->count; ++j) {
+            unsigned short gap = s->edge[i][j];
+            if (!gap)
+                continue;
+            int from = s->group[i], to = s->group[j];
+            if (from == to)
+                ok &= gap == 1;
+            else if (edge[from][to] < gap)
+                edge[from][to] = gap;
+        }
+    memcpy(s->edge, edge, sizeof s->edge);
+    free(edge);
+    return ok;
+}
+
+static int
+pack_group(Bundle *bundle, const Schedule *s, const Uses *uses, int leader)
+{
+    for (int i = leader; i <= s->count; ++i)
+        if (s->group[i] == leader && !pack(bundle, s, uses, i))
+            return 0;
+    return 1;
+}
+
+static int
 latest_first(Schedule *s, const Uses *uses)
 {
     for (int i = s->count; i > 0; --i) {
@@ -497,7 +603,7 @@ earliest_first(Schedule *s, const Uses *uses)
     int predecessors[NODES] = {0}, order[NODES], count = 0;
     int critical[NODES] = {0}, ready[NODES] = {0}, when[NODES] = {0};
     for (int i = 1; i <= s->count; ++i) {
-        if (!s->node[i].count)
+        if (!s->node[i].count || s->group[i] != i)
             continue;
         for (int j = 1; j <= s->count; ++j)
             if (s->edge[j][i] && s->node[j].count)
@@ -525,7 +631,7 @@ earliest_first(Schedule *s, const Uses *uses)
         int best = 0, next = INT_MAX;
         Bundle packed = {0};
         for (int i = 1; i <= s->count; ++i) {
-            if (!s->node[i].count || predecessors[i] != 0)
+            if (!s->node[i].count || s->group[i] != i || predecessors[i] != 0)
                 continue;
             if (ready[i] > time) {
                 if (ready[i] < next)
@@ -535,7 +641,7 @@ earliest_first(Schedule *s, const Uses *uses)
             if (best && critical[i] <= critical[best])
                 continue;
             Bundle trial = bundle;
-            if (pack(&trial, s, uses, i)) {
+            if (pack_group(&trial, s, uses, i)) {
                 best = i;
                 packed = trial;
             }
@@ -838,7 +944,17 @@ verify(FILE *out, const Schedule *s, int *words, int *cycles)
             int start = next < service[MEM_READ] ? service[MEM_READ] : next;
             service[MEM_READ] = start + timing[MEM_WRITE].interval;
         }
-        emit_bundle(&emit, b);
+        Bundle dispatch = *b;
+        int independent = !b->write_mem;
+        for (int j = 0; j < b->count; ++j) {
+            int unit = b->move[j].sink_unit;
+            if (unit == MEM_READ || unit == PACK || unit == UNPACK ||
+                unit == DIV || unit == DIVS || (unit >= STACK_A && unit < CONTROL))
+                independent = 0;
+        }
+        if (independent)
+            dispatch.sync = 0;
+        emit_bundle(&emit, &dispatch);
         *words += bundle_words(b);
         *cycles = next + 1;
     }
@@ -852,6 +968,10 @@ verify(FILE *out, const Schedule *s, int *words, int *cycles)
         Queue *q = &fifo[bank];
         if (bank >= STASH_A && bank < STACK_A) {
             if (!restore_order(&emit, bank, q, s->live_out[bank - STASH_A], count, words, cycles))
+                return 0;
+        } else if (bank < STASH_A) {
+            int id = s->result_out[bank];
+            if (q->count != !!id || (id && q->id[0] != id))
                 return 0;
         } else if (bank != STACK_A && q->count)
             return 0;
@@ -900,20 +1020,23 @@ schedule_emit(FILE *out, const SchedRegion *region, int baseline_words, int base
     Schedule *work = emalloc(sizeof *work);
     Schedule *best = emalloc(sizeof *best);
     int best_cycles = INT_MAX, best_words = INT_MAX, best_moves = INT_MAX;
-    for (int candidate = 0; candidate < 4; ++candidate) {
-        if (candidate == 3 && (best_cycles != INT_MAX || baseline_cycles >= 0))
+    for (int candidate = 0; candidate < 7; ++candidate) {
+        int serial = candidate == 6;
+        if (serial && (best_cycles != INT_MAX || baseline_cycles >= 0))
             break;
         memset(work, 0, sizeof *work);
         work->fifo_flow = region->fifo_flow;
         work->term = region->term;
         Uses uses[NODES] = {{0}};
-        int reorder = candidate == 2;
-        if (!expand(work, region, uses, reorder))
+        int reorder = candidate >= 2 && !serial;
+        int fanout = candidate == 3 || candidate == 5;
+        int unpack = candidate == 4 || candidate == 5;
+        if (!expand(work, region, uses, reorder, fanout, unpack))
             continue;
         int ok;
-        if (candidate == 3)
+        if (serial)
             ok = serial_schedule(work, uses);
-        else if (!build_graph(work, uses, reorder))
+        else if (!build_graph(work, uses, reorder) || (fanout && !collapse_groups(work)))
             continue;
         else if (candidate == 0) {
             ok = latest_first(work, uses);
@@ -941,4 +1064,138 @@ schedule_emit(FILE *out, const SchedRegion *region, int baseline_words, int base
     free(work);
     free(best);
     return ok;
+}
+
+/* The countdown kernel has a partial ARITH_A request at the loop boundary.
+ * A complete request reserves one result generation, even while it computes. */
+enum FeedbackPort {
+    F_ZERO, F_CONST, F_A_LHS, F_A_RHS, F_A_ADD, F_B_LHS, F_B_RHS, F_B_SUB,
+    F_UNPACK_ADDR, F_UNPACK_TYPE, F_UNPACK_CHUNK, F_UNPACK_VALUE,
+    F_ARG, F_SEED, F_RESULT, F_CONT, F_COND, F_PC, F_DISCARD, F_PORTS
+};
+
+typedef struct {
+    enum FeedbackPort source, sink;
+} FeedbackMove;
+
+typedef struct {
+    FeedbackMove move[5];
+    int count, pred;
+    const char *immediate;
+} FeedbackBundle;
+
+static const char *const feedback_name[] = {
+    "ZERO", "CONST", "ARITH_A.LHS", "ARITH_A.RHS", "ARITH_A.ADD",
+    "ARITH_B.LHS", "ARITH_B.RHS", "ARITH_B.SUB", "UNPACK.ADDR",
+    "UNPACK.TYPE", "UNPACK.CHUNK", "UNPACK.VALUE", "STASH_A.OUT",
+    "STASH_B.OUT", "STASH_A.IN", "STACK_B.TOP", "COND", "PC", "DISCARD"
+};
+
+static int
+feedback_step(unsigned char *state, const FeedbackBundle *bundle, int taken)
+{
+    unsigned read = 0, write = 0;
+    if (bundle->pred) {
+        if (!state[F_COND])
+            return 0;
+        --state[F_COND];
+        if (!taken)
+            return 1;
+    }
+    for (int i = 0; i < bundle->count; ++i) {
+        enum FeedbackPort src = bundle->move[i].source, dst = bundle->move[i].sink;
+        if (src != F_ZERO && src != F_CONST) {
+            if (!state[src])
+                return 0;
+            read |= 1u << src;
+        }
+        if ((write & (1u << dst)) || (dst != F_PC && dst != F_DISCARD && state[dst] >= 4))
+            return 0;
+        write |= 1u << dst;
+    }
+    for (int n = 0; n < F_PORTS; ++n) {
+        if (read & (1u << n))
+            --state[n];
+        if (n != F_PC && n != F_DISCARD && (write & (1u << n)))
+            ++state[n];
+    }
+    const struct {
+        enum FeedbackPort lhs, rhs, third, result;
+    } units[] = {
+        {F_A_LHS, F_A_RHS, F_ZERO, F_A_ADD},
+        {F_B_LHS, F_B_RHS, F_ZERO, F_B_SUB},
+        {F_UNPACK_ADDR, F_UNPACK_TYPE, F_UNPACK_CHUNK, F_UNPACK_VALUE}
+    };
+    for (unsigned i = 0; i < sizeof units / sizeof *units; ++i) {
+        enum FeedbackPort lhs = units[i].lhs, rhs = units[i].rhs, third = units[i].third;
+        if (!state[lhs] || !state[rhs] || (third && !state[third]))
+            continue;
+        if (state[units[i].result] >= 4)
+            return 0;
+        --state[lhs];
+        --state[rhs];
+        if (third)
+            --state[third];
+        ++state[units[i].result];
+    }
+    return 1;
+}
+
+static void
+feedback_print(FILE *out, const FeedbackBundle *bundle)
+{
+    int width = 0;
+    for (int n = 0; n < bundle->count; ++n) {
+        int len = strlen(feedback_name[bundle->move[n].source]);
+        if (width < len)
+            width = len;
+    }
+    for (int n = 0; n < bundle->count; ++n) {
+        FeedbackMove move = bundle->move[n];
+        fprintf(out, "%s%-*s -> %s", n ? "  , " : "    ", width,
+                feedback_name[move.source], feedback_name[move.sink]);
+        if (n + 1 == bundle->count && bundle->immediate)
+            fprintf(out, " [%simm=%s]", bundle->pred ? "pred, " : "", bundle->immediate);
+        fputc('\n', out);
+    }
+}
+
+int
+schedule_countdown(FILE *out, const char *entry, const char *loop, uint32_t seed, int seed_arg)
+{
+    char immediate[16];
+    snprintf(immediate, sizeof immediate, "0x%"PRIx32, seed);
+    const FeedbackBundle bundles[] = {
+        {.move = {{seed_arg ? F_SEED : seed ? F_CONST : F_ZERO, F_A_LHS},
+                  {F_ARG, F_B_LHS}, {F_ZERO, F_B_RHS}}, .count = 3,
+         .immediate = !seed_arg && seed ? immediate : NULL},
+        {.move = {{F_B_SUB, F_COND}, {F_B_SUB, F_B_LHS}, {F_CONST, F_B_RHS}, {F_B_SUB, F_A_RHS}},
+         .count = 4},
+        {.move = {{F_A_ADD, F_A_LHS}, {F_CONST, F_PC}}, .count = 2, .pred = 1, .immediate = loop},
+        {.move = {{F_A_ADD, F_UNPACK_CHUNK}, {F_ZERO, F_UNPACK_ADDR}, {F_CONST, F_UNPACK_TYPE},
+                  {F_B_SUB, F_DISCARD}}, .count = 4, .immediate = "4"},
+        {.move = {{F_UNPACK_VALUE, F_RESULT}, {F_CONT, F_PC}}, .count = 2}
+    };
+    unsigned char state[F_PORTS] = {[F_ARG] = 1, [F_SEED] = seed_arg, [F_CONT] = 1};
+    const unsigned char expected_entry[F_PORTS] = {[F_A_LHS] = 1, [F_B_SUB] = 1, [F_CONT] = 1};
+    const unsigned char expected_exit[F_PORTS] = {[F_RESULT] = 1};
+    if (!feedback_step(state, &bundles[0], 1) || memcmp(state, expected_entry, sizeof state) ||
+        !feedback_step(state, &bundles[1], 1))
+        return 0;
+    unsigned char back[F_PORTS];
+    memcpy(back, state, sizeof back);
+    if (!feedback_step(back, &bundles[2], 1) || memcmp(back, expected_entry, sizeof back) ||
+        !feedback_step(state, &bundles[2], 0) || !feedback_step(state, &bundles[3], 1) ||
+        !feedback_step(state, &bundles[4], 1) || memcmp(state, expected_exit, sizeof state))
+        return 0;
+
+    fprintf(out, "%s:\n", entry);
+    for (unsigned i = 0; i < sizeof bundles / sizeof *bundles; ++i) {
+        if (i == 1)
+            fprintf(out, "\n%s:\n", loop);
+        feedback_print(out, &bundles[i]);
+        if (i > 0 && i < 4)
+            fputc('\n', out);
+    }
+    return 1;
 }

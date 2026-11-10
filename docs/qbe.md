@@ -47,15 +47,29 @@ with their blocks, packs compatible moves with jumps, and rotates eligible
 two-block loops into a guarded bottom-tested form. Rotation currently handles
 at most two loop-carried values and a side-effect-free test and body.
 
+For word reductions of the form `sum += n; --n` while `n != 0`, the backend
+feeds the counter and accumulator through ARITH result FIFOs. The continuing
+path uses two bundles. The first fans out the counter to the predicate,
+decrement, and addition. The predicated backedge feeds back the accumulator
+only when the loop continues. The exit discards the unused decrement and
+truncates the final sum with UNPACK before returning.
+
 The scheduler compares backward placement from consumers with earlier
 issue of ready work on the critical path. It keeps ordered results in the
-producing FU's FIFO when its queue has room. It keeps live values in FIFO homes
-across control-flow edges when their lifetimes fit, and checks the queue
-state at each edge. It coalesces phi copies where possible. Multi-entry
+producing FU's FIFO when its queue has room and tries to pack all reads of the
+same result into one bundle. It can keep one long result per compute FU
+across an edge when the successor consumes it before a barrier. At a phi join,
+all incoming results must use the same FU and result port. Other live values
+use FIFO homes with checked queue state at each edge. The scheduler coalesces
+phi copies where possible. Multi-entry
 STASH layouts leave one free entry so they can rotate to the right value.
 RAM holds addressable objects and spills when a FIFO layout fails. A
 function whose layout remains unschedulable after bounded retries uses
 frame-based lowering with the same FIFO calling convention.
+
+The backend defers truncation through word arithmetic that depends only on
+the low 32 bits. It normalizes values at consumers that need the canonical word
+and compares LOGIC masks with UNPACK using the target profile.
 
 ### FIFO calling convention
 
