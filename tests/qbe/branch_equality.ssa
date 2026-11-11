@@ -1,0 +1,45 @@
+# expect mem64 __mdma_result = 1
+
+function w $classify(w %value) {
+@entry
+    %plus =w ceqw %value, 43
+    jnz %plus, @sign, @test_minus
+@test_minus
+    %minus =w ceqw %value, 45
+    jnz %minus, @sign, @other
+@sign
+    ret 1
+@other
+    ret 0
+}
+
+function w $distinct(w %value) {
+@entry
+    %upper =w ceqw %value, 69
+    jnz %upper, @letter, @test_lower
+@test_lower
+    %lower =w ceqw %value, 101
+    jnz %lower, @letter, @other
+@letter
+    %which =w phi @entry 2, @test_lower 3
+    ret %which
+@other
+    ret 0
+}
+
+export function w $main() {
+@entry
+    %plus =w call $classify(w 43)
+    %minus =w call $classify(w 45)
+    %punctuation =w call $classify(w 44)
+    %upper =w call $distinct(w 69)
+    %lower =w call $distinct(w 101)
+    %a =w and %plus, %minus
+    %b =w ceqw %punctuation, 0
+    %c =w ceqw %upper, 2
+    %d =w ceqw %lower, 3
+    %ab =w and %a, %b
+    %cd =w and %c, %d
+    %ok =w and %ab, %cd
+    ret %ok
+}

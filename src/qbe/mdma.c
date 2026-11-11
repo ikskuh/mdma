@@ -1769,7 +1769,7 @@ substitute(Ref value, const Ref *replacement, int count)
 /* Rotate a two-block loop. The test is private to the branch, and the only
  * path from the loop to an external use of a carried value is its exit. */
 static int
-rotate_loop(Blk *header)
+rotate_loop(Blk *header, int forwarded_load)
 {
     Blk *body = header->s1, *exit = header->s2;
     if (!header->phi || header->jmp.type != Jjnz || header->npred != 2 ||
@@ -1789,7 +1789,7 @@ rotate_loop(Blk *header)
             i->op != Osel0 && i->op != Osel1)
             return 0;
     }
-    if (memory && multiply)
+    if (memory && multiply && !forwarded_load)
         return 0;
     for (Ins *i = header->ins; i < header->ins + header->nins; ++i) {
         if (i->op == Onop || i->op == Odbgloc)
@@ -2435,7 +2435,7 @@ fuse_shift_feedback(Blk *b, Ins *out_select)
     return 1;
 }
 
-static void
+static int
 fold_shift_feedback(void)
 {
     int changed = 0;
@@ -2448,13 +2448,14 @@ fold_shift_feedback(void)
             }
     if (changed)
         simplify_values();
+    return changed;
 }
 
 static void
 rotate_loops(void)
 {
     for (Blk *b = fn->start; b; b = b->link)
-        if (rotate_loop(b)) {
+        if (rotate_loop(b, 0)) {
             fillcfg(fn);
             filluse(fn);
         }
@@ -2473,9 +2474,407 @@ incoming_value(Phi *phi, Blk *from)
 }
 
 static int
+fold_equality_chain(Blk *b)
+{
+    BranchFact first = branch_fact(b, 1);
+    if (!first.bits || first.cmp != Cieq)
+        return 0;
+    Blk *second = b->s2, *taken = b->s1;
+    if (second == b || second == fn->start || second->npred != 1 || second->phi ||
+        second->s1 != taken || second->s2 == b || second->s2 == taken)
+        return 0;
+    BranchFact next = branch_fact(second, 1);
+    if (next.bits != first.bits || next.cmp != Cieq || !req(first.value, next.value))
+        return 0;
+    if (fn->tmp[second->jmp.arg.val].nuse != 1)
+        return 0;
+    Ins *test = fn->tmp[second->jmp.arg.val].def;
+    for (Ins *i = second->ins; i < second->ins + second->nins; ++i)
+        if (i != test && i->op != Onop && i->op != Odbgloc)
+            return 0;
+    for (Phi *p = taken->phi; p; p = p->link)
+        if (!req(incoming_value(p, b), incoming_value(p, second)))
+            return 0;
+
+    uint64_t differing = first.constant ^ next.constant;
+    if (!differing || !(differing & (differing - 1)))
+        return 0;
+    uint64_t base = first.constant < next.constant ? first.constant : next.constant;
+    uint64_t bit = (first.constant < next.constant ? next.constant : first.constant) - base;
+    if (bit & (bit - 1))
+        return 0;
+    int cls = first.bits == 32 ? Kw : Kl;
+    /* Rebase the constants to zero and a single set bit. */
+    Ref value = newtmp("equality.offset", cls, fn);
+    addins(&b->ins, &b->nins, &(Ins){.op = Osub, .cls = cls, .to = value,
+            .arg = {first.value, getcon(base, fn)}});
+    Ref merged = newtmp("equality.bit", cls, fn);
+    Ref condition = newtmp("equality", Kw, fn);
+    addins(&b->ins, &b->nins, &(Ins){.op = Oor, .cls = cls, .to = merged,
+            .arg = {value, getcon(bit, fn)}});
+    addins(&b->ins, &b->nins, &(Ins){.op = cls == Kw ? Oceqw : Oceql,
+            .cls = Kw, .to = condition, .arg = {merged, getcon(bit, fn)}});
+    b->s2 = second->s2;
+    b->jmp.arg = condition;
+    for (Phi *p = b->s2->phi; p; p = p->link)
+        for (unsigned n = 0; n < p->narg; ++n)
+            if (p->blk[n] == second)
+                p->blk[n] = b;
+    return 1;
+}
+
+static void
+fold_equality_chains(void)
+{
+    for (Blk *b = fn->start; b; b = b->link)
+        if (fold_equality_chain(b)) {
+            fillcfg(fn);
+            filluse(fn);
+            simplify_values();
+        }
+}
+
+static int
+simple_loop(Blk *header, Blk **entry, Blk **latch)
+{
+    if (header->npred != 2)
+        return 0;
+    unsigned back = dom(header, header->pred[0]) ? 0 : 1;
+    *entry = header->pred[1 - back];
+    *latch = header->pred[back];
+    return !dom(header, *entry) && dom(header, *latch) &&
+           (*entry)->jmp.type == Jjmp && (*entry)->s1 == header &&
+           (*latch == header ||
+            (header->jmp.type == Jjnz && header->s1 == *latch &&
+             (*latch)->npred == 1 && (*latch)->jmp.type == Jjmp &&
+             (*latch)->s1 == header));
+}
+
+static Ref
+loop_phi(Blk *header, Blk *entry, Blk *latch, int cls, Ref initial, Ref next)
+{
+    Phi *p = alloc(sizeof *p);
+    p->to = newtmp("loop", cls, fn);
+    p->cls = cls;
+    p->narg = 2;
+    p->arg = alloc(2 * sizeof *p->arg);
+    p->blk = alloc(2 * sizeof *p->blk);
+    p->arg[0] = initial;
+    p->arg[1] = next;
+    p->blk[0] = entry;
+    p->blk[1] = latch;
+    p->link = header->phi;
+    header->phi = p;
+    return p->to;
+}
+
+static Ins *
+integer_def(Ref value)
+{
+    if (rtype(value) != RTmp || value.val < Tmp0)
+        return NULL;
+    Tmp *t = &fn->tmp[value.val];
+    return t->ndef == 1 && t->def && pure_integer(t->def) ? t->def : NULL;
+}
+
+static int
+address_op(const Ins *i)
+{
+    return i->op == Oadd || i->op == Omul || i->op == Oshl ||
+           i->op == Oextuw || i->op == Oextsw || i->op == Ocopy;
+}
+
+/* Visit the producers of an address. Hoist only arithmetic whose inputs
+ * are already available in the preheader, and reuse matching expressions. */
+static int
+hoist_address(Ref address, Blk *entry, unsigned budget, int *changed)
+{
+    if (req(address, R) || rtype(address) == RCon)
+        return 1;
+    address = copy_source(address);
+    if (rtype(address) != RTmp)
+        return rtype(address) == RCon;
+    Tmp *t = &fn->tmp[address.val];
+    if (t->ndef == 1 && dom(fn->rpo[t->bid], entry))
+        return 1;
+    Ins *i = integer_def(address);
+    if (!budget || !i || !address_op(i))
+        return 0;
+    int lhs = hoist_address(i->arg[0], entry, budget - 1, changed);
+    int rhs = hoist_address(i->arg[1], entry, budget - 1, changed);
+    if (!lhs || !rhs)
+        return 0;
+    i->arg[0] = copy_source(i->arg[0]);
+    i->arg[1] = copy_source(i->arg[1]);
+    for (Ins *prior = entry->ins; prior < entry->ins + entry->nins; ++prior)
+        if (i->op == prior->op && i->cls == prior->cls &&
+            req(i->arg[0], copy_source(prior->arg[0])) &&
+            req(i->arg[1], copy_source(prior->arg[1]))) {
+            *i = (Ins){.op = Ocopy, .cls = i->cls, .to = address, .arg = {prior->to, R}};
+            *changed = 1;
+            return 1;
+        }
+    addins(&entry->ins, &entry->nins, i);
+    *i = (Ins){.op = Onop};
+    /* Refresh definition pointers after the preheader's array grows. */
+    filluse(fn);
+    *changed = 1;
+    return 1;
+}
+
+static Ins *
+scaled_index(Ref address, Ref iv, Blk *entry, unsigned budget, Ref *stride)
+{
+    Ins *i = integer_def(copy_source(address));
+    if (!budget || !i || !address_op(i))
+        return NULL;
+    if (i->op == Omul && i->cls == fn->tmp[iv.val].cls) {
+        unsigned n = !req(i->arg[0], iv);
+        Ref factor = i->arg[1 - n];
+        if (req(i->arg[n], iv) && (plain_constant(factor) ||
+            (rtype(factor) == RTmp && fn->tmp[factor.val].ndef == 1 &&
+             dom(fn->rpo[fn->tmp[factor.val].bid], entry)))) {
+            *stride = factor;
+            return i;
+        }
+    }
+    Ins *lhs = scaled_index(i->arg[0], iv, entry, budget - 1, stride);
+    return lhs ? lhs : scaled_index(i->arg[1], iv, entry, budget - 1, stride);
+}
+
+static int
+strength_reduce_address(Blk *header, Blk *entry, Blk *latch)
+{
+    for (Phi *p = header->phi; p; p = p->link) {
+        Ins *step = integer_def(incoming_value(p, latch));
+        if (!step || step->op != Oadd || step->cls != (unsigned)p->cls ||
+            !req(step->arg[0], p->to) || !plain_constant(step->arg[1]))
+            continue;
+        for (Ins *i = latch->ins; i < latch->ins + latch->nins; ++i) {
+            int store = isstore(i->op);
+            if (!store && !isload(i->op))
+                continue;
+            Ref stride;
+            Ins *mul = scaled_index(i->arg[store], p->to, entry, 12, &stride);
+            if (!mul)
+                continue;
+            Ref increment = step->arg[1];
+            Ref initial = newtmp("index.initial", p->cls, fn);
+            Ref delta = newtmp("index.delta", p->cls, fn);
+            Ref next = newtmp("index.next", p->cls, fn);
+            Ref index = loop_phi(header, entry, latch, p->cls, initial, next);
+            *mul = (Ins){.op = Ocopy, .cls = p->cls, .to = mul->to, .arg = {index, R}};
+            addins(&entry->ins, &entry->nins, &(Ins){.op = Omul, .cls = p->cls,
+                    .to = initial, .arg = {incoming_value(p, entry), stride}});
+            addins(&entry->ins, &entry->nins, &(Ins){.op = Omul, .cls = p->cls,
+                    .to = delta, .arg = {increment, stride}});
+            addins(&latch->ins, &latch->nins, &(Ins){.op = Oadd, .cls = p->cls,
+                    .to = next, .arg = {index, delta}});
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void
+optimize_loop_addresses(void)
+{
+    filldom(fn);
+    for (unsigned id = fn->nblk; id-- > 0;) {
+        Blk *header = fn->rpo[id], *entry, *latch;
+        /* A scaled index competes with existing loop-carried results for
+         * FIFO slots. Leave multi-value loops to the original scheduler. */
+        if (!header->phi || header->phi->link || !simple_loop(header, &entry, &latch))
+            continue;
+        int changed = 0;
+        for (Ins *i = latch->ins; i < latch->ins + latch->nins; ++i) {
+            int store = isstore(i->op);
+            if (store || isload(i->op))
+                hoist_address(i->arg[store], entry, 12, &changed);
+        }
+        changed |= strength_reduce_address(header, entry, latch);
+        if (changed) {
+            filluse(fn);
+            simplify_values();
+            filldom(fn);
+        }
+    }
+}
+
+static int
 is_constant(Ref ref, uint32_t value)
 {
     return plain_constant(ref) && (uint32_t)fn->con[ref.val].bits.i == value;
+}
+
+static Ref
+address_source(Ref ref)
+{
+    for (unsigned budget = fn->ntmp; budget--; ) {
+        Ins *def = integer_def(ref);
+        if (!def || def->op != Ocopy || def->cls != Kl ||
+            (rtype(def->arg[0]) == RTmp && fn->tmp[def->arg[0].val].cls != Kl))
+            break;
+        ref = def->arg[0];
+    }
+    return ref;
+}
+
+static int
+word_value(Ref value, int cls)
+{
+    return plain_constant(value) ||
+           (rtype(value) == RTmp && fn->tmp[value.val].cls == cls);
+}
+
+static int
+forward_loop_load(Blk *header, Blk *entry, Blk *latch)
+{
+    /* Forwarding adds a carried value. Leave room for the address and
+     * accumulator when the loop already carries several independent values. */
+    if (header->phi && header->phi->link)
+        return 0;
+    if (header != latch)
+        for (Ins *i = header->ins; i < header->ins + header->nins; ++i)
+            if (i->op != Onop && i->op != Odbgloc && !pure_integer(i))
+                return 0;
+    Ins *store = NULL;
+    for (Ins *i = latch->ins; i < latch->ins + latch->nins; ++i) {
+        if (isstore(i->op)) {
+            if (store || (i->op != Ostorew && i->op != Ostorel))
+                return 0;
+            store = i;
+        } else if (i->op != Onop && i->op != Odbgloc && !pure_integer(i) &&
+                   !isload(i->op) && i->op != Osel0 && i->op != Osel1)
+            return 0;
+    }
+    if (!store)
+        return 0;
+    Ref address = address_source(store->arg[1]);
+    if (rtype(address) == RTmp) {
+        Tmp *t = &fn->tmp[address.val];
+        if (t->ndef != 1 || !dom(fn->rpo[t->bid], entry))
+            return 0;
+    } else if (rtype(address) != RCon)
+        return 0;
+    Ins *initial = entry->ins + entry->nins;
+    while (initial != entry->ins) {
+        --initial;
+        if (isstore(initial->op) || initial->op == Ocall || initial->op == Oblit0 ||
+            initial->op == Oblit1)
+            break;
+    }
+    if (!entry->nins || initial->op != store->op ||
+        !req(address_source(initial->arg[1]), address))
+        return 0;
+    int cls = store->op == Ostorew ? Kw : Kl;
+    Ref first = initial->arg[0], next = store->arg[0];
+    if (!word_value(first, cls) || !word_value(next, cls))
+        return 0;
+    for (Ins *i = latch->ins; i < store; ++i) {
+        int load = cls == Kw ? i->op == Oloadsw || i->op == Oloaduw : i->op == Oload;
+        if (!load || i->cls != (unsigned)cls || !req(address_source(i->arg[0]), address))
+            continue;
+        if (cls == Kw && plain_constant(first))
+            first = getcon((uint32_t)fn->con[first.val].bits.i, fn);
+        if (cls == Kw && plain_constant(next))
+            next = getcon((uint32_t)fn->con[next.val].bits.i, fn);
+        /* Keep the store: another load in the loop can alias this address. */
+        Ref value = loop_phi(header, entry, latch, cls, first, next);
+        if (alignment_copy(initial->arg[1]) > alignment_copy(store->arg[1]))
+            store->arg[1] = initial->arg[1];
+        *i = (Ins){.op = Ocopy, .cls = cls, .to = i->to, .arg = {value, R}};
+        return 1;
+    }
+    return 0;
+}
+
+static void
+forward_loop_loads(void)
+{
+    int changed = 0;
+    filldom(fn);
+    for (Blk *header = fn->start; header; header = header->link) {
+        Blk *entry, *latch;
+        if (simple_loop(header, &entry, &latch) && forward_loop_load(header, entry, latch)) {
+            changed = 1;
+            filluse(fn);
+            if (header != latch && rotate_loop(header, 1)) {
+                fillcfg(fn);
+                filluse(fn);
+                filldom(fn);
+            }
+        }
+    }
+    if (changed)
+        simplify_values();
+}
+
+static unsigned
+counter_width(Ins *i)
+{
+    return i && i->op == Oextub ? 8 : i && i->op == Oextuh ? 16 : 32;
+}
+
+static int
+shorten_loop_counter(Blk *b, Blk *entry)
+{
+    if (b->jmp.type != Jjnz || b->s1 != b)
+        return 0;
+    BranchFact test = branch_fact(b, 1);
+    if (test.bits != 32 || (test.cmp != Ciult && test.cmp != Cislt) ||
+        !test.constant || (test.cmp == Cislt && test.constant > INT32_MAX) ||
+        fn->tmp[b->jmp.arg.val].nuse != 1)
+        return 0;
+    Ins *compare = fn->tmp[b->jmp.arg.val].def;
+    Ins *after = integer_def(test.value);
+    unsigned after_width = counter_width(after);
+    Ref next = after_width < 32 ? after->arg[0] : test.value;
+    Ins *step = integer_def(next);
+    if (!step || step->cls != Kw || step->op != Oadd || !is_constant(step->arg[1], 1) ||
+        fn->tmp[next.val].nuse != 2 ||
+        (after_width < 32 && fn->tmp[test.value.val].nuse != 1))
+        return 0;
+    Ref input = step->arg[0];
+    Ins *before = integer_def(input);
+    unsigned before_width = counter_width(before);
+    Ref counter = before_width < 32 ? before->arg[0] : input;
+    unsigned width = before_width < after_width ? before_width : after_width;
+    if (rtype(counter) != RTmp || fn->tmp[counter.val].nuse != 1 ||
+        (before_width < 32 && fn->tmp[input.val].nuse != 1) ||
+        test.constant >= (UINT64_C(1) << width))
+        return 0;
+    for (Phi **link = &b->phi; *link; link = &(*link)->link) {
+        Phi *p = *link;
+        if (p->cls != Kw || !req(p->to, counter) ||
+            !is_constant(incoming_value(p, entry), 0) || !req(incoming_value(p, b), next))
+            continue;
+        *link = p->link;
+        Ref updated = newtmp("countdown.next", Kl, fn);
+        Ref remaining = loop_phi(b, entry, b, Kl, getcon(test.constant, fn), updated);
+        if (before_width < 32)
+            *before = (Ins){.op = Onop};
+        if (after_width < 32)
+            *after = (Ins){.op = Onop};
+        *step = (Ins){.op = Osub, .cls = Kl, .to = updated,
+                      .arg = {remaining, getcon(1, fn)}};
+        *compare = (Ins){.op = Ocnel, .cls = Kw, .to = b->jmp.arg,
+                         .arg = {updated, getcon(0, fn)}};
+        return 1;
+    }
+    return 0;
+}
+
+static void
+shorten_loop_counters(void)
+{
+    filldom(fn);
+    for (Blk *header = fn->start; header; header = header->link) {
+        Blk *entry, *latch;
+        if (simple_loop(header, &entry, &latch) && latch == header &&
+            shorten_loop_counter(header, entry))
+            filluse(fn);
+    }
 }
 
 static int
@@ -3268,7 +3667,7 @@ low_word_use(const Ins *i)
 static int
 defer_word(Ins *producer, const Ins *region_end)
 {
-    if (!low_word_use(producer))
+    if (!low_word_use(producer) && producer->op != Oloadsb && producer->op != Oloadsh)
         return 0;
     Tmp *tmp = &fn->tmp[producer->to.val];
     for (unsigned n = 0; n < tmp->nuse; ++n) {
@@ -3278,8 +3677,16 @@ defer_word(Ins *producer, const Ins *region_end)
         if (use->type == UJmp) {
             if (region_end != block->ins + block->nins || block->jmp.type == Jretl)
                 return 0;
-        } else if (use->type != UIns || use->u.ins >= region_end || !low_word_use(use->u.ins))
-            return 0;
+        } else {
+            if (use->type != UIns || use->u.ins >= region_end)
+                return 0;
+            const Ins *consumer = use->u.ins;
+            int narrow_store = INRANGE(consumer->op, Ostoreb, Ostorew) &&
+                               req(consumer->arg[0], producer->to) &&
+                               !req(consumer->arg[1], producer->to);
+            if (!narrow_store && !low_word_use(consumer))
+                return 0;
+        }
     }
     return 1;
 }
@@ -3501,8 +3908,43 @@ flow_label(const Symbol *f, const Blk *from, const Blk *to)
     return label;
 }
 
+static int
+flow_edge_moves(Blk *from, Blk *to, const FlowBlock *layout)
+{
+    int moves = 0;
+    for (int n = 0; n < FIFO_ARGS * SCHED_STASH; ++n) {
+        int temp = layout[to->id].in[n];
+        Ref incoming = temp ? TMP(temp) : R;
+        for (Phi *p = to->phi; temp && p; p = p->link)
+            if (req(p->to, incoming)) {
+                incoming = incoming_value(p, from);
+                break;
+            }
+        int produced = layout[from->id].out[n];
+        moves += !req(incoming, produced ? TMP(produced) : R);
+    }
+    return moves;
+}
+
+static int
+flow_flip_compare(Blk *b)
+{
+    if (b->jmp.type != Jjnz || rtype(b->jmp.arg) != RTmp)
+        return 0;
+    Tmp *condition = &fn->tmp[b->jmp.arg.val];
+    Ins *test = condition->def;
+    if (condition->ndef != 1 || condition->nuse != 1 || condition->bid != b->id ||
+        !test || (!INRANGE(test->op, Ocmpw, Ocmpw1) && !INRANGE(test->op, Ocmpl, Ocmpl1)))
+        return 0;
+    Blk *taken = b->s1;
+    b->s1 = b->s2;
+    b->s2 = taken;
+    test->op = cmpwlneg(test->op);
+    return 1;
+}
+
 static void
-flow_order(void)
+flow_order(const FlowBlock *layout, unsigned char *flipped)
 {
     Blk **original = alloc(fn->nblk * sizeof *original);
     unsigned char *placed = alloc(fn->nblk);
@@ -3512,6 +3954,13 @@ flow_order(void)
     Blk *b = fn->start;
     for (;;) {
         placed[b->id] = 1;
+        if (b->jmp.type == Jjnz && !placed[b->s1->id] &&
+            (placed[b->s2->id] || b->s1->loop > b->s2->loop) &&
+            flow_edge_moves(b, b->s2, layout) <= flow_edge_moves(b, b->s1, layout)) {
+            BranchFact test = branch_fact(b, 1);
+            if (!(test.bits && test.cmp == Cine && !test.constant))
+                flipped[b->id] = flow_flip_compare(b);
+        }
         Blk *fallthrough = b->jmp.type == Jjmp ? b->s1 : b->jmp.type == Jjnz ? b->s2 : NULL;
         if (!fallthrough || placed[fallthrough->id]) {
             while (next < count && placed[original[next]->id])
@@ -3636,7 +4085,9 @@ flow_function(Symbol *f)
     frame_size = align_up(frame_size, 16);
     if (frame_size > INT64_MAX)
         error("frame size overflow");
-    flow_order();
+    unsigned char *flipped = alloc(fn->nblk);
+    fillloop(fn);
+    flow_order(layout, flipped);
     FlowEdge *edges = alloc(2 * fn->nblk * sizeof *edges);
     char **entries = alloc(fn->nblk * sizeof *entries);
     int ok = 1;
@@ -3726,6 +4177,8 @@ flow_function(Symbol *f)
         }
         free(edge[0].code);
         free(edge[1].code);
+        if (flipped[b->id])
+            flow_flip_compare(b);
     }
     return ok;
 }
@@ -3987,11 +4440,16 @@ function(Fn *parsed)
         if (!main_entry && countdown_function(f))
             goto emitted;
         fold_known_branches();
+        fold_equality_chains();
         convert_selects();
         rotate_loops();
+        optimize_loop_addresses();
+        forward_loop_loads();
+        shorten_loop_counters();
         simplify_masked_shifts();
         propagate_unsigned_widths();
-        fold_shift_feedback();
+        if (fold_shift_feedback())
+            propagate_unsigned_widths();
         compute_alignment(f, NULL);
         scheduled_value = alloc(fn->ntmp * sizeof *scheduled_value);
         scheduled_known = alloc(fn->ntmp * sizeof *scheduled_known);

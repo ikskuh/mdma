@@ -1,0 +1,42 @@
+# expect mem64 __mdma_result = 1
+data $table = align 8 { w 2, w 3, w 5, w 0 }
+
+function $walk(l %base, w %start, w %stop, w %stride) {
+@entry
+    jmp @test
+@test
+    %i =w phi @entry %start, @body %next
+    %more =w cnew %i, %stop
+    jnz %more, @body, @end
+@body
+    %index =w mul %i, %stride
+    %wide =l extuw %index
+    %offset =l shl %wide, 2
+    %addr =l add %base, %offset
+    storew %i, %addr
+    %next =w add %i, 1
+    jmp @test
+@end
+    ret
+}
+
+export function w $main() {
+@entry
+    call $walk(l $table, w 0, w 0, w -1)
+    %unchanged =w loadw $table
+    call $walk(l $table, w 0, w 1, w -1)
+    %single =w loadw $table
+    call $walk(l $table, w -2, w 1, w -1)
+    %middle_addr =l add $table, 4
+    %last_addr =l add $table, 8
+    %middle =w loadw %middle_addr
+    %last =w loadw %last_addr
+    %a =w ceqw %unchanged, 2
+    %b =w ceqw %single, 0
+    %c =w ceqw %middle, -1
+    %d =w ceqw %last, -2
+    %ab =w and %a, %b
+    %cd =w and %c, %d
+    %ok =w and %ab, %cd
+    ret %ok
+}

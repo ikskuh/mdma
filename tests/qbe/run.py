@@ -179,6 +179,29 @@ class QbeTest(unittest.TestCase):
         self.assertRegex(before.split(narrow + ':\n', 1)[1], r'SHIFT_[AB]\.LSR')
         self.assertRegex(after.split('__mdma_g0_6d61696e:\n', 1)[0], r'SHIFT_[AB]\.ASR')
 
+    def test_loop_and_branch_optimizations(self):
+        def moves(fixture, function, options):
+            result = compile_fixture(HERE / (fixture + '.ssa'), options)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            label = '__mdma_g1_' + function.encode().hex() + ':\n'
+            body = result.stdout.split(label, 1)[1]
+            body = re.split(r'^__mdma_g\d+_[0-9a-f]+:\n', body, maxsplit=1, flags=re.MULTILINE)[0]
+            return [move for line in parse_asm(body) for move in line.ops]
+
+        for profile in ('one-clock.conf', 'ecp5.conf'):
+            options = ('--schedule', PROFILES / profile)
+            with self.subTest(profile=profile):
+                address = moves('loop_addresses', 'walk', options)
+                self.assertEqual(sum(move.dst == 'MUL.LHS' for move in address), 1)
+                forward = moves('loop_store_forward', 'update', options)
+                self.assertEqual(sum(move.dst == 'MEM.READ' for move in forward), 1)
+                self.assertEqual(sum(move.dst == 'MEM.WRITE' for move in forward), 2)
+                countdown = moves('shift_feedback', 'repeat', options)
+                self.assertFalse(any(move.dst.startswith('CMP.') for move in countdown))
+                for name, comparisons in (('classify', 1), ('distinct', 2)):
+                    branches = moves('branch_equality', name, options)
+                    self.assertEqual(sum(move.dst == 'CPU.COND' for move in branches), comparisons)
+
     def test_independent_queue_rotations_share_a_pack(self):
         result = compile_fixture(HERE / 'call_alignment.ssa', MODES[2])
         self.assertEqual(result.returncode, 0, result.stderr)

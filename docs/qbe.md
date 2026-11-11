@@ -64,7 +64,16 @@ with their blocks, packs compatible moves with jumps, and rotates eligible
 two-block loops into a guarded bottom-tested form. Rotation currently handles
 at most three loop-carried values and a pure test. The body may contain
 integer selects or memory operations. Loops that combine memory operations
-with multiplies retain their original structure.
+with multiplies retain their original structure unless the optimizer has
+forwarded a loop-carried load.
+
+For small loops, the compiler hoists invariant address expressions and
+replaces a scaled index multiply with an addition at the original index width.
+When an invariant address has a dominating initial store and one update per
+iteration, it can forward the previous stored value through a phi. The stores
+remain in the loop so other loads can observe them even when addresses alias.
+The compiler limits these transformations to one existing loop-carried value
+to control FIFO pressure.
 
 For word reductions of the form `sum += n; --n` while `n != 0`, the backend
 feeds the counter and accumulator through ARITH result FIFOs. The continuing
@@ -144,6 +153,12 @@ The compiler also folds masks through extensions and shifts. When one
 condition controls both a halfword XOR before a logical shift and the
 insertion of disjoint high bits afterward, it combines the two changes
 into one conditional XOR after the shift.
+Fixed-trip loops whose counter is used only by loop control can use a
+countdown and a direct nonzero test. The block layout can invert a private
+comparison to favor loop fallthrough when the new taken edge has a cheap
+FIFO layout. Two tests for adjacent paths to the same destination can
+share a comparison when their phi inputs agree and rebasing the constants
+makes them differ by one bit.
 
 ### FIFO calling convention
 

@@ -1,0 +1,39 @@
+# expect mem64 __mdma_result = 1
+data $out = align 8 { w 0, w 0 }
+data $other = align 8 { w 7, w 0 }
+
+function w $update(l %dst, l %src, w %n) {
+@entry
+    storew 1, %dst
+    jmp @test
+@test
+    %i =w phi @entry 0, @body %next
+    %more =w cultw %i, %n
+    jnz %more, @body, @end
+@body
+    %old =w loadw %dst
+    %input =w loadw %src
+    %value =w add %old, %input
+    storew %value, %dst
+    %next =w add %i, 1
+    jmp @test
+@end
+    %result =w loadw %dst
+    ret %result
+}
+
+export function w $main() {
+@entry
+    %empty =w call $update(l $out, l $other, w 0)
+    %single =w call $update(l $out, l $other, w 1)
+    %overlap =w call $update(l $out, l $out, w 3)
+    %separate =w call $update(l $out, l $other, w 3)
+    %a =w ceqw %empty, 1
+    %b =w ceqw %single, 8
+    %c =w ceqw %overlap, 8
+    %d =w ceqw %separate, 22
+    %ab =w and %a, %b
+    %cd =w and %c, %d
+    %ok =w and %ab, %cd
+    ret %ok
+}

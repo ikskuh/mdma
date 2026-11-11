@@ -25,12 +25,33 @@ function w $feedback(w %value, w %flag) {
     ret %result
 }
 
+function w $repeat(w %value) {
+@entry
+    jmp @loop
+@loop
+    %i =w phi @entry 0, @loop %next
+    %acc =w phi @entry %value, @loop %updated
+    %low =w extuh %acc
+    %shift =w shr %low, 1
+    %updated =w xor %shift, 40961
+    %counter =w extub %i
+    %next =w add %counter, 1
+    %narrow =w extub %next
+    %more =w cultw %narrow, 3
+    jnz %more, @loop, @end
+@end
+    ret %updated
+}
+
 export function w $main() {
 @entry
     %a =w call $feedback(w 131071, w 1)
     %b =w call $feedback(w 131071, w 0)
+    %c =w call $repeat(w 131071)
     %ok_a =w ceqw %a, 57342
     %ok_b =w ceqw %b, 32767
-    %ok =w and %ok_a, %ok_b
+    %ok_c =w ceqw %c, 51198
+    %ab =w and %ok_a, %ok_b
+    %ok =w and %ab, %ok_c
     ret %ok
 }
