@@ -19,7 +19,36 @@ FAMILIES = {
     'ARITH', 'LOGIC', 'SHIFT', 'CMP', 'MASK', 'UOP', 'BITCNT', 'SEL', 'PACK',
     'UNPACK', 'SWIZZLE8', 'MUL', 'MULS', 'DIV', 'DIVS',
 }
-MATH = {'MUL', 'MULS', 'DIV', 'DIVS'}
+DIVIDERS = {'DIV', 'DIVS'}
+MATH = {'MUL', 'MULS'} | DIVIDERS
+MIN_MHZ = 75.0
+
+
+@dataclass(frozen=True)
+class Divider:
+    cuts: tuple[int, ...]
+    sign_input: bool = False
+    limb_bits: int = 0
+
+    @property
+    def latency(self):
+        return len(self.cuts) + self.sign_input
+
+    @property
+    def parameters(self):
+        mask = sum(1 << (step - 1) for step in self.cuts)
+        return [f".CUTS(64'h{mask:016x})", f'.SIGN_INPUT({int(self.sign_input)})',
+                f'.LIMB_BITS({self.limb_bits})']
+
+
+def divider_defaults(family):
+    defines = dict(line.split()[1:] for line in (HERE / 'mdma_div_config.vh').read_text().splitlines()
+                   if line.startswith('`define '))
+    prefix = f'MDMA_{family}_'
+    mask = int(defines[prefix + 'CUTS'].removeprefix("64'h").replace('_', ''), 16)
+    cuts = tuple(bit + 1 for bit in range(64) if mask & (1 << bit))
+    return (Divider(cuts, bool(int(defines[prefix + 'SIGN_INPUT'])),
+                    int(defines[prefix + 'LIMB_BITS'])), int(defines[prefix + 'SEED']))
 
 
 @dataclass(frozen=True)
@@ -36,7 +65,10 @@ class Unit:
 
     @property
     def rtl(self):
-        return [HERE / name for name in ('mdma_alu_result.v', 'mdma_typed_lanes.v', self.module + '.v')]
+        files = ['mdma_alu_result.v', 'mdma_typed_lanes.v', self.module + '.v']
+        if self.family in DIVIDERS:
+            files.append('mdma_div_pipeline.v')
+        return [HERE / name for name in files]
 
     @property
     def inputs(self):
@@ -52,8 +84,14 @@ class Unit:
             ports.extend([(f'o_{source}_data', 64), (f'o_{source}_valid', 1)])
         return ports
 
-    def instantiate(self, registered, clock, input_bus, output_bus):
-        params = [f'.REGISTERED({int(registered)})']
+    def instantiate(self, mode, clock, input_bus, output_bus, divider=None):
+        if self.family in DIVIDERS:
+            index = ('passthrough', 'registered', 'pipelined').index(mode)
+            params = [f'.IMPLEMENTATION({index})']
+            if divider is not None:
+                params.extend(divider.parameters)
+        else:
+            params = [f'.REGISTERED({int(mode == "registered")})']
         if self.family in MATH:
             params.append(f'.SIGNED_OP({int(self.family.endswith("S"))})')
         ports = [f'.clk({clock})']
@@ -80,7 +118,7 @@ def isa_units():
     return units
 
 
-def isolated_top(unit, registered):
+def isolated_top(unit, mode, divider=None):
     input_bits = sum(width for _, width in unit.inputs)
     output_bits = sum(width for _, width in unit.outputs)
     return f'''
@@ -105,7 +143,7 @@ module mdma_alu_measure (
         capture <= fu_output;
     end
 
-    {unit.instantiate(registered, 'fu_clk', 'launch', 'fu_output')}
+    {unit.instantiate(mode, 'fu_clk', 'launch', 'fu_output', divider)}
 endmodule
 '''
 
@@ -135,19 +173,25 @@ def in_fu_boundary(path):
     return all(cell.startswith(prefixes) for cell in cells)
 
 
-def build(unit, mode, output, timeout):
+def build(unit, mode, output, timeout, divider=None, seed=1):
     work = output / unit.name / mode
     work.mkdir(parents=True, exist_ok=True)
     for filename in ('netlist.json', 'route.json', 'design.config', 'design.bit'):
         (work / filename).unlink(missing_ok=True)
-    (work / 'top.v').write_text(isolated_top(unit, mode == 'registered'))
-    result = {'unit': unit.name, 'mode': mode}
+    if mode == 'pipelined' and divider is None:
+        divider, _ = divider_defaults(unit.family)
+    (work / 'top.v').write_text(isolated_top(unit, mode, divider))
+    result = {'unit': unit.name, 'mode': mode, 'seed': seed}
+    if divider is not None:
+        result.update(cuts=divider.cuts, latency=divider.latency,
+                      sign_input=divider.sign_input, limb_bits=divider.limb_bits)
     stages = [
         ('synth', ['yosys', '-Q', '-T', '-p',
-                   'read_verilog -sv ' + ' '.join(f'"{path}"' for path in unit.rtl)
+                   f'read_verilog -sv -I"{HERE}" ' + ' '.join(f'"{path}"' for path in unit.rtl)
                    + ' top.v; synth_ecp5 -top mdma_alu_measure -json netlist.json']),
         ('route', ['nextpnr-ecp5', '--um5g-85k', '--package', 'CABGA381', '--speed', '8',
-                   '--seed', '1', '--timing-allow-fail', '--lpf-allow-unconstrained',
+                   '--seed', str(seed), '--freq', str(MIN_MHZ),
+                   '--timing-allow-fail', '--lpf-allow-unconstrained',
                    '--json', 'netlist.json', '--report', 'route.json', '--textcfg', 'design.config']),
         ('pack', ['ecppack', 'design.config', 'design.bit']),
     ]
@@ -187,6 +231,8 @@ def build(unit, mode, output, timeout):
                 result.setdefault('timing_failure', 'missing FU clock timing')
             if 'scan_fmax_mhz' not in result:
                 result.setdefault('timing_failure', 'missing scan clock timing')
+            if 'fmax_mhz' in result and result['fmax_mhz'] < MIN_MHZ:
+                result['timing_failure'] = f'below {MIN_MHZ:.1f} MHz'
     return result
 
 
@@ -198,34 +244,32 @@ def comparison(old, new):
     return f'{old:g} → {new:g} ({delta:+g}, {percent})'
 
 
+def build_status(result):
+    if 'failure' in result:
+        return result['failure']['stage'] + ' failed'
+    return result.get('timing_failure', 'pass')
+
+
 def render_report(results):
     keys = sorted({key for result in results for key, used in result.get('resources', {}).items() if used})
     rows = ['# Isolated ECP5 ALU measurements', '',
-            'Each cell gives registered → passthrough (raw delta, percentage delta).',
+            f'The default sweep requires {MIN_MHZ:.1f} MHz routed FU Fmax and a bitstream.',
+            'Comparison cells give baseline → candidate (raw delta, percentage delta).',
             'The FU and scan clocks are reported separately. Resource counts include the harness.', '',
-            '| Unit | FU MHz | Scan MHz | Synthesis seconds | ' + ' | '.join(keys) + ' | Build |',
-            '| --- | ---: | ---: | ---: | ' + ' | '.join(['---:'] * len(keys)) + ' | --- |']
-    for index in range(0, len(results), 2):
-        reg, bypass = results[index:index+2]
-        cells = [reg['unit']]
-        for key in ('fmax_mhz', 'scan_fmax_mhz', 'synth_seconds'):
-            cells.append(comparison(*(round(item[key], 3) if key in item else None for item in (reg, bypass))))
-        for key in keys:
-            cells.append(comparison(*(item['resources'].get(key, 0) if 'resources' in item else None
-                                      for item in (reg, bypass))))
-        statuses = []
-        for item in (reg, bypass):
-            if 'failure' in item:
-                statuses.append(item['failure']['stage'] + ' failed')
-            elif 'timing_failure' in item:
-                statuses.append(item['timing_failure'])
-            else:
-                statuses.append('bitstream')
-        rows.append('| ' + ' | '.join(cells + [' → '.join(statuses)]) + ' |')
+            '| Unit | Modes | Pipeline clocks | FU MHz | Scan MHz | Synthesis seconds | '
+            + ' | '.join(keys) + ' | Build |',
+            '| --- | --- | ---: | ---: | ---: | ---: | ' + ' | '.join(['---:'] * len(keys)) + ' | --- |']
+    for unit in dict.fromkeys(row['unit'] for row in results):
+        builds = {row['mode']: row for row in results if row['unit'] == unit}
+        comparisons = [('registered', 'passthrough')] if 'pipelined' not in builds else [
+            (baseline, 'pipelined') for baseline in ('passthrough', 'registered') if baseline in builds
+        ] or [('pipelined',)]
+        for modes in comparisons:
+            rows.append(report_row(unit, modes, builds, keys))
 
     rows.extend(['', '## Critical paths and build diagnostics', ''])
     for result in results:
-        label = f"{result['unit']} {result['mode']}"
+        label = f"{result['unit']} {result['mode']} (seed {result['seed']})"
         if 'critical_path' in result:
             steps = result['critical_path']['path']
             first = steps[0]['from']['cell']
@@ -237,9 +281,24 @@ def render_report(results):
                         f'{logic} logic arcs · `{first}` → `{last}`')
         if 'failure' in result:
             failure = result['failure']
-            diagnostics = '; '.join(failure['diagnostics']) or failure['reason']
+            diagnostics = ' / '.join(failure['diagnostics']) or failure['reason']
             rows.append(f"- {label} · {failure['stage']} failed · {diagnostics} · `{failure['log']}`")
     return '\n'.join(rows) + '\n'
+
+
+def report_row(unit, modes, builds, keys):
+    items = [builds[mode] for mode in modes]
+
+    def format_values(values):
+        return comparison(*values) if len(values) == 2 else str(values[0]) if values[0] is not None else '—'
+
+    cells = [unit, ' → '.join(modes), str(items[-1].get('latency', '—'))]
+    for key in ('fmax_mhz', 'scan_fmax_mhz', 'synth_seconds'):
+        cells.append(format_values([round(item[key], 3) if key in item else None for item in items]))
+    for key in keys:
+        cells.append(format_values([item['resources'].get(key, 0) if 'resources' in item else None
+                                    for item in items]))
+    return '| ' + ' | '.join(cells + [' → '.join(map(build_status, items))]) + ' |'
 
 
 def main():
@@ -249,6 +308,11 @@ def main():
     parser.add_argument('--output', type=Path, default=ROOT / 'build/rtl/alu')
     parser.add_argument('--jobs', type=int, default=4)
     parser.add_argument('--timeout', type=int, default=300, help='seconds allowed per build stage')
+    parser.add_argument('--include-divider-baselines', action='store_true')
+    parser.add_argument('--seed', type=int)
+    parser.add_argument('--cuts', help='comma-separated divider register positions ending in 64')
+    parser.add_argument('--sign-input', action=argparse.BooleanOptionalAction)
+    parser.add_argument('--limb-bits', type=int, choices=(0, 8, 12, 16))
     args = parser.parse_args()
     selected = list(dict.fromkeys(name.upper() for name in args.units)) or list(units)
     for name in selected:
@@ -256,24 +320,49 @@ def main():
             parser.error(f'unknown ALU instance {name}')
     if args.jobs < 1 or args.timeout < 1:
         parser.error('jobs and timeout must be positive')
+    if args.cuts or args.sign_input is not None or args.limb_bits is not None:
+        if set(selected) - DIVIDERS:
+            parser.error('divider parameters require selecting DIV or DIVS')
+    cuts = None
+    if args.cuts:
+        try:
+            cuts = tuple(map(int, args.cuts.split(',')))
+        except ValueError:
+            parser.error('cuts must be integer bit positions')
+        if cuts[-1] != 64 or tuple(sorted(set(cuts))) != cuts or cuts[0] < 1:
+            parser.error('cuts must be increasing positions from 1 to 64 and end in 64')
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
 
     def measure(job):
         unit, mode = job
-        result = build(unit, mode, output, args.timeout)
-        status = result.get('failure', {}).get('stage') or result.get('timing_failure')
-        print(f'{unit.name} {mode} · {status or "bitstream generated"}', flush=True)
+        divider, seed = None, 1
+        if mode == 'pipelined':
+            defaults, seed = divider_defaults(unit.family)
+            if cuts or args.sign_input is not None or args.limb_bits is not None:
+                divider = Divider(cuts or defaults.cuts,
+                                  defaults.sign_input if args.sign_input is None else args.sign_input,
+                                  defaults.limb_bits if args.limb_bits is None else args.limb_bits)
+        elif unit.family in DIVIDERS:
+            _, seed = divider_defaults(unit.family)
+        result = build(unit, mode, output, args.timeout, divider,
+                       seed if args.seed is None else args.seed)
+        print(f'{unit.name} {mode} · {build_status(result)}', flush=True)
         return result
 
-    jobs = [(units[name], mode) for name in selected for mode in ('registered', 'passthrough')]
+    jobs = []
+    for name in selected:
+        if name not in DIVIDERS or args.include_divider_baselines:
+            jobs.extend((units[name], mode) for mode in ('registered', 'passthrough'))
+        if name in DIVIDERS:
+            jobs.append((units[name], 'pipelined'))
     with ThreadPoolExecutor(max_workers=args.jobs) as pool:
         results = list(pool.map(measure, jobs))
     (output / 'report.json').write_text(json.dumps(results, indent=2) + '\n')
     (output / 'report.md').write_text(render_report(results))
     print(output / 'report.md')
-    return int(any('timing_failure' in item or ('failure' in item and units[item['unit']].family not in MATH)
-                   for item in results))
+    return int(any(build_status(item) != 'pass' for item in results
+                   if item['unit'] not in DIVIDERS or item['mode'] == 'pipelined'))
 
 
 if __name__ == '__main__':

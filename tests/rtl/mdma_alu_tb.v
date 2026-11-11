@@ -2,7 +2,7 @@ module mdma_alu_tb;
     localparam SINKS = `SINKS;
     localparam SOURCES = `SOURCES;
     localparam REQUESTS = `REQUESTS;
-    localparam REGISTERED = `REGISTERED;
+    localparam LATENCY = `LATENCY;
     localparam INPUT_BITS = 1 + 65*SINKS + SOURCES;
     localparam OUTPUT_BITS = SINKS + 65*SOURCES;
     localparam VECTOR_BITS = 64*SINKS + 65*SOURCES;
@@ -78,49 +78,43 @@ module mdma_alu_tb;
     endtask
 
     task cancel_stalled_result;
-        integer elapsed;
-        reg took_operands;
+        integer requests, elapsed;
         begin
-            drive_request(0, '1, '0);
+            requests = 0;
             elapsed = 0;
-            while (outputs_valid === 0 && elapsed < 50) begin
-                took_operands = operands_take === '1;
+            drive_request(requests, '1, '0);
+            while ((outputs_valid === 0 || operands_take !== 0) && elapsed < REQUESTS) begin
+                if (operands_take === '1)
+                    requests = requests + 1;
                 tick;
-                if (took_operands)
-                    drive_request(0, '0, '0);
+                drive_request(requests, '1, '0);
                 elapsed = elapsed + 1;
             end
-            if (!(|outputs_valid))
-                $fatal(1, "expected a result to cancel");
+            if (!(|outputs_valid) || operands_take !== 0)
+                $fatal(1, "the stalled pipeline did not fill");
             reset_fu;
+            drive_request(0, '0, '1);
+            repeat (REQUESTS) begin
+                if (outputs_valid !== 0 || operands_take !== 0)
+                    $fatal(1, "a canceled result survived reset");
+                tick;
+            end
         end
     endtask
 
     task check_timing;
+        integer cycle;
         begin
-            drive_request(0, '1, '1);
-            if (operands_take !== '1)
-                $fatal(1, "first complete operand group was not accepted");
-            if (REGISTERED) begin
-                if (outputs_valid !== 0)
-                    $fatal(1, "registered result appeared before the first edge");
-            end else begin
-                check_result(0);
+            for (cycle = 0; cycle <= REQUESTS + LATENCY; cycle = cycle + 1) begin
+                drive_request(cycle < REQUESTS ? cycle : 0, cycle < REQUESTS ? '1 : '0, '1);
+                if (operands_take !== (cycle < REQUESTS ? {SINKS{1'b1}} : {SINKS{1'b0}}))
+                    $fatal(1, "incorrect acceptance at clock %0d", cycle);
+                if (cycle >= LATENCY && cycle < REQUESTS + LATENCY)
+                    check_result(cycle - LATENCY);
+                else if (outputs_valid !== 0)
+                    $fatal(1, "result outside expected clocks at clock %0d", cycle);
+                tick;
             end
-            tick;
-            drive_request(1, '1, '1);
-            if (operands_take !== '1)
-                $fatal(1, "second group was not accepted on the next clock");
-            check_result(REGISTERED ? 0 : 1);
-            tick;
-            drive_request(0, '0, '1);
-            if (REGISTERED)
-                check_result(1);
-            else if (outputs_valid !== 0)
-                $fatal(1, "passthrough mode retained an accepted result");
-            tick;
-            if (outputs_valid !== 0)
-                $fatal(1, "result stage did not drain");
         end
     endtask
 
@@ -154,7 +148,7 @@ module mdma_alu_tb;
                         input_valid[lane] = 1;
 
             // Exercise every sibling and occasionally sample several together.
-            if (cycles < 8 || cycles % 17 < 3)
+            if (cycles < 96 || cycles % 113 < 17)
                 take = 0;
             else if (cycles % 9 == 8)
                 take = '1;

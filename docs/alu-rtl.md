@@ -31,6 +31,23 @@ Reset suppresses transfers while asserted and clears the registered result on
 the rising edge. In passthrough mode, downstream take feeds back to upstream
 take combinationally. The surrounding wiring must avoid combinational loops.
 
+## Divider implementations
+
+DIV and DIVS use `IMPLEMENTATION` in place of `REGISTERED`. Mode `0`
+is combinational passthrough, mode `1` registers the complete result, and
+mode `2` is the default pipelined implementation. `SIGNED_OP` selects
+signed or unsigned division independently.
+
+In mode `2`, each bit in `CUTS` inserts an elastic register after the
+corresponding restoring divide step. The least significant bit follows the
+first step and bit 63 must be set. `SIGN_INPUT` adds an input stage for
+magnitude conversion. The unstalled latency is the number of register cuts
+plus `SIGN_INPUT`. Signed quotient and remainder correction uses the held
+final stage. The divider accepts and retires one operand group per clock
+once the pipeline is full, provided the consumer keeps taking results.
+Backpressure fills the available stages, and reset clears all in-flight
+validity. The divider preserves result order across normal results and faults.
+
 PACK, UNPACK, DIV, and DIVS also expose `o_fault`. A fault makes only that
 source valid for its group. The data is `1` for an invalid type, `2` for a
 misaligned typed address, and `3` for division by zero. PACK and UNPACK check
@@ -38,9 +55,14 @@ the full type value before alignment. Faults stall and retire like any result.
 
 ## Tests and ECP5 measurements
 
-`just rtl-test` checks both modes of every ALU against the Python simulator and
-runs separate latency and throughput checks. `just alu-measure` builds both
-modes of every instance, or a subset named on the command line.
+`just rtl-test` checks each ALU implementation against the Python simulator
+and runs separate latency and throughput checks. `just alu-measure` builds
+registered and passthrough modes for the other ALUs and the selected
+pipelined modes for DIV and DIVS. Pass `--include-divider-baselines` to include
+the divider's comparison builds. To measure candidate cuts, select DIV or
+DIVS and pass `--cuts` with comma-separated step numbers ending in 64.
+`--seed` changes the placement seed. `--limb-bits` selects a carry-select
+limb width, with `0` using the ordinary subtractor.
 
 Each isolated ECP5 design has five top-level pins. The `scan_clk` domain
 loads operands, valid and take bits, and reset through `scan_in`. With
@@ -55,11 +77,30 @@ across clock handoffs.
 The measurement domain has direct launch and capture registers on the FU
 ports. The runner checks the routed FU-clock critical path for scan logic and
 reports scan timing separately. The board pin locations are assigned by the
-router and listed in each generated configuration. The build accepts any
-routed frequency. It requires bitstreams for the local ALUs and records FPGA
-build failures for MUL, MULS, DIV, and DIVS.
+router and listed in each generated configuration. The default sweep requires
+a routed bitstream and an FU Fmax of at least 75.0 MHz for each selected
+implementation. Divider comparison builds retain their timing results and
+artifacts for reference.
 
 The runner writes Markdown and JSON reports, tool logs, and bitstreams under
 `build/rtl/alu` by default. Resource totals include the harness. Synthesis
 times are wall-clock measurements. The FU Fmax values describe isolated
 builds on the ECP5 -8 device.
+
+### Divider depth search
+
+The selected cuts and placement seeds live in `mdma_div_config.vh`. The
+shortest passing configurations in the sweep use the ordinary subtractor
+and fold signed input magnitude conversion into the first divide stage.
+
+| Unit | Clocks | Seed | Routed Fmax |
+| --- | ---: | ---: | ---: |
+| DIV | 19 | 3 | 76.49 MHz |
+| DIVS | 20 | 6 | 78.66 MHz |
+
+The best routed 16-, 17-, and 18-clock candidates reached 65.32, 63.59, and
+70.88 MHz for DIV and 65.55, 61.85, and 62.28 MHz for DIVS. The tested
+19-clock DIVS routes either timed out or failed. The 16-bit carry-select
+trials increased routing pressure and yielded lower frequencies. Some
+DIVS candidates were limited by the backpressure path. In the selected
+routes, both critical paths end at partial remainder registers.
