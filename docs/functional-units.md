@@ -16,6 +16,9 @@ configuration.
 Every CMP output yields the 64-bit value `1` when its comparison is true and
 `0` when it is false.
 
+The [ALU RTL interface](alu-rtl.md) defines how these units connect to the
+external FIFOs.
+
 ### Table of Sinks
 
 | Sink Index | Functional Unit | Instance | Name      | Description                                                 |

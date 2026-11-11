@@ -32,6 +32,10 @@ rtl-test:
             src/benchmarks/compare/mdma_bram.v tests/rtl/mdma_bram_tb.v
         vvp "$output_dir/bram"
     done
+    "{{python}}" tests/rtl/alu.py
+
+alu-measure *args:
+    "{{python}}" src/gateware/alu/measure.py {{args}}
 
 qbe-build:
     mkdir -p build

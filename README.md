@@ -80,15 +80,15 @@ before committing any moves. A false predicate skips both moves.
 
 A functional unit implements the actual computation, and has zero or more sinks and sources.
 
-A functional unit consumes values from sources, performs computations on them and pushes its outputs to sinks.
+A functional unit consumes values from its sinks and presents its results on its sources.
 
-A simple and concrete example is the `ARITH` functional unit, which performs basic arithmetic operations like `ADD` and `SUB`.
+A simple example is `ARITH`, with two sinks (`LHS` and `RHS`) and two sources
+(`ADD` and `SUB`). Once both operands are available, the unit computes both
+results. A move from either result source retires both values from that
+operation. Moves in the same instruction can read both before retirement.
 
-`ARITH` has two sinks, `LHS` and `RHS`, and two sources, `SUM` and `DIFF`.
-
-Both the sinks and the sources are FIFOs, and as soon as `ARITH` has a value on `LHS` and `RHS`, it concurrently computes `LHS + RHS` and `LHS - RHS`, and pushes the output values to `SUM` and `DIFF` as soon as they are available.
-
-When a value is consumed from either `SUM` or `DIFF`, both sources drop their value synchronously. This prevents that unused values pile up in FIFOs.
+The core provides the queues at the unit boundary. The [ALU RTL](docs/alu-rtl.md)
+consumes operand heads and produces result groups through a common interface.
 
 Another very simple functional unit is `STASH`, which is a loopback fifo, where writing a value into its single sink will make it available in the same sequence on its single source. This is kinda like a "register" on a typical CPU in that it can save an intermediate value of a computation.
 
