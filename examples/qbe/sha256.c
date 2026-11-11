@@ -80,7 +80,7 @@ void sha256(const unsigned char *data, unsigned long length, unsigned *digest)
     for (unsigned i = 0; i < 8; ++i)
         digest[i] = initial[i];
 
-    unsigned long bits = length * 8;
+    unsigned long long bits = (unsigned long long)length * 8;
     while (length >= 64) {
         compress(digest, data);
         data += 64;

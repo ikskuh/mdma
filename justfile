@@ -61,3 +61,11 @@ qbe-coremark-ecp5 *args: qbe-build
 
 report-status: qbe-build
     "{{python}}" src/qbe/report_status.py
+
+vexriscv-rtl:
+    cd vendor/vexriscv && ${SBT:-sbt} 'runMain vexriscv.demo.GenFullNoMmuNoCacheSimpleMul'
+    mkdir -p build/compare
+    cp vendor/vexriscv/VexRiscv.v build/compare/VexRiscv.v
+
+compare-fpga *args: qbe-build
+    "{{python}}" src/benchmarks/compare/run.py {{args}}

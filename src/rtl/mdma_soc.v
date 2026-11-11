@@ -33,7 +33,11 @@ module mdma_soc #(
             mmio_result <= mmio_data;
     end
 
+    `ifdef MDMA_COMPARE_RISCV
+    mdma_compare_riscv cpu (
+    `else
     mdma_cpu cpu (
+    `endif
         .clk(clk), .reset(reset), .math_clk(math_clk),
         .i_req_valid(i_valid), .i_req_addr(i_addr), .i_req_ready(i_ready),
         .i_rsp_valid(i_ram_reply || i_error), .i_rsp_error(i_error), .i_rsp_data(i_result),

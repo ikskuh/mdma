@@ -1,10 +1,10 @@
 // Unsigned arithmetic gives Fibonacci numbers modulo 2^64.
-unsigned long fibonacci(unsigned n)
+unsigned long long fibonacci(unsigned n)
 {
-    unsigned long a = 0;
-    unsigned long b = 1;
+    unsigned long long a = 0;
+    unsigned long long b = 1;
     for (unsigned i = 0; i < n; ++i) {
-        unsigned long next = a + b;
+        unsigned long long next = a + b;
         a = b;
         b = next;
     }
@@ -15,5 +15,5 @@ int main(void)
 {
     if (fibonacci(0) != 0 || fibonacci(1) != 1)
         return 1;
-    return fibonacci(93) != 12200160415121876738ul;
+    return fibonacci(93) != 12200160415121876738ull;
 }

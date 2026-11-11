@@ -4,3 +4,15 @@
 [submodule "vendor/coremark"]
 	path = vendor/coremark
 	url = https://github.com/eembc/coremark.git
+[submodule "vendor/picorv32"]
+	path = vendor/picorv32
+	url = https://github.com/YosysHQ/picorv32.git
+[submodule "vendor/ibex"]
+	path = vendor/ibex
+	url = https://github.com/lowRISC/ibex.git
+[submodule "vendor/serv"]
+	path = vendor/serv
+	url = https://github.com/olofk/serv.git
+[submodule "vendor/vexriscv"]
+	path = vendor/vexriscv
+	url = https://github.com/SpinalHDL/VexRiscv.git

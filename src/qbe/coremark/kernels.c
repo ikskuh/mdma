@@ -36,7 +36,15 @@ int main(void)
     core_init_matrix(results.size, results.memblock[2], 0, &results.mat);
     core_init_state(results.size, results.seed1, results.memblock[3]);
 
+#ifdef MDMA_RISCV_BENCH
+    *(volatile ee_u32 *)0xffffffd0ul = 0;
+    __asm__ volatile ("" ::: "memory");
+#endif
     coremark_iteration();
+#ifdef MDMA_RISCV_BENCH
+    __asm__ volatile ("" ::: "memory");
+    *(volatile ee_u32 *)0xffffffd4ul = 0;
+#endif
     coremark_timed_end();
     coremark_list_crc = results.crc;
     coremark_matrix_crc = results.crcmatrix;

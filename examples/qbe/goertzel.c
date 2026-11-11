@@ -1,11 +1,11 @@
 // Coefficient is round(2 * cos(2 * pi * bin / count) * 16384).
 // Use small sample blocks so the recurrence and power fit in signed 64 bits.
-long goertzel_power(const short *samples, unsigned count, int coefficient)
+long long goertzel_power(const short *samples, unsigned count, int coefficient)
 {
-    long previous = 0;
-    long older = 0;
+    long long previous = 0;
+    long long older = 0;
     for (unsigned i = 0; i < count; ++i) {
-        long next = samples[i] + coefficient * previous / 16384 - older;
+        long long next = samples[i] + coefficient * previous / 16384 - older;
         older = previous;
         previous = next;
     }
