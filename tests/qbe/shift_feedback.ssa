@@ -1,0 +1,36 @@
+# expect mem64 __mdma_result = 1
+
+function w $feedback(w %value, w %flag) {
+@entry
+    jnz %flag, @change, @keep
+@change
+    %low =w extuh %value
+    %flipped =w xor %low, 16386
+    jmp @join
+@keep
+    jmp @join
+@join
+    %carry =w phi @change 1, @keep 0
+    %selected =w phi @change %flipped, @keep %value
+    %word =w extuh %selected
+    %shifted =w shr %word, 1
+    jnz %carry, @high, @plain
+@high
+    %with_bit =w or %shifted, 32768
+    jmp @return
+@plain
+    jmp @return
+@return
+    %result =w phi @high %with_bit, @plain %shifted
+    ret %result
+}
+
+export function w $main() {
+@entry
+    %a =w call $feedback(w 131071, w 1)
+    %b =w call $feedback(w 131071, w 0)
+    %ok_a =w ceqw %a, 57342
+    %ok_b =w ceqw %b, 32767
+    %ok =w and %ok_a, %ok_b
+    ret %ok
+}

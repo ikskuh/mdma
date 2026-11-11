@@ -1,0 +1,22 @@
+# expect mem64 __mdma_result = 1
+data $words = { l 549755813888 2147483648 }
+
+export function w $main() {
+@entry
+    %aligned =l add $words, 8
+    %unaligned =l add $words, 1
+    %w =w loadsw %aligned
+    %u =w loadsw %unaligned
+    %l =l loadsw %unaligned
+    %logical =w sar %u, 5
+    %low =w and %logical, 127
+    %signed =w sar %w, 1
+    %ok_w =w ceqw %w, 2147483648
+    %ok_l =w ceql %l, -2147483648
+    %ok_low =w ceqw %low, 0
+    %ok_signed =w ceqw %signed, -1073741824
+    %a =w and %ok_w, %ok_l
+    %b =w and %ok_low, %ok_signed
+    %ok =w and %a, %b
+    ret %ok
+}

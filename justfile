@@ -39,6 +39,17 @@ qbe-build:
 qbe-test: qbe-build
     "{{python}}" tests/qbe/run.py
 
+qbe-aligned-cproc source:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    output="$PWD/build/cproc-alignment"
+    mkdir -p "$output"
+    git -C "{{source}}" archive d1c53ddf56571573a7025324c8dd5c6d547a4d1f | tar -x -C "$output"
+    patch -d "$output" -p1 < src/qbe/cproc-alignment.patch
+    cd "$output"
+    ./configure
+    make -j4
+
 qbe-examples *names: qbe-build
     "{{python}}" examples/qbe/run.py {{names}}
 

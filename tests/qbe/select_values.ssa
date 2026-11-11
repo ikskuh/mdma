@@ -1,0 +1,31 @@
+# expect mem64 __mdma_result = 1
+data $conditions = { l 4294967296 4294967297 }
+
+function l $pick(l %condition, l %value) {
+@entry
+    jnz %condition, @true, @false
+@true
+    %yes =l xor %value, 15
+    jmp @join
+@false
+    %no =l and %value, 240
+    jmp @join
+@join
+    %result =l phi @true %yes, @false %no
+    %tag =l phi @true 256, @false 512
+    %out =l or %result, %tag
+    ret %out
+}
+
+export function w $main() {
+@entry
+    %second =l add $conditions, 8
+    %false =l loadl $conditions
+    %true =l loadl %second
+    %a =l call $pick(l %false, l 90)
+    %b =l call $pick(l %true, l 90)
+    %ok_a =w ceql %a, 592
+    %ok_b =w ceql %b, 341
+    %ok =w and %ok_a, %ok_b
+    ret %ok
+}

@@ -484,6 +484,17 @@ call(Ins *i, Ins *args, unsigned argc)
     }
 }
 
+/* Osel0 supplies the word condition for the following Osel1 results. */
+static Ref
+select_condition(const Ins *i)
+{
+    do
+        --i;
+    while (i->op == Osel1);
+    assert(i->op == Osel0);
+    return i->arg[0];
+}
+
 static void
 instruction(Ins *i)
 {
@@ -494,7 +505,14 @@ instruction(Ins *i)
         return;
     }
     switch (i->op) {
-    case Onop: case Odbgloc:
+    case Onop: case Odbgloc: case Osel0:
+        break;
+    case Osel1:
+        value(select_condition(i), A);
+        extend(A, "SEL_A.COND", 32, 0);
+        value(i->arg[0], "SEL_A.TRUE");
+        value(i->arg[1], "SEL_A.FALSE");
+        save(i->to, i->cls, "SEL_A.OUT");
         break;
     case Oadd: binary(i, "ARITH_A", "ADD", 0); break;
     case Osub: binary(i, "ARITH_A", "SUB", 0); break;
@@ -735,6 +753,14 @@ sched_narrow(SchedValue value, unsigned width, unsigned budget)
             return sched_narrow(node->move[0].value, width, budget - 1) &&
                    sched_narrow(node->move[1].value, width, budget - 1);
     }
+    if ((node->unit == SHIFT_A || node->unit == SHIFT_B) && node->count == 2 &&
+        !strcmp(node->result, "LSR") && sched_constant(node->move[1].value, &number, budget - 1)) {
+        unsigned input_width = width + (number & 63);
+        return input_width >= 64 || sched_narrow(node->move[0].value, input_width, budget - 1);
+    }
+    if ((node->unit == SEL_A || node->unit == SEL_B) && node->count == 3)
+        return sched_narrow(node->move[1].value, width, budget - 1) &&
+               sched_narrow(node->move[2].value, width, budget - 1);
     if (node->unit == UNPACK && !strcmp(node->result, "VALUE"))
         for (int i = 0; i < node->count; ++i)
             if (!strcmp(node->move[i].sink, "TYPE") &&
@@ -846,6 +872,7 @@ sched_eligible(Ins *i)
     if (isload(i->op) || isstore(i->op))
         return 1;
     return i->op == Onop || i->op == Odbgloc || i->op == Ocopy || i->op == Oneg ||
+           i->op == Osel0 || i->op == Osel1 ||
            i->op == Oadd || i->op == Osub || i->op == Omul || i->op == Oand ||
            i->op == Oor || i->op == Oxor || i->op == Oshl || i->op == Oshr ||
            i->op == Osar || isext(i->op);
@@ -867,7 +894,8 @@ sched_memory(Ins *i, SchedValue lhs, SchedValue rhs)
         lo = sched_pair(SHIFT_A, "LSR", lo, count);
         hi = sched_pair(SHIFT_A, "LSL", hi, reverse);
         SchedValue chunk = sched_pair(LOGIC_A, "OR", lo, hi);
-        int sign = i->op != Oload && !((i->op - Oloadsb) & 1);
+        int sign = i->op != Oload && !(bytes == 4 && i->cls == Kw) &&
+                   !((i->op - Oloadsb) & 1);
         return bytes == 8 ? chunk : sched_extend(chunk, bytes * 8, sign);
     }
     if (isstore(i->op) && ref_alignment(i->arg[1]) < bytes) {
@@ -895,7 +923,8 @@ sched_memory(Ins *i, SchedValue lhs, SchedValue rhs)
     unsigned type = bytes == 1 ? 0 : bytes == 2 ? 2 : 4;
     if (isload(i->op)) {
         SchedValue chunk = sched_read(lhs);
-        int sign = i->op != Oload && !((i->op - Oloadsb) & 1);
+        int sign = i->op != Oload && !(bytes == 4 && i->cls == Kw) &&
+                   !((i->op - Oloadsb) & 1);
         return sched_node(UNPACK, "VALUE", 3, (SchedMove[]){
             {"ADDR", lhs}, {"TYPE", sched_number(type + sign)}, {"CHUNK", chunk}
         });
@@ -993,6 +1022,13 @@ sched_instruction(Ins *i, const Ins *first)
     if (INRANGE(i->op, Ocmpw, Ocmpl1)) {
         unsigned cmp = i->op >= Ocmpl ? i->op - Ocmpl : i->op - Ocmpw;
         int sign = cmp >= Cisge && cmp <= Cislt;
+        uint64_t number;
+        if (cmp == Cieq) {
+            if (sched_constant(rhs, &number, 16) && number == 1 && sched_narrow(lhs, 1, 16))
+                return lhs;
+            if (sched_constant(lhs, &number, 16) && number == 1 && sched_narrow(rhs, 1, 16))
+                return rhs;
+        }
         int reverse = cmp == Cisge || cmp == Cisgt || cmp == Ciuge || cmp == Ciugt;
         if (i->op < Ocmpl && sign) {
             lhs = sched_extend(lhs, 32, 1);
@@ -1022,6 +1058,16 @@ sched_instruction(Ins *i, const Ins *first)
             rhs = sched_extend(rhs, 5, 0);
         }
         return sched_pair(SHIFT_A, i->op == Oshl ? "LSL" : i->op == Oshr ? "LSR" : "ASR", lhs, rhs);
+    case Osel1: {
+        SchedValue condition = sched_extend(sched_value(select_condition(i)), 32, 0);
+        uint64_t yes, no;
+        if (sched_narrow(condition, 1, 16) && sched_constant(lhs, &yes, 16) && yes == 1 &&
+            sched_constant(rhs, &no, 16) && no == 0)
+            return condition;
+        return sched_node(SEL_A, "OUT", 3, (SchedMove[]){
+            {"COND", condition}, {"TRUE", lhs}, {"FALSE", rhs}
+        });
+    }
     case Ocopy: return lhs;
     default: {
         unsigned k = i->op - Oextsb;
@@ -1058,7 +1104,7 @@ sched_region(Ins *first, Ins *end, int words, int cycles)
     scheduled_sp = (SchedValue){0};
     memset(scheduled_known, 0, fn->ntmp * sizeof *scheduled_known);
     for (Ins *i = first; i < end && !schedule_overflow; ++i) {
-        if (i->op == Onop || i->op == Odbgloc)
+        if (i->op == Onop || i->op == Odbgloc || i->op == Osel0)
             continue;
         if (folded_shift(i, first, end))
             continue;
@@ -1111,8 +1157,10 @@ emit_region(Ins *first, Ins *end)
         p = next + 1;
     }
     if (!sched_region(first, end, words, cycles)) {
-        if (end - first > 1) {
-            Ins *middle = first + (end - first) / 2;
+        Ins *middle = first + (end - first) / 2;
+        while (middle < end && middle->op == Osel1)
+            ++middle;
+        if (middle > first && middle < end) {
             emit_region(first, middle);
             emit_region(middle, end);
         } else
@@ -1123,13 +1171,31 @@ emit_region(Ins *first, Ins *end)
 
 /* Promotion produces chains of copies between the same scalar types.
  * Resolve those before use counting so the allocator sees real consumers. */
+static unsigned
+alignment_copy(Ref ref)
+{
+    if (rtype(ref) != RTmp || ref.val < Tmp0)
+        return 1;
+    const Tmp *tmp = &fn->tmp[ref.val];
+    const char *name = tmp->name;
+    if (tmp->ndef != 1 || !tmp->def || tmp->def->op != Ocopy ||
+        tmp->cls != Kl || strncmp(name, "__mdma_a", 8) || !name[8] || name[9] != '.')
+        return 1;
+    switch (name[8]) {
+    case '2': return 2;
+    case '4': return 4;
+    case '8': return 8;
+    default: return 1;
+    }
+}
+
 static Ref
 copy_source(Ref ref)
 {
     for (unsigned remaining = fn->ntmp; rtype(ref) == RTmp && remaining--; ) {
         Tmp *tmp = &fn->tmp[ref.val];
         Ins *i = tmp->def;
-        if (!i || tmp->ndef != 1 || i->op != Ocopy || i->cls > Kl)
+        if (!i || tmp->ndef != 1 || i->op != Ocopy || i->cls > Kl || alignment_copy(ref) > 1)
             break;
         Ref arg = i->arg[0];
         if (rtype(arg) == RTmp && fn->tmp[arg.val].cls == i->cls)
@@ -1241,6 +1307,39 @@ reduce_identity(Ins *i)
     return 1;
 }
 
+static int
+reduce_mask_chain(Ins *i)
+{
+    if (i->op != Oand || i->cls > Kl)
+        return 0;
+    unsigned n = plain_constant(i->arg[0]) ? 0 : 1;
+    Ref mask = i->arg[n], value = i->arg[!n];
+    if (!plain_constant(mask) || rtype(value) != RTmp || value.val < Tmp0)
+        return 0;
+    const Tmp *tmp = &fn->tmp[value.val];
+    const Ins *inner = tmp->def;
+    if (tmp->ndef != 1 || !inner || inner->cls != i->cls)
+        return 0;
+    uint64_t keep = fn->con[mask.val].bits.i;
+    if (i->cls == Kw)
+        keep = (uint32_t)keep;
+    if (isext(inner->op)) {
+        unsigned width = 8u << ((inner->op - Oextsb) / 2);
+        if (keep >> width)
+            return 0;
+        i->arg[!n] = inner->arg[0];
+        return 1;
+    }
+    if (inner->op != Oand)
+        return 0;
+    unsigned other = plain_constant(inner->arg[0]) ? 0 : 1;
+    if (!plain_constant(inner->arg[other]))
+        return 0;
+    i->arg[!n] = inner->arg[!other];
+    i->arg[n] = getcon(keep & fn->con[inner->arg[other].val].bits.i, fn);
+    return 1;
+}
+
 static void
 simplify_values(void)
 {
@@ -1251,7 +1350,7 @@ simplify_values(void)
             for (Ins *i = b->ins; i < b->ins + b->nins; ++i) {
                 for (unsigned n = 0; n < 2; ++n)
                     i->arg[n] = copy_source(i->arg[n]);
-                changed |= reduce_identity(i) || reduce_multiply(i) || reduce_extension(i);
+                changed |= reduce_identity(i) || reduce_multiply(i) || reduce_extension(i) || reduce_mask_chain(i);
                 if (!pure_integer(i) || i->op == Ocopy ||
                     !plain_constant(i->arg[0]) ||
                     (!req(i->arg[1], R) && !plain_constant(i->arg[1])))
@@ -1681,9 +1780,17 @@ rotate_loop(Blk *header)
     Blk *entry = header->pred[header->pred[0] == body];
     if (entry == header || entry == body || entry->jmp.type != Jjmp)
         return 0;
-    for (Ins *i = body->ins; i < body->ins + body->nins; ++i)
-        if (i->op != Onop && i->op != Odbgloc && !pure_integer(i))
+    int memory = 0, multiply = 0;
+    for (Ins *i = body->ins; i < body->ins + body->nins; ++i) {
+        int access = i->cls <= Kl && (isload(i->op) || isstore(i->op));
+        memory |= access;
+        multiply |= i->op == Omul;
+        if (i->op != Onop && i->op != Odbgloc && !pure_integer(i) && !access &&
+            i->op != Osel0 && i->op != Osel1)
             return 0;
+    }
+    if (memory && multiply)
+        return 0;
     for (Ins *i = header->ins; i < header->ins + header->nins; ++i) {
         if (i->op == Onop || i->op == Odbgloc)
             continue;
@@ -1696,7 +1803,7 @@ rotate_loop(Blk *header)
     }
     unsigned carried = 0;
     for (Phi *p = header->phi; p; p = p->link) {
-        if (++carried > 2 || p->narg != 2 || p->cls > Kl)
+        if (++carried > 3 || p->narg != 2 || p->cls > Kl)
             return 0;
         for (unsigned n = 0; n < 2; ++n) {
             Ref arg = p->arg[n];
@@ -1862,8 +1969,10 @@ compute_alignment(const Symbol *s, const unsigned char *assumed)
                 for (unsigned a = 0; a < p->narg; ++a)
                     changed |= narrow_alignment(p->to, ref_alignment(p->arg[a]));
             for (Ins *i = b->ins; i < b->ins + b->nins; ++i)
-                if (!req(i->to, R) && !ispar(i->op))
-                    changed |= narrow_alignment(i->to, operation_alignment(i));
+                if (!req(i->to, R) && !ispar(i->op)) {
+                    unsigned proof = alignment_copy(i->to), inferred = operation_alignment(i);
+                    changed |= narrow_alignment(i->to, proof > inferred ? proof : inferred);
+                }
         }
     } while (changed);
 }
@@ -2023,6 +2132,322 @@ inline_calls(void)
         simplcfg(fn);
         filluse(fn);
     }
+}
+
+static int
+select_arm(Blk *b)
+{
+    unsigned count = 0;
+    for (Ins *i = b->ins; i < b->ins + b->nins; ++i)
+        if (i->op != Onop && i->op != Odbgloc &&
+            ((!isext(i->op) && i->op != Ocopy && i->op != Oand && i->op != Oor && i->op != Oxor) ||
+             ++count > 2))
+            return 0;
+    return 1;
+}
+
+static void
+convert_selects(void)
+{
+    int changed = 0;
+    for (Blk *b = fn->start; b; b = b->link) {
+        Blk *yes, *no, *join;
+        if (!ifgraph(b, &yes, &no, &join) || !join->phi ||
+            (yes != b && !select_arm(yes)) || (no != b && !select_arm(no)))
+            continue;
+        unsigned phis = 0;
+        Phi *p = join->phi;
+        for (; p && p->cls <= Kl && phis < 2; p = p->link)
+            ++phis;
+        if (p)
+            continue;
+        Ins *code = vnew(0, sizeof *code, PFn);
+        unsigned count = 0;
+        addbins(&code, &count, b);
+        if (yes != b)
+            addbins(&code, &count, yes);
+        if (no != b)
+            addbins(&code, &count, no);
+        addins(&code, &count, &(Ins){.op = Osel0, .cls = Kw, .arg = {b->jmp.arg, R}});
+        for (p = join->phi; p; p = p->link)
+            addins(&code, &count, &(Ins){.op = Osel1, .cls = p->cls, .to = p->to,
+                                        .arg = {phiarg(p, yes), phiarg(p, no)}});
+        b->ins = code;
+        b->nins = count;
+        b->jmp.type = Jjmp;
+        b->jmp.arg = R;
+        b->s1 = join;
+        b->s2 = NULL;
+        join->phi = NULL;
+        changed = 1;
+        fillcfg(fn);
+        filluse(fn);
+    }
+    if (changed) {
+        simplcfg(fn);
+        filluse(fn);
+    }
+}
+
+static unsigned
+unsigned_width(Ref value, const unsigned char *width, unsigned limit)
+{
+    if (rtype(value) == RTmp && value.val >= Tmp0)
+        return width[value.val] < limit ? width[value.val] : limit;
+    if (!plain_constant(value))
+        return limit;
+    uint64_t bits = fn->con[value.val].bits.i;
+    if (limit < 64)
+        bits &= (UINT64_C(1) << limit) - 1;
+    unsigned n = 0;
+    for (; bits; bits >>= 1)
+        ++n;
+    return n;
+}
+
+static unsigned
+produced_width(Ins *i, const unsigned char *width)
+{
+    unsigned limit = i->cls == Kw ? 32 : 64;
+    if (INRANGE(i->op, Ocmpw, Ocmpl1))
+        return 1;
+    if (isext(i->op)) {
+        unsigned k = i->op - Oextsb;
+        unsigned bits = 8u << (k / 2);
+        unsigned arg = unsigned_width(i->arg[0], width, bits);
+        return (k & 1) || arg < bits ? arg : limit;
+    }
+    unsigned a = unsigned_width(i->arg[0], width, limit);
+    unsigned b = unsigned_width(i->arg[1], width, limit);
+    switch (i->op) {
+    case Ocopy: return a;
+    case Oloadub: return 8;
+    case Oloaduh: return 16;
+    case Oloaduw: return 32;
+    case Oand: return a < b ? a : b;
+    case Oor: case Oxor: case Osel1: return a > b ? a : b;
+    case Oadd: {
+        unsigned larger = a > b ? a : b;
+        return larger < limit ? larger + 1 : limit;
+    }
+    case Oshl: case Oshr: case Osar:
+        if (plain_constant(i->arg[1])) {
+            unsigned shift = fn->con[i->arg[1].val].bits.i & (limit - 1);
+            if (i->op == Oshl) {
+                if (!a)
+                    return 0;
+                return a + shift > limit ? limit : a + shift;
+            }
+            if (i->op == Oshr || a < limit)
+                return a > shift ? a - shift : 0;
+        }
+        return limit;
+    default: return limit;
+    }
+}
+
+/* A mask that discards all shifted-in bits cannot observe sign fill. */
+static void
+simplify_masked_shifts(void)
+{
+    for (Blk *b = fn->start; b; b = b->link)
+        for (Ins *i = b->ins; i < b->ins + b->nins; ++i) {
+            if (i->op != Oand || i->cls > Kl)
+                continue;
+            Ref input = i->arg[0], mask = i->arg[1];
+            if (plain_constant(input)) {
+                mask = input;
+                input = i->arg[1];
+            }
+            if (rtype(input) != RTmp || input.val < Tmp0 || !plain_constant(mask))
+                continue;
+            Tmp *tmp = &fn->tmp[input.val];
+            Ins *shift = tmp->def;
+            if (tmp->ndef != 1 || tmp->nuse != 1 || !shift ||
+                shift->op != Osar || !plain_constant(shift->arg[1]))
+                continue;
+            unsigned bits = shift->cls == Kw ? 32 : 64;
+            unsigned count = fn->con[shift->arg[1].val].bits.i & (bits - 1);
+            uint64_t keep = fn->con[mask.val].bits.i;
+            if (i->cls == Kw)
+                keep = (uint32_t)keep;
+            if (i->cls == shift->cls && count && !(keep >> (bits - count)))
+                shift->op = Oshr;
+        }
+}
+
+static void
+propagate_unsigned_widths(void)
+{
+    /* Grow upper bounds from zero through loop-carried phi inputs. Unknown
+     * producers contribute the full width of their type. */
+    unsigned char *width = alloc(fn->ntmp);
+    for (int t = Tmp0; t < fn->ntmp; ++t)
+        width[t] = fn->tmp[t].ndef == 1 && fn->tmp[t].cls <= Kl ? 0 : 64;
+    int changed;
+    do {
+        changed = 0;
+        for (Blk *b = fn->start; b; b = b->link) {
+            for (Phi *p = b->phi; p; p = p->link) {
+                unsigned limit = p->cls == Kw ? 32 : 64;
+                for (unsigned n = 0; n < p->narg; ++n) {
+                    unsigned bits = unsigned_width(p->arg[n], width, limit);
+                    if (width[p->to.val] < bits) {
+                        width[p->to.val] = bits;
+                        changed = 1;
+                    }
+                }
+            }
+            for (Ins *i = b->ins; i < b->ins + b->nins; ++i)
+                if (!req(i->to, R) && i->cls <= Kl) {
+                    unsigned bits = produced_width(i, width);
+                    if (width[i->to.val] < bits) {
+                        width[i->to.val] = bits;
+                        changed = 1;
+                    }
+                }
+        }
+    } while (changed);
+
+    for (Blk *b = fn->start; b; b = b->link)
+        for (Ins *i = b->ins; i < b->ins + b->nins; ++i) {
+            if (i->cls > Kl)
+                continue;
+            unsigned limit = i->cls == Kw ? 32 : 64;
+            Ref value = i->arg[0];
+            unsigned bits = unsigned_width(value, width, limit);
+            if (i->op == Osar && bits < limit) {
+                i->op = Oshr;
+                changed = 1;
+            } else if ((i->op >= Ocmpw + Cisge && i->op <= Ocmpw + Cislt) &&
+                       unsigned_width(value, width, 32) < 32 &&
+                       unsigned_width(i->arg[1], width, 32) < 32) {
+                i->op += Ciuge - Cisge;
+                changed = 1;
+            } else if (isext(i->op)) {
+                unsigned k = i->op - Oextsb;
+                unsigned keep = (8u << (k / 2)) - !(k & 1);
+                if (unsigned_width(value, width, 64) <= keep) {
+                    i->op = Ocopy;
+                    i->arg[1] = R;
+                    changed = 1;
+                }
+            } else if (i->op == Oand) {
+                Ref mask = i->arg[1];
+                if (plain_constant(value)) {
+                    mask = value;
+                    value = i->arg[1];
+                }
+                bits = unsigned_width(value, width, limit);
+                if (bits < 64 && plain_constant(mask)) {
+                    uint64_t low = (UINT64_C(1) << bits) - 1;
+                    if (((uint64_t)fn->con[mask.val].bits.i & low) == low) {
+                        i->op = Ocopy;
+                        i->arg[0] = value;
+                        i->arg[1] = R;
+                        changed = 1;
+                    }
+                }
+            }
+        }
+    if (changed) {
+        filluse(fn);
+        simplify_values();
+    }
+}
+
+static Ins *
+local_def(Ref value, Blk *b, int op)
+{
+    if (rtype(value) != RTmp || value.val < Tmp0)
+        return NULL;
+    Tmp *t = &fn->tmp[value.val];
+    return t->ndef == 1 && t->bid == b->id && t->def && t->def->op == op ? t->def : NULL;
+}
+
+/* Fold the same condition's low-bit XOR and high-bit insertion across a
+ * logical shift. Both results must originate in one select group. */
+static int
+fuse_shift_feedback(Blk *b, Ins *out_select)
+{
+    Ins *first = b->ins, *end = first + b->nins;
+    if (out_select == first || out_select[-1].op != Osel0 ||
+        (out_select + 1 < end && out_select[1].op == Osel1) || out_select->cls != Kw)
+        return 0;
+    Ins *carry = local_def(out_select[-1].arg[0], b, Osel1);
+    Ins *shift = local_def(out_select->arg[1], b, Oshr);
+    Ins *set = local_def(out_select->arg[0], b, Oor);
+    if (!carry || !shift || !set || carry == first || carry[-1].op != Osel0 ||
+        carry + 1 >= end || carry[1].op != Osel1 || (carry + 2 < end && carry[2].op == Osel1) ||
+        fn->tmp[carry->to.val].nuse != 1 || fn->tmp[shift->to.val].nuse != 2 ||
+        fn->tmp[set->to.val].nuse != 1 || shift->cls != Kw || set->cls != Kw ||
+        !plain_constant(carry->arg[0]) || !plain_constant(carry->arg[1]) ||
+        (uint32_t)fn->con[carry->arg[0].val].bits.i != 1 ||
+        (uint32_t)fn->con[carry->arg[1].val].bits.i != 0)
+        return 0;
+    Ref high = req(set->arg[0], shift->to) ? set->arg[1] :
+               req(set->arg[1], shift->to) ? set->arg[0] : R;
+    if (!plain_constant(high) || !plain_constant(shift->arg[1]))
+        return 0;
+    unsigned count = fn->con[shift->arg[1].val].bits.i & 31;
+    Ins *trunc = local_def(shift->arg[0], b, Oextuh);
+    Ins *inner = carry + 1;
+    if (!count || !trunc || !req(trunc->arg[0], inner->to) || trunc->cls != Kw ||
+        fn->tmp[trunc->to.val].nuse != 1 || fn->tmp[inner->to.val].nuse != 1 || inner->cls != Kw)
+        return 0;
+    Ins *change = local_def(inner->arg[0], b, Oxor);
+    if (!change || change->cls != Kw)
+        return 0;
+    Ref low = change->arg[1], base = change->arg[0];
+    if (plain_constant(base)) {
+        low = change->arg[0];
+        base = change->arg[1];
+    }
+    Ins *narrow = local_def(base, b, Oextuh);
+    if (!narrow || narrow->cls != Kw || !req(narrow->arg[0], inner->arg[1]) || !plain_constant(low))
+        return 0;
+    uint32_t add = fn->con[high.val].bits.i;
+    if (add & (UINT16_MAX >> count))
+        return 0;
+    uint32_t polynomial = ((uint16_t)fn->con[low.val].bits.i >> count) | add;
+    Ref condition = carry[-1].arg[0], result = out_select->to;
+    Ref feedback = newtmp("feedback", Kw, fn);
+    Ref shifted = newtmp("shifted", Kw, fn);
+
+    carry[-1] = carry[0] = carry[1] = *trunc = *shift = *set = (Ins){.op = Onop};
+    Ins *code = vnew(0, sizeof *code, PFn);
+    unsigned n = 0;
+    for (Ins *i = first; i < end; ++i) {
+        if (i == out_select - 1) {
+            addins(&code, &n, &(Ins){.op = Oshr, .cls = Kw, .to = shifted,
+                                    .arg = {base, getcon(count, fn)}});
+            addins(&code, &n, &(Ins){.op = Osel0, .cls = Kw, .arg = {condition, R}});
+            addins(&code, &n, &(Ins){.op = Osel1, .cls = Kw, .to = feedback,
+                                    .arg = {getcon(polynomial, fn), getcon(0, fn)}});
+            addins(&code, &n, &(Ins){.op = Oxor, .cls = Kw, .to = result,
+                                    .arg = {shifted, feedback}});
+            ++i;
+        } else
+            addins(&code, &n, i);
+    }
+    b->ins = code;
+    b->nins = n;
+    return 1;
+}
+
+static void
+fold_shift_feedback(void)
+{
+    int changed = 0;
+    for (Blk *b = fn->start; b; b = b->link)
+        for (Ins *i = b->ins; i < b->ins + b->nins; ++i)
+            if (i->op == Osel1 && fuse_shift_feedback(b, i)) {
+                changed = 1;
+                filluse(fn);
+                break;
+            }
+    if (changed)
+        simplify_values();
 }
 
 static void
@@ -2899,7 +3324,7 @@ flow_block(FlowBlock *layout, FlowSite *sites, SchedTerm term)
     }
     Ins *region_start = block->ins + params, *region_end = region_start;
     for (Ins *i = block->ins + params; i < block->ins + block->nins && !schedule_overflow; ++i) {
-        if (i == nonzero || i->op == Onop || i->op == Odbgloc)
+        if (i == nonzero || i->op == Onop || i->op == Odbgloc || i->op == Osel0)
             continue;
         if (isarg(i->op) || i->op == Ocall) {
             Ins *args = i;
@@ -3314,7 +3739,7 @@ split_long_blocks(void)
             continue;
         unsigned n = SCHED_REGION;
         while (n < b->nins && (ispar(b->ins[n].op) || isarg(b->ins[n].op) ||
-                               b->ins[n].op == Ocall || b->ins[n].op == Oblit1))
+                               b->ins[n].op == Ocall || b->ins[n].op == Oblit1 || b->ins[n].op == Osel1))
             ++n;
         if (n == b->nins)
             continue;
@@ -3562,7 +3987,11 @@ function(Fn *parsed)
         if (!main_entry && countdown_function(f))
             goto emitted;
         fold_known_branches();
+        convert_selects();
         rotate_loops();
+        simplify_masked_shifts();
+        propagate_unsigned_widths();
+        fold_shift_feedback();
         compute_alignment(f, NULL);
         scheduled_value = alloc(fn->ntmp * sizeof *scheduled_value);
         scheduled_known = alloc(fn->ntmp * sizeof *scheduled_known);
@@ -3658,6 +4087,8 @@ function(Fn *parsed)
             } else if (optimize && sched_eligible(i)) {
                 Ins *end = i + 1;
                 while (end < block->ins + block->nins && end - i < SCHED_REGION && sched_eligible(end))
+                    ++end;
+                while (end < block->ins + block->nins && end->op == Osel1)
                     ++end;
                 emit_region(i, end);
                 i = end - 1;

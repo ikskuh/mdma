@@ -62,7 +62,9 @@ guarantees from all direct calls, including across modules. Alignment also
 propagates through SSA joins and loop backedges. The scheduler lays out edge copies
 with their blocks, packs compatible moves with jumps, and rotates eligible
 two-block loops into a guarded bottom-tested form. Rotation currently handles
-at most two loop-carried values and a side-effect-free test and body.
+at most three loop-carried values and a pure test. The body may contain
+integer selects or memory operations. Loops that combine memory operations
+with multiplies retain their original structure.
 
 For word reductions of the form `sum += n; --n` while `n != 0`, the backend
 feeds the counter and accumulator through ARITH result FIFOs. The continuing
@@ -107,6 +109,21 @@ For leaf functions with multiple loop accesses that would benefit from known
 alignment, the compiler can emit two bodies. The entry checks the required
 alignment once and preserves the FIFO arguments for either body.
 
+To pass C alignment facts to the backend, build the optional patched cproc
+from a local checkout containing commit `d1c53dd`.
+
+```sh
+just qbe-aligned-cproc /path/to/cproc
+CPROC="$PWD/build/cproc-alignment/cproc" just report-status
+```
+
+The frontend uses ordinary QBE `copy` instructions with reserved temporary
+names `%__mdma_a2.*`, `%__mdma_a4.*`, or `%__mdma_a8.*`. Each name promises a
+minimum alignment for that copied address. MDMA uses the promise when
+scheduling memory requests. Unknown alignment and packed member offsets
+still use the generic memory path. Stock cproc and unannotated QBE remain
+supported.
+
 Before scheduling, the compiler folds branches proved by preceding integer
 comparisons or by the possible constants reaching a phi. It keeps word and
 long comparisons separate and recomputes the CFG and phi inputs after folding.
@@ -116,6 +133,17 @@ can become a straight-line expression, making small classifiers eligible for
 inlining. A branch whose comparison only tests for nonzero can send the value
 directly to `CPU.COND`, using the width of the original comparison. Neutral
 integer operations become copies of the same width before scheduling.
+
+Small branches that choose between pure logic values can become `SEL`
+requests. The condition uses the low 32 bits, as with a QBE branch. Width
+bounds propagate through integer phi nodes and pure operations. The backend
+uses them to omit redundant masks and extensions, and to use logical right
+shifts for proven nonnegative values.
+Word loads omit sign extension when the result uses only the loaded 32 bits.
+The compiler also folds masks through extensions and shifts. When one
+condition controls both a halfword XOR before a logical shift and the
+insertion of disjoint high bits afterward, it combines the two changes
+into one conditional XOR after the shift.
 
 ### FIFO calling convention
 

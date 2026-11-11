@@ -1,0 +1,35 @@
+# expect mem64 __mdma_result = 1
+data $a = { l $b }
+data $b = { l 0 }
+
+function l $reverse(l %start) {
+@entry
+    jmp @test
+@test
+    %p =l phi @entry %start, @body %next
+    %prev =l phi @entry 0, @body %p
+    %more =w cnel %p, 0
+    jnz %more, @body, @exit
+@body
+    %next =l loadl %p
+    storel %prev, %p
+    jmp @test
+@exit
+    ret %prev
+}
+
+export function w $main() {
+@entry
+    %empty =l call $reverse(l 0)
+    %head =l call $reverse(l $a)
+    %a_next =l loadl $a
+    %b_next =l loadl $b
+    %ok_a =w ceql %a_next, 0
+    %ok_b =w ceql %b_next, $a
+    %ok_empty =w ceql %empty, 0
+    %ok_head =w ceql %head, $b
+    %pair =w and %ok_a, %ok_b
+    %ret =w and %ok_empty, %ok_head
+    %ok =w and %pair, %ret
+    ret %ok
+}

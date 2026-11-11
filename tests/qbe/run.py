@@ -1,5 +1,6 @@
 """Compile QBE fixtures and check their architectural results."""
 
+import os
 import re
 import subprocess
 import sys
@@ -39,6 +40,15 @@ class QbeTest(unittest.TestCase):
                     self.assertEqual(result.returncode, 0, result.stderr)
                     test_behavior.BehaviorTest().check_fixture(
                         path, assembly=result.stdout, extra_memory=65536, max_ticks=1000000)
+
+    @unittest.skipUnless(os.environ.get('CPROC'), 'set CPROC to test C frontend lowering')
+    def test_cproc_alignment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            il = Path(directory) / 'frontend.ssa'
+            subprocess.run([os.environ['CPROC'], '-emit-qbe', '-nostdinc', '-o', il,
+                            HERE / 'cproc_alignment.c'], check=True, timeout=30)
+            il.write_text('# expect mem64 __mdma_result = 0\n' + il.read_text())
+            self.check_fixture(il)
 
     def test_profiles_change_packing(self):
         path = HERE / 'schedule_interleave.ssa'
@@ -152,6 +162,22 @@ class QbeTest(unittest.TestCase):
         self.assertEqual(body.count(' -> CMP.LHS'), 1)
         self.assertNotIn('[pred', body)
         self.assertNotIn('rel=' + label + ']', result.stdout)
+
+    def test_select_diamond_is_scheduled(self):
+        result = compile_fixture(HERE / 'select_values.ssa', ())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        body = result.stdout.split('__mdma_g1_7069636b:\n', 1)[1].split('__mdma_g0_6d61696e:\n', 1)[0]
+        self.assertEqual(len(re.findall(r' -> SEL_[AB]\.COND', body)), 2)
+        self.assertNotIn('[pred', body)
+
+    def test_phi_width_preserves_signed_shift_when_needed(self):
+        result = compile_fixture(HERE / 'phi_width.ssa', ())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        narrow = '__mdma_g1_' + 'byte_loop'.encode().hex()
+        full = '__mdma_g1_' + 'full_loop'.encode().hex()
+        before, after = result.stdout.split(full + ':\n', 1)
+        self.assertRegex(before.split(narrow + ':\n', 1)[1], r'SHIFT_[AB]\.LSR')
+        self.assertRegex(after.split('__mdma_g0_6d61696e:\n', 1)[0], r'SHIFT_[AB]\.ASR')
 
     def test_independent_queue_rotations_share_a_pack(self):
         result = compile_fixture(HERE / 'call_alignment.ssa', MODES[2])

@@ -1,0 +1,45 @@
+# expect mem64 __mdma_result = 1
+
+function w $byte_loop(w %input, w %n) {
+@entry
+    %start =w extub %input
+    jmp @head
+@head
+    %value =w phi @entry %start, @body %next
+    %left =w phi @entry %n, @body %remaining
+    jnz %left, @body, @exit
+@body
+    %flip =w xor %value, 128
+    %next =w extub %flip
+    %remaining =w sub %left, 1
+    jmp @head
+@exit
+    %result =w sar %value, 1
+    ret %result
+}
+
+function w $full_loop(w %input, w %n) {
+@entry
+    jmp @head
+@head
+    %value =w phi @entry %input, @body %next
+    %left =w phi @entry %n, @body %remaining
+    jnz %left, @body, @exit
+@body
+    %next =w add %value, 2147483648
+    %remaining =w sub %left, 1
+    jmp @head
+@exit
+    %result =w sar %value, 1
+    ret %result
+}
+
+export function w $main() {
+@entry
+    %a =w call $byte_loop(w 258, w 1)
+    %b =w call $full_loop(w 2, w 1)
+    %ok_a =w ceqw %a, 65
+    %ok_b =w ceqw %b, -1073741823
+    %ok =w and %ok_a, %ok_b
+    ret %ok
+}

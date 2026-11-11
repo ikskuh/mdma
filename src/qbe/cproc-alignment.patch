@@ -1,0 +1,185 @@
+--- a/cc.h
++++ b/cc.h
+@@ -228,6 +228,7 @@
+ 	bool lvalue;
+ 	/* whether this expression is a pointer decayed from an array or function designator */
+ 	bool decayed;
++	unsigned alignment; /* Explicit alignment of a pointer expression. */
+ 	/* the unqualified type of the expression */
+ 	struct type *type;
+ 	/* the type qualifiers of the object this expression refers to (ignored for non-lvalues) */
+@@ -279,6 +280,8 @@
+ 	} u;
+ };
+
++unsigned exprptralign(struct expr *);
++
+ struct init {
+ 	unsigned long long start, end;
+ 	struct expr *expr;
+--- a/expr.c
++++ b/expr.c
+@@ -18,6 +18,7 @@
+ 	e->type = t;
+ 	e->lvalue = false;
+ 	e->decayed = false;
++	e->alignment = 0;
+ 	e->kind = k;
+ 	e->base = b;
+ 	e->next = NULL;
+@@ -85,6 +86,37 @@
+ 	return e;
+ }
+
++unsigned
++exprptralign(struct expr *e)
++{
++	unsigned a, b;
++	if (e->type->kind != TYPEPOINTER)
++		return 1;
++	if (e->alignment)
++		return e->alignment;
++	switch (e->kind) {
++	case EXPRIDENT: case EXPRCALL:
++		break;
++	case EXPRUNARY:
++		if (e->op == TMUL)
++			break; /* A pointer value loaded from an object. */
++		return 1;
++	case EXPRBINARY:
++		if (e->op != TADD && e->op != TSUB)
++			return 1;
++		a = exprptralign(e->u.binary.l);
++		b = e->type->base->align;
++		return a < b ? a : b;
++	case EXPRCOND:
++		a = exprptralign(e->u.cond.t);
++		b = exprptralign(e->u.cond.f);
++		return a < b ? a : b;
++	default:
++		return 1;
++	}
++	return e->type->base->align ? e->type->base->align : 1;
++}
++
+ static struct expr *mkunaryexpr(enum tokenkind, struct expr *);
+
+ /* 6.3.2.1 Conversion of arrays and function designators */
+@@ -140,6 +172,8 @@
+ 		if (base->kind == EXPRBITFIELD)
+ 			error(&tok.loc, "cannot take address of bit-field");
+ 		expr = mkexpr(EXPRUNARY, mkpointertype(base->type, base->qual), base);
++		expr->alignment = base->kind == EXPRUNARY && base->op == TMUL ?
++		                  exprptralign(base->base) : base->type->align;
+ 		expr->op = op;
+ 		return expr;
+ 	case TMUL:
+@@ -1063,8 +1097,12 @@
+ 			m = typemember(t, tokenstr(tok.kind), &offset);
+ 			if (!m)
+ 				error(&tok.loc, "struct/union has no member named '%s'", tok.lit);
++			unsigned alignment = exprptralign(r);
++			while (alignment > 1 && offset % alignment)
++				alignment /= 2;
+ 			r = mkbinaryexpr(&tok.loc, TADD, exprconvert(r, &typeulong), mkconstexpr(&typeulong, offset));
+ 			r->type = mkpointertype(m->type, tq | m->qual);
++			r->alignment = alignment;
+ 			r = mkunaryexpr(TMUL, r);
+ 			r->lvalue = lvalue;
+ 			if (m->bits.before || m->bits.after) {
+--- a/qbe.c
++++ b/qbe.c
+@@ -24,6 +24,7 @@
+ 		VALUE_QUOTE = 1<<6,
+ 	} kind;
+ 	unsigned id;
++	unsigned known_align;
+ 	union {
+ 		char *name;
+ 		unsigned long long i;
+@@ -34,6 +35,7 @@
+ struct lvalue {
+ 	struct value *addr;
+ 	struct bitfield bits;
++	unsigned align;
+ };
+
+ enum instkind {
+@@ -218,6 +220,7 @@
+ functemp(struct func *f, struct value *v)
+ {
+ 	v->kind = VALUE_TEMP;
++	v->known_align = 0;
+ 	v->u.name = NULL;
+ 	v->id = ++f->lastid;
+ }
+@@ -412,6 +415,7 @@
+ 		v = funcinst(f, IADD, ptrclass, v, mkintconst(align - 16));
+ 		v = funcinst(f, IAND, ptrclass, v, mkintconst(-align));
+ 	}
++	v->known_align = align < 4 ? 4 : align;
+ 	d->value = v;
+ 	f->end = end;
+ }
+@@ -445,6 +449,18 @@
+ 	}
+ }
+
++/* A named copy is valid QBE and carries an optional MDMA alignment promise. */
++static struct value *
++accessaddr(struct func *f, struct lvalue lval, unsigned bytes)
++{
++	if (bytes < 2 || lval.align < 2 || (lval.addr->kind & 0xf) == VALUE_GLOBAL ||
++	    (lval.addr->kind == VALUE_TEMP && lval.addr->known_align >= lval.align))
++		return lval.addr;
++	struct value *addr = funcinst(f, ICOPY, ptrclass, lval.addr, NULL);
++	addr->u.name = lval.align >= 8 ? "__mdma_a8" : lval.align >= 4 ? "__mdma_a4" : "__mdma_a2";
++	return addr;
++}
++
+ static struct value *
+ funcstore(struct func *f, struct type *t, enum typequal tq, struct lvalue lval, struct value *v)
+ {
+@@ -473,6 +489,7 @@
+ 	default:
+ 		assert(tp & PROPSCALAR);
+ 		qt = qbetype(t);
++		lval.addr = accessaddr(f, lval, t->size);
+ 		bits = lval.bits.before + lval.bits.after;
+ 		if (bits) {
+ 			mask = 0xffffffffffffffffu >> 64 - t->size * 8 + bits << lval.bits.before;
+@@ -505,7 +522,7 @@
+ 		return lval.addr;
+ 	}
+ 	qt = qbetype(t);
+-	v = funcinst(f, qt.load, qt.base, lval.addr, NULL);
++	v = funcinst(f, qt.load, qt.base, accessaddr(f, lval, t->size), NULL);
+ 	return funcbits(f, t, v, lval.bits);
+ }
+
+@@ -693,6 +710,7 @@
+ 		if (e->op != TMUL)
+ 			error(&tok.loc, "expression is not an object");
+ 		lval.addr = funcexpr(f, e->base);
++		lval.align = exprptralign(e->base);
+ 		break;
+ 	default:
+ 		if (e->type->kind != TYPESTRUCT && e->type->kind != TYPEUNION)
+@@ -834,7 +852,7 @@
+ 			return lval.addr;
+ 		case TMUL:
+ 			r = funcexpr(f, e->base);
+-			return funcload(f, e->type, (struct lvalue){r});
++			return funcload(f, e->type, (struct lvalue){.addr = r, .align = exprptralign(e->base)});
+ 		case TSUB:
+ 			r = funcexpr(f, e->base);
+ 			return funcinst(f, INEG, qbetype(e->type).base, r, NULL);
+@@ -1051,7 +1069,7 @@
+ void
+ funcinit(struct func *func, struct decl *d, struct init *init, bool hasinit)
+ {
+-	struct lvalue dst;
++	struct lvalue dst = {0};
+ 	struct value *src, *v;
+ 	unsigned long long offset = 0, max = 0;
+ 	size_t i, w;
