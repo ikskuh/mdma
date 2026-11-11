@@ -33,9 +33,25 @@ rtl-test:
         vvp "$output_dir/bram"
     done
     "{{python}}" tests/rtl/alu.py
+    for implementation in 0 1 2; do
+        for shape in 64x4 64x5 64x8 64x16 64x32 64x64 128x8 1x8; do
+            iverilog -g2012 -Wall -s mdma_fifo_tb -o "$output_dir/fifo" \
+                -Pmdma_fifo_tb.IMPLEMENTATION="$implementation" \
+                -Pmdma_fifo_tb.WIDTH="${shape%x*}" -Pmdma_fifo_tb.DEPTH="${shape#*x}" \
+                src/gateware/mdma_fifo.v tests/rtl/mdma_fifo_tb.v
+            vvp "$output_dir/fifo"
+        done
+    done
+    iverilog -g2012 -Wall -s mdma_fifo_fu_tb -o "$output_dir/fifo-fu" \
+        src/gateware/mdma_fifo.v src/gateware/alu/mdma_arith.v \
+        src/gateware/alu/mdma_alu_result.v tests/rtl/mdma_fifo_tb.v
+    vvp "$output_dir/fifo-fu"
 
 alu-measure *args:
     "{{python}}" src/gateware/alu/measure.py {{args}}
+
+fifo-measure *args:
+    "{{python}}" src/gateware/fifo_measure.py {{args}}
 
 qbe-build:
     mkdir -p build

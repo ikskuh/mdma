@@ -94,14 +94,18 @@ class Unit:
             params = [f'.REGISTERED({int(mode == "registered")})']
         if self.family in MATH:
             params.append(f'.SIGNED_OP({int(self.family.endswith("S"))})')
-        ports = [f'.clk({clock})']
-        for bus, fields in ((input_bus, self.inputs), (output_bus, self.outputs)):
-            bit = 0
-            for name, width in fields:
-                expression = f'{bus}[{bit}]' if width == 1 else f'{bus}[{bit} +: {width}]'
-                ports.append(f'.{name}({expression})')
-                bit += width
-        return f'{self.module} #({", ".join(params)}) fu (\n    ' + ',\n    '.join(ports) + '\n);'
+        return instantiate_ports(self, self.module, params, clock, input_bus, output_bus)
+
+
+def instantiate_ports(unit, module, params, clock, input_bus, output_bus):
+    ports = [f'.clk({clock})']
+    for bus, fields in ((input_bus, unit.inputs), (output_bus, unit.outputs)):
+        bit = 0
+        for name, width in fields:
+            expression = f'{bus}[{bit}]' if width == 1 else f'{bus}[{bit} +: {width}]'
+            ports.append(f'.{name}({expression})')
+            bit += width
+    return f'{module} #({", ".join(params)}) fu (\n    ' + ',\n    '.join(ports) + '\n);'
 
 
 def isa_units():
@@ -174,23 +178,32 @@ def in_fu_boundary(path):
 
 
 def build(unit, mode, output, timeout, divider=None, seed=1):
-    work = output / unit.name / mode
-    work.mkdir(parents=True, exist_ok=True)
-    for filename in ('netlist.json', 'route.json', 'design.config', 'design.bit'):
-        (work / filename).unlink(missing_ok=True)
     if mode == 'pipelined' and divider is None:
         divider, _ = divider_defaults(unit.family)
-    (work / 'top.v').write_text(isolated_top(unit, mode, divider))
     result = {'unit': unit.name, 'mode': mode, 'seed': seed}
     if divider is not None:
         result.update(cuts=divider.cuts, latency=divider.latency,
                       sign_input=divider.sign_input, limb_bits=divider.limb_bits)
+    return build_isolated(unit, mode, output, timeout, result, divider, min_mhz=MIN_MHZ)
+
+
+def synth_cells(work):
+    netlist = json.loads((work / 'netlist.json').read_text())
+    return netlist['modules']['mdma_alu_measure']['cells']
+
+
+def build_isolated(unit, mode, output, timeout, result, config=None, *, min_mhz=None):
+    work = output / unit.name / mode
+    work.mkdir(parents=True, exist_ok=True)
+    for filename in ('netlist.json', 'route.json', 'design.config', 'design.bit'):
+        (work / filename).unlink(missing_ok=True)
+    (work / 'top.v').write_text(isolated_top(unit, mode, config))
     stages = [
         ('synth', ['yosys', '-Q', '-T', '-p',
                    f'read_verilog -sv -I"{HERE}" ' + ' '.join(f'"{path}"' for path in unit.rtl)
                    + ' top.v; synth_ecp5 -top mdma_alu_measure -json netlist.json']),
         ('route', ['nextpnr-ecp5', '--um5g-85k', '--package', 'CABGA381', '--speed', '8',
-                   '--seed', str(seed), '--freq', str(MIN_MHZ),
+                   '--seed', str(result['seed']), '--freq', str(MIN_MHZ),
                    '--timing-allow-fail', '--lpf-allow-unconstrained',
                    '--json', 'netlist.json', '--report', 'route.json', '--textcfg', 'design.config']),
         ('pack', ['ecppack', 'design.config', 'design.bit']),
@@ -207,9 +220,8 @@ def build(unit, mode, output, timeout, divider=None, seed=1):
                                  'diagnostics': diagnostics[-4:]}
             break
         if stage == 'synth':
-            netlist = json.loads((work / 'netlist.json').read_text())
             counts = {}
-            for cell in netlist['modules']['mdma_alu_measure']['cells'].values():
+            for cell in synth_cells(work).values():
                 kind = cell['type']
                 counts[kind] = counts.get(kind, 0) + 1
             result['synthesis_resources'] = counts
@@ -231,8 +243,11 @@ def build(unit, mode, output, timeout, divider=None, seed=1):
                 result.setdefault('timing_failure', 'missing FU clock timing')
             if 'scan_fmax_mhz' not in result:
                 result.setdefault('timing_failure', 'missing scan clock timing')
-            if 'fmax_mhz' in result and result['fmax_mhz'] < MIN_MHZ:
-                result['timing_failure'] = f'below {MIN_MHZ:.1f} MHz'
+            if min_mhz is not None and 'fmax_mhz' in result and result['fmax_mhz'] < min_mhz:
+                result['timing_failure'] = f'below {min_mhz:.1f} MHz'
+    if 'failure' not in result and not (work / 'design.bit').is_file():
+        result['failure'] = {'stage': 'pack', 'reason': 'bitstream missing',
+                             'log': str((work / 'pack.log').relative_to(output)), 'diagnostics': []}
     return result
 
 
@@ -247,7 +262,7 @@ def comparison(old, new):
 def build_status(result):
     if 'failure' in result:
         return result['failure']['stage'] + ' failed'
-    return result.get('timing_failure', 'pass')
+    return result.get('timing_failure') or result.get('mapping_failure', 'pass')
 
 
 def render_report(results):
@@ -267,7 +282,12 @@ def render_report(results):
         for modes in comparisons:
             rows.append(report_row(unit, modes, builds, keys))
 
-    rows.extend(['', '## Critical paths and build diagnostics', ''])
+    rows.extend(path_diagnostics(results))
+    return '\n'.join(rows) + '\n'
+
+
+def path_diagnostics(results):
+    rows = ['', '## Critical paths and build diagnostics', '']
     for result in results:
         label = f"{result['unit']} {result['mode']} (seed {result['seed']})"
         if 'critical_path' in result:
@@ -283,22 +303,30 @@ def render_report(results):
             failure = result['failure']
             diagnostics = ' / '.join(failure['diagnostics']) or failure['reason']
             rows.append(f"- {label} · {failure['stage']} failed · {diagnostics} · `{failure['log']}`")
-    return '\n'.join(rows) + '\n'
+        for key in ('timing_failure', 'mapping_failure'):
+            if key in result:
+                rows.append(f'- {label} · {result[key]}')
+    return rows
 
 
 def report_row(unit, modes, builds, keys):
     items = [builds[mode] for mode in modes]
+    cells = [unit, ' → '.join(modes), str(items[-1].get('latency', '—'))]
+    return '| ' + ' | '.join(cells + metric_cells(items, keys)) + ' |'
+
+
+def metric_cells(items, keys):
 
     def format_values(values):
         return comparison(*values) if len(values) == 2 else str(values[0]) if values[0] is not None else '—'
 
-    cells = [unit, ' → '.join(modes), str(items[-1].get('latency', '—'))]
+    cells = []
     for key in ('fmax_mhz', 'scan_fmax_mhz', 'synth_seconds'):
         cells.append(format_values([round(item[key], 3) if key in item else None for item in items]))
     for key in keys:
         cells.append(format_values([item['resources'].get(key, 0) if 'resources' in item else None
                                     for item in items]))
-    return '| ' + ' | '.join(cells + [' → '.join(map(build_status, items))]) + ' |'
+    return cells + [' → '.join(map(build_status, items))]
 
 
 def main():

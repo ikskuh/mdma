@@ -20,6 +20,7 @@ same result group. Taking any valid lane retires the group, and consumers can
 sample any number of valid siblings on that edge. A take on an invalid lane
 has no effect. A downstream queue stores the group as a single entry. The
 minimum FIFO depths in the ISA apply to the core's external queues.
+The [FIFO RTL](fifo-rtl.md) implements this interface with selectable storage.
 
 | Parameter | Availability | Operand acceptance |
 | --- | --- | --- |
