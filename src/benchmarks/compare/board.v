@@ -1,9 +1,8 @@
-module mdma_ecp5 #(
+module mdma_compare_board #(
     parameter CLOCKS_PER_BIT = 104,
     parameter INIT_FILE = ""
 ) (
     input wire clk, reset, serial_rx,
-    input wire [3:0] math_clk,
     output wire serial_tx, halted,
     output wire [3:0] fault
 );
@@ -14,7 +13,7 @@ module mdma_ecp5 #(
         if (reset) cpu_reset <= 2'b11; else cpu_reset <= {cpu_reset[0], 1'b0};
 
     mdma_soc #(.INIT_FILE(INIT_FILE)) soc (
-        .clk(clk), .reset(cpu_reset[1]), .math_clk(math_clk),
+        .clk(clk), .reset(cpu_reset[1]),
         .halted(halted), .fault(fault), .ticks(),
         .rx_data(rx_data), .rx_valid(rx_valid), .rx_ready(rx_ready),
         .tx_data(tx_data), .tx_valid(tx_valid), .tx_ready(tx_ready)

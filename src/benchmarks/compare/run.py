@@ -1,4 +1,4 @@
-"""Build and compare the CPU variants of the MDMA ECP5 SoC."""
+"""Build and benchmark the RISC-V CPU variants on the ECP5 SoC."""
 
 import argparse
 import json
@@ -10,18 +10,24 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
-sys.path[:0] = [str(ROOT / 'src/qbe'), str(ROOT / 'src/simulator')]
-from coremark import run as coremark
-from report_status import RETURN_MARKER, mark_return
-from rtl_runner import BRAM_BYTES, RTL, prepare, rtl_defines, write_bram_image
+COREMARK_PORT = ROOT / 'src/qbe/coremark'
+COREMARK_UPSTREAM = ROOT / 'vendor/coremark'
 
-CORES = ('mdma', 'ibex', 'picorv32', 'serv', 'vexriscv')
 EXAMPLES = ROOT / 'examples/qbe'
 EXPECTED = {'sum_to': 55, 'mix_loop': 0x41090bb9}
 SOURCES = {path.stem: path for path in sorted(EXAMPLES.glob('*.c'))}
-PROFILES = ROOT / 'src/qbe/profiles'
 VENDOR = ROOT / 'vendor'
 CORE_DEFINES = {'ibex': 'IBEX', 'picorv32': 'PICO', 'serv': 'SERV', 'vexriscv': 'VEX'}
+CORES = tuple(CORE_DEFINES)
+BRAM_BYTES = 256 * 1024
+
+
+def write_bram_image(image, path):
+    if not 0 < len(image) <= BRAM_BYTES:
+        raise ValueError(f'BRAM image must contain 1 to {BRAM_BYTES} bytes')
+    padded = image.ljust(BRAM_BYTES, b'\0')
+    path.write_text(''.join(f"{int.from_bytes(padded[i:i + 8], 'little'):016x}\n"
+                            for i in range(0, BRAM_BYTES, 8)))
 
 
 def logged(command, log):
@@ -39,9 +45,9 @@ def riscv_image(core, name, work):
     elf = work / f'{name}.elf'
     binary = work / f'{name}.bin'
     if name == 'coremark':
-        sources = [coremark.PORT / 'kernels.c', *[
-            coremark.UPSTREAM / f'core_{part}.c' for part in ('list_join', 'matrix', 'state', 'util')]]
-        options = ['-DMDMA_RISCV_BENCH', '-I', coremark.PORT, '-I', coremark.UPSTREAM]
+        sources = [COREMARK_PORT / 'kernels.c', *[
+            COREMARK_UPSTREAM / f'core_{part}.c' for part in ('list_join', 'matrix', 'state', 'util')]]
+        options = ['-DMDMA_RISCV_BENCH', '-I', COREMARK_PORT, '-I', COREMARK_UPSTREAM]
     else:
         sources = [SOURCES[name]]
         options = []
@@ -55,7 +61,11 @@ def riscv_image(core, name, work):
 
 
 def rv_sources(core):
-    defines = ['-DMDMA_COMPARE_RISCV', f'-DMDMA_COMPARE_{CORE_DEFINES[core]}']
+    defines = [f'-DMDMA_COMPARE_{CORE_DEFINES[core]}']
+    ports = os.environ.get('MDMA_BRAM_PORTS', '1')
+    if ports not in ('1', '2'):
+        raise ValueError('MDMA_BRAM_PORTS must be 1 or 2')
+    defines.append(f'-DMDMA_BRAM_PORTS={ports}')
     if core == 'picorv32':
         upstream = [VENDOR / core / 'picorv32.v']
     elif core == 'serv':
@@ -78,7 +88,7 @@ def rv_sources(core):
     missing = [str(path) for path in upstream if not path.is_file()]
     if not upstream or missing:
         raise ValueError(f'missing {core} RTL: {", ".join(missing) or VENDOR / core}')
-    soc = [RTL / f'mdma_{name}.v' for name in ('ecp5', 'soc', 'bram', 'mmio', 'uart')]
+    soc = [HERE / name for name in ('board.v', 'mdma_soc.v', 'mdma_bram.v', 'mdma_mmio.v', 'mdma_uart.v')]
     return defines, [*upstream, *soc, HERE / 'riscv_cpu.sv', HERE / 'compare_top.v']
 
 
@@ -88,7 +98,7 @@ def rv_simulator(core, work):
     obj = work / 'obj'
     logged([os.environ.get('VERILATOR', 'verilator'), '--binary', '--timing', '-O3',
             '-CFLAGS', '-O3', '-j', '4', '-Wno-fatal', '--top-module', top, '--Mdir', obj,
-            *rtl_defines(), *defines, *sources, HERE / 'riscv_tb.sv'], work / 'sim-build.log')
+            *defines, *sources, HERE / 'riscv_tb.sv'], work / 'sim-build.log')
     return obj / f'V{top}'
 
 
@@ -104,61 +114,23 @@ def run_riscv(executable, image, name, work):
     return int(match[1]), int(match[2]), list(map(int, match[4].split()))
 
 
-def mdma_workload(name, work, rtl, executable):
-    if name == 'coremark':
-        inputs = coremark.compile_inputs(work)
-    else:
-        il = work / f'{name}.ssa'
-        subprocess.run([os.environ.get('CPROC', 'cproc'), '-emit-qbe', '-nostdinc',
-                        '-o', il, SOURCES[name]], check=True)
-        inputs = [il]
-    asm = subprocess.check_output([ROOT / 'build/qbe-mdma', '--schedule', PROFILES / 'ecp5.conf',
-                                  *inputs], text=True)
-    if name != 'coremark':
-        asm = mark_return(asm, coremark.exported('main'))
-    image, labels = coremark.assemble_with_labels(asm)
-    if name == 'coremark':
-        bounds = [labels[coremark.exported(f'coremark_{key}')] for key in ('iteration', 'timed_end')]
-        checks = {key: labels[coremark.exported(f'coremark_{key}_crc')] for key in coremark.CRCS}
-        expected = [*coremark.CRCS.values(), 0]
-    else:
-        bounds = [labels[coremark.exported('main')], labels[RETURN_MARKER]]
-        checks = dict.fromkeys(coremark.CRCS, labels['__mdma_result'])
-        expected = [EXPECTED.get(name, 0)] * 4
-    checks['result'] = labels['__mdma_result']
-    profile = {}
-    timed, total, values = coremark.ecp5(rtl, image, checks, *bounds, executable, profile=profile)
-    if values != expected:
-        raise ValueError(f'{name} MDMA result {values}, expected {expected}')
-    counters = [profile[key] for key in ('bram_instruction_reads', 'bram_data_reads',
-                                         'bram_data_writes', 'bram_instruction_port_wait')]
-    return image, timed, total, counters
-
-
 def route(core, image, work):
     path = work / 'bram.hex'
     write_bram_image(image, path)
     netlist = work / 'netlist.json'
     top = 'mdma_compare_top'
-    options = rtl_defines()
-    if core == 'mdma':
-        prepare(work)
-        sources = [*sorted(RTL.glob('*.v')), HERE / 'compare_top.v']
-        read = ['read_verilog', f'-I{work}', *options, *map(str, sources)]
-        read_command = ' '.join(read) + f'; chparam -set INIT_FILE "{path}" {top}'
-    else:
-        defines, sources = rv_sources(core)
-        if core == 'ibex':
-            # Slang rejects a dynamic initializer on this unused lint signal.
-            # A net declaration expresses the intended continuous assignment.
-            top_source = VENDOR / 'ibex/rtl/ibex_top.sv'
-            compatible = work / top_source.name
-            compatible.write_text(top_source.read_text().replace(
-                'logic unused_scramble_inputs =', 'wire unused_scramble_inputs ='))
-            sources[sources.index(top_source)] = compatible
-        read = ['read_slang', '--top', top, f'-G INIT_FILE="{path}"',
-                *options, *defines, *map(str, sources)]
-        read_command = ' '.join(read)
+    defines, sources = rv_sources(core)
+    if core == 'ibex':
+        # Slang rejects a dynamic initializer on this unused lint signal.
+        # A net declaration expresses the intended continuous assignment.
+        top_source = VENDOR / 'ibex/rtl/ibex_top.sv'
+        compatible = work / top_source.name
+        compatible.write_text(top_source.read_text().replace(
+            'logic unused_scramble_inputs =', 'wire unused_scramble_inputs ='))
+        sources[sources.index(top_source)] = compatible
+    read = ['read_slang', '--top', top, f'-G INIT_FILE="{path}"',
+            *defines, *map(str, sources)]
+    read_command = ' '.join(read)
     logged(['yosys', '-Q', '-T', '-p', f'{read_command}; synth_ecp5 -top {top} -json {netlist}'],
            work / 'synth.log')
     report = work / 'route.json'
@@ -177,19 +149,11 @@ def route(core, image, work):
 
 def run_core(core, names, work, timing):
     work.mkdir(parents=True, exist_ok=True)
-    if core == 'mdma':
-        rtl = work / 'rtl'
-        rtl.mkdir(exist_ok=True)
-        executable = coremark.build_ecp5(rtl)
-    else:
-        executable = rv_simulator(core, work)
+    executable = rv_simulator(core, work)
     results = {}
     for name in names:
-        if core == 'mdma':
-            image, timed, total, counters = mdma_workload(name, work, rtl, executable)
-        else:
-            image = riscv_image(core, name, work)
-            timed, total, counters = run_riscv(executable, image, name, work)
+        image = riscv_image(core, name, work)
+        timed, total, counters = run_riscv(executable, image, name, work)
         results[name] = {'image_bytes': len(image), 'total_clocks': total}
         if name == 'coremark':
             results[name].update(workload_clocks=timed, coremark_per_mhz=1_000_000 / timed,

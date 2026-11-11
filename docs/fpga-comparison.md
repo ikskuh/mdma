@@ -1,4 +1,4 @@
-# FPGA CPU comparison
+# RISC-V FPGA CPU comparison
 
 Initialize the submodules and generate the upstream cacheless VexRiscv
 configuration with Java and sbt. Yosys needs the `read_slang` frontend for
@@ -13,9 +13,9 @@ just compare-fpga --summary
 
 Use `RISCV_GCC` and `RISCV_OBJCOPY` to select a GCC toolchain with RV32
 multilibs. The default executable prefix is `riscv64-elf-`.
-`CPROC` selects the MDMA C frontend and `VERILATOR` selects the RTL
-simulator. `VEXRISCV_RTL` can point to an existing Verilog file from the
-same generator. Pass core names to build only those variants and use
+`VERILATOR` selects the RTL simulator. `VEXRISCV_RTL` can point to an
+existing Verilog file from the same generator. Pass core names to build
+only those variants and use
 `--coremark-only` to skip the C examples. Set `MDMA_ECP5_ROUTER` to select
 an alternate nextpnr router.
 
@@ -23,12 +23,12 @@ Each build uses the existing board SoC, UART, and 256 KiB byte-masked BRAM.
 The default is one shared RAM port with data requests taking priority. A
 32-bit adapter selects the appropriate half of each 64-bit response and
 maps write strobes to the correct byte lanes. The RISC-V startup and
-CoreMark driver write timing and exit markers through the adapter. MDMA
-uses its existing PC-based timing bench and a 1:1 math-to-CPU clock ratio.
+CoreMark driver write timing and exit markers through the adapter.
+`just rtl-test` checks the shared BRAM in both port modes.
+The [legacy MDMA measurements](ecp5-legacy-stats.md) are archived separately.
 
 | Core | Configuration | Compiler |
 | --- | --- | --- |
-| MDMA | Fast ALU mode 2 and the default instruction stream | cproc and QBE, ECP5 schedule |
 | Ibex | Fast multiply, branch target ALU, writeback stage, FF register file, no instruction cache | GCC `-O2 -march=rv32im -mabi=ilp32` |
 | PicoRV32 | Fast multiply, divide, barrel shifter | GCC `-O2 -march=rv32im -mabi=ilp32` |
 | SERV | One-bit datapath and SRAM register file, no MDU | GCC `-O2 -march=rv32i -mabi=ilp32`, with software multiply/divide |

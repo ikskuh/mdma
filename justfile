@@ -23,13 +23,15 @@ setup-venv:
     uv run python -c "import site, pathlib, sys; pathlib.Path(site.getsitepackages()[0], 'local.pth').write_text(sys.argv[1] + '\n')" "$PWD/src/pylibs"
 
 rtl-test:
-    "{{python}}" tests/rtl/run.py
-
-fpga-build:
-    src/rtl/build.sh
-
-rtl-benchmark:
-    "{{python}}" tests/rtl/run.py --benchmark
+    #!/usr/bin/env bash
+    set -euo pipefail
+    output_dir=$(mktemp -d)
+    trap 'rm -rf "$output_dir"' EXIT
+    for ports in 1 2; do
+        iverilog -g2012 -DMDMA_BRAM_PORTS="$ports" -s mdma_bram_tb -o "$output_dir/bram" \
+            src/benchmarks/compare/mdma_bram.v tests/rtl/mdma_bram_tb.v
+        vvp "$output_dir/bram"
+    done
 
 qbe-build:
     mkdir -p build
@@ -56,9 +58,6 @@ qbe-examples *names: qbe-build
 qbe-coremark *args: qbe-build
     "{{python}}" src/qbe/coremark/run.py {{args}}
 
-qbe-coremark-ecp5 *args: qbe-build
-    "{{python}}" src/qbe/coremark/run.py --ecp5 {{args}}
-
 report-status: qbe-build
     "{{python}}" src/qbe/report_status.py
 
@@ -67,5 +66,5 @@ vexriscv-rtl:
     mkdir -p build/compare
     cp vendor/vexriscv/VexRiscv.v build/compare/VexRiscv.v
 
-compare-fpga *args: qbe-build
+compare-fpga *args:
     "{{python}}" src/benchmarks/compare/run.py {{args}}

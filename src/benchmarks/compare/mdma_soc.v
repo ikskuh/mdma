@@ -2,7 +2,6 @@ module mdma_soc #(
     parameter INIT_FILE = ""
 ) (
     input wire clk, reset,
-    input wire [3:0] math_clk,
     output wire halted,
     output wire [3:0] fault,
     output wire [31:0] ticks,
@@ -33,12 +32,8 @@ module mdma_soc #(
             mmio_result <= mmio_data;
     end
 
-    `ifdef MDMA_COMPARE_RISCV
     mdma_compare_riscv cpu (
-    `else
-    mdma_cpu cpu (
-    `endif
-        .clk(clk), .reset(reset), .math_clk(math_clk),
+        .clk(clk), .reset(reset),
         .i_req_valid(i_valid), .i_req_addr(i_addr), .i_req_ready(i_ready),
         .i_rsp_valid(i_ram_reply || i_error), .i_rsp_error(i_error), .i_rsp_data(i_result),
         .d_req_valid(d_valid), .d_req_write(d_write), .d_req_addr(d_addr), .d_req_mask(d_mask),

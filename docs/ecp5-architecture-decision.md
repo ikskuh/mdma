@@ -6,6 +6,9 @@ the full CoreMark comparison image remains open.
 **Baseline** — `42a5a3a`, targeting the LFE5UM5G-85F-8BG381 with a 25 MHz
 CPU timing target.
 
+The [legacy statistics snapshot](ecp5-legacy-stats.md) records the
+measurements for the `ecp5-legacy` tag.
+
 ## Decision
 
 Keep the 64-bit datapath and instruction format, five registered transfer
@@ -147,7 +150,9 @@ of the 22.54 ns estimated delay. Other snapshots and seeds put the limiting
 path through replay, retirement, or redirect logic. The 64-way selector's
 LUT count describes only one part of those paths.
 
-## Reproduce the build
+## Reproduce the build at `ecp5-legacy`
+
+Run the following commands from a checkout of the `ecp5-legacy` tag.
 
 ```sh
 just rtl-test

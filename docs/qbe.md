@@ -28,7 +28,7 @@ halt use absolute `PC`.
 
 ## Scheduling
 
-Scheduling is enabled by default with the embedded ECP5 board profile.
+Scheduling is enabled by default with the embedded legacy ECP5 timing profile.
 The profile targets the default fast ALUs, with two CPU clocks from dispatch
 to dependent use and one request per clock.
 Use `--schedule PATH` to select another profile, such as
@@ -39,9 +39,9 @@ row per unit instance, in CPU clocks. `#` starts a comment. Latency measures
 from dispatch of the last operand to the first readable result. For
 `MEM_WRITE` it measures through the write acknowledgement. Issue interval
 estimates the steady-state spacing between requests accepted by the unit.
-The ECP5 profile assumes a 1:1 math-to-CPU clock ratio. Its memory estimates
-come from the SRAM design. The BRAM benchmarks retain the profile to compare
-identical machine code against that baseline.
+The legacy ECP5 profile assumes a 1:1 math-to-CPU clock ratio. Its memory
+estimates come from the SRAM design. The BRAM benchmarks at `ecp5-legacy`
+used the same profile to compare identical machine code against that baseline.
 
 STACK ordering is an architectural requirement. Later TOP reads observe the
 newest accepted, unpopped push, waiting for its data when needed. The compiler
@@ -223,30 +223,14 @@ and `0x8e3a`.
 It reports the ticks for the iteration and for the whole run separately.
 The simulator has a 50 million tick limit for the whole run.
 
-`just qbe-coremark-ecp5` runs the same workload on the ECP5 board RTL. It uses
-Verilator on PATH or through the `VERILATOR` environment variable. The
-testbench runs all clock domains at the same frequency and uses the 256 KiB
-on-chip BRAM. It measures CPU clocks between
-the iteration entry and a marker before the final CRC checks, then reports
-one million divided by that count as the RTL CoreMark/MHz estimate. This is
-a single-iteration kernel run.
-
-Each CoreMark recipe uses its matching profile by default. Pass
+The CoreMark recipe uses the simulator profile by default. Pass
 `--no-schedule` for the baseline or `--schedule PATH` for a custom profile.
-In the Python run, the same profile also sets simulator FU timings.
-The runner reports image size and code efficiency before timing the run.
+The profile also sets simulator FU timings. The runner reports image size
+and code efficiency before timing the run.
 
-`just report-status` rebuilds the QBE backend and builds one Verilator board
-model for all workloads. It compiles, assembles, and executes CoreMark and
-the C examples `sum_to(10)` and `mix_loop(32, 0x12345678, 0x9e3779b1)`.
-Each workload is scheduled for its target. The Python runs use
-`src/qbe/profiles/one-clock.conf`, setting every FU's latency and issue
-interval to one, including memory, multiplication, and division. The RTL
-runs use `src/qbe/profiles/ecp5.conf`.
-
-The final table includes workload clocks, total clocks from boot through
-halt, and both CoreMark/MHz scores. CoreMark/MHz uses the timed iteration,
-with one simulator tick counted as one CPU clock. Example workload clocks
-cover function entry through return to its caller. Every run checks the
-result, and CoreMark also checks all three CRCs. The external tool
-requirements are the same as for `just qbe-coremark-ecp5`.
+`just report-status` rebuilds the QBE backend and runs CoreMark,
+`sum_to(10)`, and `mix_loop(32, 0x12345678, 0x9e3779b1)` on the one-clock
+simulator. Its profile sets every FU latency and issue interval to one.
+The table includes workload clocks, total clocks, and CoreMark/MHz. Each
+run checks the result, and CoreMark checks all three CRCs. Historical RTL
+results are in the [legacy ECP5 statistics](ecp5-legacy-stats.md).

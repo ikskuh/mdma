@@ -9,14 +9,48 @@
 - Always invoke the versioned binary and mention it in the final response.
 - Set `ZIG_GLOBAL_CACHE_DIR` only when the user requests it.
 
+# ECP5 implementation
+
+- Put each functional unit in its own RTL file. Define its ports and
+  timing contract so that another implementation can be substituted at
+  the same interface.
+- Test, synthesize, place, and route every individual component in
+  isolation. Expose its inputs and outputs as top-level pins in the
+  isolated build so synthesis keeps the full unit live.
+- Record synthesis and placement metrics at every integration level,
+  from isolated components through subsystems to the complete design.
+- For each changed unit, report resource usage by resource type, routed
+  Fmax, and synthesis time. Use matching build settings for the baseline
+  and the new version. Report the old and new absolute values, then the
+  signed absolute and percentage changes. Example format is
+  `old 20, new 40, delta +20 (+100%)`. Mark the percentage change as
+  undefined when the old value is zero.
+- Acceptance requires successful placement and routing of the solution
+  and generation of its FPGA bitstream.
+
+# Refactoring and root-cause analysis
+
+- Refactor end to end. Trace the affected behavior from its entry points
+  through its implementation and callers, then address the issue across
+  the full path.
+- This repository is pre-production. Backward compatibility is optional
+  across interfaces, formats, and workflows.
+- For every issue, consider whether a broader refactor would resolve the
+  underlying problem. If it would, explain the scope and tradeoffs and
+  clarify the direction with the operator before proceeding.
+- Perform a root-cause analysis for every issue. Gather evidence, trace
+  the failure to its source, and verify the explanation where possible.
+  When the cause remains uncertain, state the evidence-backed hypothesis
+  and how to test it.
+
 # Task completion report
 
 After completing every task that changed code, run `just report-status` against the final code
 and present its report in the final response. Include the workload and total
 clock counts for CoreMark, `sum_to`, and `mix_loop` on the one-clock simulator
-and ECP5 RTL, together with both CoreMark/MHz scores.
+and its CoreMark/MHz score. Historical MDMA RTL measurements are in
+`docs/ecp5-legacy-stats.md`.
 
-Use the `CPROC`, `VERILATOR`, and `VERILATOR_ROOT` environment variables when
-the external tools need explicit paths. If the command fails, report the
+Use `CPROC` when the compiler needs an explicit path. If the command fails, report the
 failure and its cause. Present fresh measurements from the current task.
 

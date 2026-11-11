@@ -142,9 +142,9 @@ Run assembled binary images with `python src/simulator/simulator.py program.bin`
 End programs with `CONST -> PC [imm=-1]`. See [the simulator reference](docs/simulator.md)
 for timing, memory, and CLI options.
 
-The ECP5 Verilog softcore runs the same behavior fixtures.
-[FPGA build, interfaces, and timing](docs/fpga.md)
-· [ECP5 architecture decisions](docs/ecp5-architecture-decision.md)
+The [legacy ECP5 architecture and measurements](docs/ecp5-architecture-decision.md)
+document the core preserved at the `ecp5-legacy` tag. The
+[RISC-V FPGA benchmarks](docs/fpga-comparison.md) use the shared board SoC.
 
 The standalone QBE backend emits MDMA assembly and can validate the CoreMark
 kernels in the simulator. [QBE backend and CoreMark validation](docs/qbe.md)

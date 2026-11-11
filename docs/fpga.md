@@ -1,4 +1,8 @@
-# MDMA softcore
+# Legacy MDMA ECP5 softcore
+
+This reference describes the MDMA RTL and commands at the `ecp5-legacy`
+tag. The [RISC-V benchmark](fpga-comparison.md) uses the shared board SoC
+from the current checkout.
 
 The [ECP5 architecture decision record](ecp5-architecture-decision.md)
 summarizes the current design, measured tradeoffs, and timing status.

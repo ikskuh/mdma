@@ -1,7 +1,6 @@
 // Adapt RV32 transfers to the existing byte-masked, 64-bit SoC ports.
 module mdma_compare_riscv (
     input wire clk, reset,
-    input wire [3:0] math_clk,
     output wire i_req_valid,
     output wire [63:0] i_req_addr,
     input wire i_req_ready, i_rsp_valid, i_rsp_error,

@@ -1,0 +1,5583 @@
+{
+  "git_tag": "ecp5-legacy",
+  "git_commit": "8d16c177e0463f24031dceab152c216ac1b9d80b",
+  "capture_date": "2026-11-11",
+  "coremark_vendor_commit": "cfa9ab377835911f23d9b0831c7be302ed1f58de",
+  "cproc_base_commit": "d1c53ddf56571573a7025324c8dd5c6d547a4d1f",
+  "target": "LFE5UM5G-85F-8BG381",
+  "placement_target_mhz": 25,
+  "board_bram_bytes": 262144,
+  "coremark_expected_crc": {
+    "list": "e714",
+    "matrix": "1fd7",
+    "state": "8e3a"
+  },
+  "tools": {
+    "yosys": "0.69+150 (0d3483f04)",
+    "nextpnr-ecp5": "0.11.1-31-g3edea68e",
+    "verilator": "5.054",
+    "iverilog": "13.0 (v13_0-dirty)"
+  },
+  "coremark_board_image": {
+    "unpadded_sha256": "98af12770723b47bfadc4adf022ad98e02a752618dc61a0d909ad3f7998b4013",
+    "padded_binary_sha256": "63093669f61daeb9bccf82977cdb0c4eba5c00b749b7ca810e13d48ccabde756"
+  },
+  "coremark_static_encoding": {
+    "Simulator, one clock": {
+      "image_sha256": "38f0739990dfba44361767e0aa4edc0dab5f43012a8991d940ea26cc167811d4",
+      "bundles": 3645,
+      "immediate_modes": {
+        "inline_unsigned": 678,
+        "extended": 410,
+        "inline_signed": 352,
+        "default": 2205
+      },
+      "explicit_move_histogram": {
+        "1": 1825,
+        "2": 689,
+        "3": 663,
+        "4": 322,
+        "5": 146
+      },
+      "instruction_tags": {
+        "synchronized": 1291,
+        "relative": 280,
+        "predicated": 126
+      },
+      "data_words": 315,
+      "padding_bytes": 16,
+      "source_uses": {
+        "CONST": 1576,
+        "STASH_A.OUT": 977,
+        "STASH_B.OUT": 954,
+        "STASH_C.OUT": 665,
+        "ZERO": 479,
+        "MEM.CHUNK": 403,
+        "STASH_D.OUT": 389,
+        "ARITH_A.ADD": 301,
+        "UNPACK.VALUE": 254,
+        "ARITH_B.ADD": 242,
+        "STACK_A.TOP": 169,
+        "LOGIC_A.AND": 124,
+        "STACK_B.TOP": 70,
+        "PACK.ADDR": 62,
+        "PACK.CHUNK": 62,
+        "PACK.MASK": 62,
+        "PC_NEXT": 55,
+        "SHIFT_A.LSL": 47,
+        "CMP.LT": 46,
+        "LOGIC_B.AND": 44,
+        "CMP.EQ": 27,
+        "MUL.LO": 23,
+        "ARITH_A.SUB": 21,
+        "STASH_A": 20,
+        "SHIFT_A.LSR": 20,
+        "SHIFT_B.LSL": 17,
+        "STASH_D": 16,
+        "LOGIC_A.OR": 14,
+        "CMP.LTE": 12,
+        "STASH_B": 8,
+        "CMP.NE": 8,
+        "CMP.LTS": 7,
+        "LOGIC_A.XOR": 6,
+        "UOP_A.NEG": 6,
+        "SHIFT_B.LSR": 5,
+        "SHIFT_B.ASR": 4,
+        "CMP.LTES": 4,
+        "SEL_A.OUT": 3,
+        "UOP_A.NOT": 3,
+        "DIV.QUO": 2,
+        "DIVS.QUO": 1,
+        "DIVS.REM": 1,
+        "UOP_B.NEG": 1
+      },
+      "sink_uses": {
+        "STASH_A.IN": 716,
+        "STASH_B.IN": 667,
+        "STASH_C.IN": 469,
+        "MEM.READ": 398,
+        "ARITH_A.LHS": 316,
+        "ARITH_A.RHS": 316,
+        "STASH_D.IN": 264,
+        "MEM.WRITE": 263,
+        "MEM.CHUNK": 263,
+        "MEM.MASK": 263,
+        "ARITH_B.LHS": 242,
+        "ARITH_B.RHS": 242,
+        "UNPACK.CHUNK": 241,
+        "UNPACK.ADDR": 241,
+        "UNPACK.TYPE": 241,
+        "CPU.DISCARD": 219,
+        "STACK_A.PUSH": 169,
+        "CPU.PC_REL": 145,
+        "LOGIC_A.LHS": 136,
+        "LOGIC_A.RHS": 136,
+        "PC_REL": 135,
+        "CPU.COND": 123,
+        "CMP.LHS": 104,
+        "CMP.RHS": 104,
+        "STACK_B.PUSH": 78,
+        "SHIFT_A.VAL": 67,
+        "SHIFT_A.CNT": 67,
+        "PACK.ADDR": 62,
+        "PACK.TYPE": 62,
+        "PACK.VALUE": 62,
+        "LOGIC_B.LHS": 43,
+        "LOGIC_B.RHS": 43,
+        "STASH_D": 37,
+        "CPU.PC": 35,
+        "STASH_B": 35,
+        "STASH_A": 30,
+        "SHIFT_B.VAL": 26,
+        "SHIFT_B.CNT": 26,
+        "STASH_C": 24,
+        "MUL.LHS": 23,
+        "MUL.RHS": 23,
+        "PC": 14,
+        "DISCARD": 10,
+        "UOP_A.IN": 9,
+        "SEL_A.COND": 3,
+        "SEL_A.TRUE": 3,
+        "SEL_A.FALSE": 3,
+        "COND": 3,
+        "DIVS.LHS": 2,
+        "DIVS.RHS": 2,
+        "DIV.LHS": 2,
+        "DIV.RHS": 2,
+        "UOP_B.IN": 1
+      }
+    },
+    "ECP5 RTL": {
+      "image_sha256": "98af12770723b47bfadc4adf022ad98e02a752618dc61a0d909ad3f7998b4013",
+      "bundles": 3971,
+      "immediate_modes": {
+        "inline_unsigned": 707,
+        "extended": 349,
+        "inline_signed": 384,
+        "default": 2531
+      },
+      "explicit_move_histogram": {
+        "1": 2108,
+        "2": 799,
+        "3": 785,
+        "4": 237,
+        "5": 42
+      },
+      "instruction_tags": {
+        "synchronized": 1251,
+        "relative": 280,
+        "predicated": 126
+      },
+      "data_words": 315,
+      "padding_bytes": 8,
+      "source_uses": {
+        "CONST": 1576,
+        "STASH_A.OUT": 983,
+        "STASH_B.OUT": 949,
+        "STASH_C.OUT": 670,
+        "ZERO": 476,
+        "MEM.CHUNK": 403,
+        "STASH_D.OUT": 393,
+        "ARITH_A.ADD": 296,
+        "UNPACK.VALUE": 254,
+        "ARITH_B.ADD": 248,
+        "STACK_A.TOP": 170,
+        "LOGIC_A.AND": 120,
+        "STACK_B.TOP": 70,
+        "PACK.ADDR": 62,
+        "PACK.CHUNK": 62,
+        "PACK.MASK": 62,
+        "PC_NEXT": 55,
+        "LOGIC_B.AND": 48,
+        "CMP.LT": 46,
+        "SHIFT_A.LSL": 44,
+        "CMP.EQ": 27,
+        "MUL.LO": 23,
+        "ARITH_A.SUB": 21,
+        "STASH_A": 20,
+        "SHIFT_B.LSL": 20,
+        "STASH_D": 16,
+        "SHIFT_A.LSR": 15,
+        "LOGIC_A.OR": 14,
+        "CMP.LTE": 12,
+        "SHIFT_B.LSR": 10,
+        "STASH_B": 8,
+        "CMP.NE": 8,
+        "CMP.LTS": 7,
+        "LOGIC_A.XOR": 6,
+        "UOP_A.NEG": 6,
+        "SHIFT_B.ASR": 4,
+        "CMP.LTES": 4,
+        "SEL_A.OUT": 3,
+        "UOP_A.NOT": 3,
+        "DIV.QUO": 2,
+        "DIVS.QUO": 1,
+        "DIVS.REM": 1,
+        "UOP_B.NEG": 1
+      },
+      "sink_uses": {
+        "STASH_A.IN": 722,
+        "STASH_B.IN": 662,
+        "STASH_C.IN": 474,
+        "MEM.READ": 398,
+        "ARITH_A.LHS": 310,
+        "ARITH_A.RHS": 310,
+        "STASH_D.IN": 269,
+        "MEM.WRITE": 263,
+        "MEM.CHUNK": 263,
+        "MEM.MASK": 263,
+        "ARITH_B.LHS": 248,
+        "ARITH_B.RHS": 248,
+        "UNPACK.CHUNK": 238,
+        "UNPACK.ADDR": 238,
+        "UNPACK.TYPE": 238,
+        "CPU.DISCARD": 219,
+        "STACK_A.PUSH": 170,
+        "CPU.PC_REL": 145,
+        "PC_REL": 135,
+        "LOGIC_A.LHS": 134,
+        "LOGIC_A.RHS": 134,
+        "CPU.COND": 123,
+        "CMP.LHS": 104,
+        "CMP.RHS": 104,
+        "STACK_B.PUSH": 78,
+        "PACK.ADDR": 62,
+        "PACK.TYPE": 62,
+        "PACK.VALUE": 62,
+        "SHIFT_A.VAL": 59,
+        "SHIFT_A.CNT": 59,
+        "LOGIC_B.LHS": 48,
+        "LOGIC_B.RHS": 48,
+        "STASH_D": 37,
+        "CPU.PC": 35,
+        "STASH_B": 35,
+        "SHIFT_B.VAL": 34,
+        "SHIFT_B.CNT": 34,
+        "STASH_A": 30,
+        "STASH_C": 24,
+        "MUL.LHS": 23,
+        "MUL.RHS": 23,
+        "PC": 14,
+        "DISCARD": 10,
+        "UOP_A.IN": 9,
+        "SEL_A.COND": 3,
+        "SEL_A.TRUE": 3,
+        "SEL_A.FALSE": 3,
+        "COND": 3,
+        "DIVS.LHS": 2,
+        "DIVS.RHS": 2,
+        "DIV.LHS": 2,
+        "DIV.RHS": 2,
+        "UOP_B.IN": 1
+      }
+    }
+  },
+  "one_clock_coremark_clocks_by_function": {
+    "core_state_transition": {
+      "clocks": 197640,
+      "instructions": 197640
+    },
+    "matrix_mul_matrix_bitextract": {
+      "clocks": 168140,
+      "instructions": 168140
+    },
+    "matrix_mul_matrix": {
+      "clocks": 136064,
+      "instructions": 136064
+    },
+    "core_list_find": {
+      "clocks": 91781,
+      "instructions": 91781
+    },
+    "matrix_sum": {
+      "clocks": 63064,
+      "instructions": 63064
+    },
+    "core_bench_state": {
+      "clocks": 59486,
+      "instructions": 59486
+    },
+    "core_list_mergesort": {
+      "clocks": 52963,
+      "instructions": 52963
+    },
+    "crcu8": {
+      "clocks": 43800,
+      "instructions": 43800
+    },
+    "core_bench_list": {
+      "clocks": 31501,
+      "instructions": 31501
+    },
+    "core_list_reverse": {
+      "clocks": 25296,
+      "instructions": 25296
+    },
+    "matrix_add_const": {
+      "clocks": 14352,
+      "instructions": 14352
+    },
+    "matrix_mul_vect": {
+      "clocks": 10520,
+      "instructions": 10520
+    },
+    "matrix_mul_const": {
+      "clocks": 8288,
+      "instructions": 8288
+    },
+    "cmp_idx": {
+      "clocks": 6479,
+      "instructions": 6479
+    },
+    "calc_func": {
+      "clocks": 6166,
+      "instructions": 6166
+    },
+    "cmp_complex": {
+      "clocks": 3630,
+      "instructions": 3630
+    },
+    "crcu16": {
+      "clocks": 2336,
+      "instructions": 2336
+    },
+    "crcu32": {
+      "clocks": 1472,
+      "instructions": 1472
+    },
+    "crc16": {
+      "clocks": 1310,
+      "instructions": 1310
+    },
+    "matrix_test": {
+      "clocks": 1204,
+      "instructions": 1204
+    },
+    "core_bench_matrix": {
+      "clocks": 116,
+      "instructions": 116
+    },
+    "coremark_iteration": {
+      "clocks": 79,
+      "instructions": 79
+    },
+    "core_list_remove": {
+      "clocks": 22,
+      "instructions": 22
+    },
+    "core_list_undo_remove": {
+      "clocks": 20,
+      "instructions": 20
+    },
+    "main": {
+      "clocks": 12,
+      "instructions": 12
+    }
+  },
+  "runtime_variants": {
+    "default": {
+      "alu_mode": 2,
+      "bram_ports": 1,
+      "stream_words": 16,
+      "ahead_words": 8,
+      "workloads": {
+        "CoreMark": {
+          "Simulator, one clock": {
+            "image_bytes": 34976,
+            "move_slots": 20275,
+            "unused_move_slots": 9985,
+            "move_density_percent": 50.75,
+            "workload_clocks": 925741,
+            "total_clocks": 973584,
+            "coremark_per_mhz": 1.08021574,
+            "used_move_slots": 10290
+          },
+          "ECP5 RTL": {
+            "profile": {
+              "clocks": 2303676,
+              "cache_enabled": 0,
+              "bram_ports": 1,
+              "const_stall": 15453,
+              "instruction_stall": 198104,
+              "redirect_stall": 157299,
+              "execute_wait": 816949,
+              "decode_bubble": 100529,
+              "const_fifo_empty": 335,
+              "const_stall_events": 15118,
+              "instruction_stall_events": 66042,
+              "empty_execute": 455932,
+              "retired": 1015342,
+              "waiting": 832402,
+              "fetch_unready": 355403,
+              "fetch_ready": 100529,
+              "redirects": 99074,
+              "bram_instruction_reads": 1552815,
+              "bram_data_reads": 83941,
+              "bram_data_writes": 35054,
+              "bram_instruction_port_wait": 56247,
+              "stream_full": 0,
+              "stream_highwater": 15,
+              "constant_wait": 22660,
+              "stream_words": 16,
+              "ahead_words": 8,
+              "resident_redirect_hits": 26355,
+              "resident_redirect_misses": 72719,
+              "history_evictions": 635199,
+              "window_full": 1204268,
+              "redirects_admitted": 99074,
+              "redirect_to_admit_total": 489146,
+              "redirect_to_admit_max": 7
+            },
+            "image_bytes": 37088,
+            "move_slots": 21600,
+            "unused_move_slots": 11545,
+            "move_density_percent": 46.55,
+            "workload_clocks": 2303676,
+            "total_clocks": 2419245,
+            "coremark_per_mhz": 0.43408882,
+            "used_move_slots": 10055,
+            "derived": {
+              "instructions_per_clock": 0.4407486122180376,
+              "clocks_per_instruction": 2.268867041844029,
+              "resident_redirect_miss_fraction": 0.7339867169994145,
+              "average_redirect_to_admit_clocks": 4.937178270787492,
+              "clock_category_fractions": {
+                "retired": 0.4407486122180376,
+                "const_stall": 0.006707974558922349,
+                "instruction_stall": 0.08599473189806206,
+                "redirect_stall": 0.06828173753600766,
+                "execute_wait": 0.35462842865055677,
+                "decode_bubble": 0.04363851513841356
+              }
+            }
+          }
+        },
+        "sum_to(10)": {
+          "Simulator, one clock": {
+            "image_bytes": 112,
+            "move_slots": 60,
+            "unused_move_slots": 24,
+            "move_density_percent": 60.0,
+            "workload_clocks": 25,
+            "total_clocks": 31,
+            "used_move_slots": 36
+          },
+          "ECP5 RTL": {
+            "profile": {
+              "clocks": 58,
+              "cache_enabled": 0,
+              "bram_ports": 1,
+              "const_stall": 0,
+              "instruction_stall": 0,
+              "redirect_stall": 10,
+              "execute_wait": 12,
+              "decode_bubble": 11,
+              "const_fifo_empty": 0,
+              "const_stall_events": 0,
+              "instruction_stall_events": 0,
+              "empty_execute": 21,
+              "retired": 25,
+              "waiting": 12,
+              "fetch_unready": 10,
+              "fetch_ready": 11,
+              "redirects": 11,
+              "bram_instruction_reads": 13,
+              "bram_data_reads": 0,
+              "bram_data_writes": 0,
+              "bram_instruction_port_wait": 0,
+              "stream_full": 0,
+              "stream_highwater": 15,
+              "constant_wait": 0,
+              "stream_words": 16,
+              "ahead_words": 8,
+              "resident_redirect_hits": 11,
+              "resident_redirect_misses": 0,
+              "history_evictions": 0,
+              "window_full": 40,
+              "redirects_admitted": 11,
+              "redirect_to_admit_total": 22,
+              "redirect_to_admit_max": 2
+            },
+            "image_bytes": 112,
+            "move_slots": 60,
+            "unused_move_slots": 24,
+            "move_density_percent": 60.0,
+            "workload_clocks": 58,
+            "total_clocks": 96,
+            "used_move_slots": 36,
+            "derived": {
+              "instructions_per_clock": 0.43103448275862066,
+              "clocks_per_instruction": 2.32,
+              "resident_redirect_miss_fraction": 0.0,
+              "average_redirect_to_admit_clocks": 2.0,
+              "clock_category_fractions": {
+                "retired": 0.43103448275862066,
+                "const_stall": 0.0,
+                "instruction_stall": 0.0,
+                "redirect_stall": 0.1724137931034483,
+                "execute_wait": 0.20689655172413793,
+                "decode_bubble": 0.1896551724137931
+              }
+            }
+          }
+        },
+        "mix_loop(32, 0x12345678, 0x9e3779b1)": {
+          "Simulator, one clock": {
+            "image_bytes": 288,
+            "move_slots": 170,
+            "unused_move_slots": 79,
+            "move_density_percent": 53.53,
+            "workload_clocks": 456,
+            "total_clocks": 464,
+            "used_move_slots": 91
+          },
+          "ECP5 RTL": {
+            "profile": {
+              "clocks": 1567,
+              "cache_enabled": 0,
+              "bram_ports": 1,
+              "const_stall": 0,
+              "instruction_stall": 195,
+              "redirect_stall": 161,
+              "execute_wait": 658,
+              "decode_bubble": 97,
+              "const_fifo_empty": 0,
+              "const_stall_events": 0,
+              "instruction_stall_events": 65,
+              "empty_execute": 453,
+              "retired": 456,
+              "waiting": 658,
+              "fetch_unready": 356,
+              "fetch_ready": 97,
+              "redirects": 97,
+              "bram_instruction_reads": 860,
+              "bram_data_reads": 0,
+              "bram_data_writes": 0,
+              "bram_instruction_port_wait": 0,
+              "stream_full": 0,
+              "stream_highwater": 13,
+              "constant_wait": 0,
+              "stream_words": 16,
+              "ahead_words": 8,
+              "resident_redirect_hits": 32,
+              "resident_redirect_misses": 65,
+              "history_evictions": 144,
+              "window_full": 720,
+              "redirects_admitted": 97,
+              "redirect_to_admit_total": 454,
+              "redirect_to_admit_max": 6
+            },
+            "image_bytes": 288,
+            "move_slots": 170,
+            "unused_move_slots": 79,
+            "move_density_percent": 53.53,
+            "workload_clocks": 1567,
+            "total_clocks": 1609,
+            "used_move_slots": 91,
+            "derived": {
+              "instructions_per_clock": 0.2910019144862795,
+              "clocks_per_instruction": 3.43640350877193,
+              "resident_redirect_miss_fraction": 0.6701030927835051,
+              "average_redirect_to_admit_clocks": 4.680412371134021,
+              "clock_category_fractions": {
+                "retired": 0.2910019144862795,
+                "const_stall": 0.0,
+                "instruction_stall": 0.1244416081684748,
+                "redirect_stall": 0.10274409700063816,
+                "execute_wait": 0.419910657306956,
+                "decode_bubble": 0.06190172303765156
+              }
+            }
+          }
+        }
+      }
+    },
+    "alu0": {
+      "alu_mode": 0,
+      "bram_ports": 1,
+      "stream_words": 16,
+      "ahead_words": 8,
+      "workloads": {
+        "CoreMark": {
+          "Simulator, one clock": {
+            "image_bytes": 34976,
+            "move_slots": 20275,
+            "unused_move_slots": 9985,
+            "move_density_percent": 50.75,
+            "workload_clocks": 925741,
+            "total_clocks": 973584,
+            "coremark_per_mhz": 1.08021574,
+            "used_move_slots": 10290
+          },
+          "ECP5 RTL": {
+            "profile": {
+              "clocks": 3068948,
+              "cache_enabled": 0,
+              "bram_ports": 1,
+              "const_stall": 5220,
+              "instruction_stall": 184296,
+              "redirect_stall": 142547,
+              "execute_wait": 1619805,
+              "decode_bubble": 101738,
+              "const_fifo_empty": 16,
+              "const_stall_events": 5204,
+              "instruction_stall_events": 63950,
+              "empty_execute": 428581,
+              "retired": 1015342,
+              "waiting": 1625025,
+              "fetch_unready": 326843,
+              "fetch_ready": 101738,
+              "redirects": 99074,
+              "bram_instruction_reads": 1627240,
+              "bram_data_reads": 83941,
+              "bram_data_writes": 35054,
+              "bram_instruction_port_wait": 53756,
+              "stream_full": 320,
+              "stream_highwater": 16,
+              "constant_wait": 17178,
+              "stream_words": 16,
+              "ahead_words": 8,
+              "resident_redirect_hits": 28527,
+              "resident_redirect_misses": 70547,
+              "history_evictions": 692737,
+              "window_full": 1977538,
+              "redirects_admitted": 99074,
+              "redirect_to_admit_total": 480450,
+              "redirect_to_admit_max": 7
+            },
+            "image_bytes": 37088,
+            "move_slots": 21600,
+            "unused_move_slots": 11545,
+            "move_density_percent": 46.55,
+            "workload_clocks": 3068948,
+            "total_clocks": 3218856,
+            "coremark_per_mhz": 0.32584456,
+            "used_move_slots": 10055,
+            "derived": {
+              "instructions_per_clock": 0.3308436636919231,
+              "clocks_per_instruction": 3.022575644462654,
+              "resident_redirect_miss_fraction": 0.7120637099541757,
+              "average_redirect_to_admit_clocks": 4.849405494882613,
+              "clock_category_fractions": {
+                "retired": 0.3308436636919231,
+                "const_stall": 0.0017009085849613614,
+                "instruction_stall": 0.06005184838583123,
+                "redirect_stall": 0.046448163996261914,
+                "execute_wait": 0.5278046418512141,
+                "decode_bubble": 0.03315077348980824
+              }
+            }
+          }
+        },
+        "sum_to(10)": {
+          "Simulator, one clock": {
+            "image_bytes": 112,
+            "move_slots": 60,
+            "unused_move_slots": 24,
+            "move_density_percent": 60.0,
+            "workload_clocks": 25,
+            "total_clocks": 31,
+            "used_move_slots": 36
+          },
+          "ECP5 RTL": {
+            "profile": {
+              "clocks": 76,
+              "cache_enabled": 0,
+              "bram_ports": 1,
+              "const_stall": 0,
+              "instruction_stall": 0,
+              "redirect_stall": 0,
+              "execute_wait": 51,
+              "decode_bubble": 0,
+              "const_fifo_empty": 0,
+              "const_stall_events": 0,
+              "instruction_stall_events": 0,
+              "empty_execute": 0,
+              "retired": 25,
+              "waiting": 51,
+              "fetch_unready": 0,
+              "fetch_ready": 0,
+              "redirects": 11,
+              "bram_instruction_reads": 13,
+              "bram_data_reads": 0,
+              "bram_data_writes": 0,
+              "bram_instruction_port_wait": 0,
+              "stream_full": 0,
+              "stream_highwater": 15,
+              "constant_wait": 0,
+              "stream_words": 16,
+              "ahead_words": 8,
+              "resident_redirect_hits": 11,
+              "resident_redirect_misses": 0,
+              "history_evictions": 0,
+              "window_full": 60,
+              "redirects_admitted": 11,
+              "redirect_to_admit_total": 34,
+              "redirect_to_admit_max": 4
+            },
+            "image_bytes": 112,
+            "move_slots": 60,
+            "unused_move_slots": 24,
+            "move_density_percent": 60.0,
+            "workload_clocks": 76,
+            "total_clocks": 114,
+            "used_move_slots": 36,
+            "derived": {
+              "instructions_per_clock": 0.32894736842105265,
+              "clocks_per_instruction": 3.04,
+              "resident_redirect_miss_fraction": 0.0,
+              "average_redirect_to_admit_clocks": 3.090909090909091,
+              "clock_category_fractions": {
+                "retired": 0.32894736842105265,
+                "const_stall": 0.0,
+                "instruction_stall": 0.0,
+                "redirect_stall": 0.0,
+                "execute_wait": 0.6710526315789473,
+                "decode_bubble": 0.0
+              }
+            }
+          }
+        },
+        "mix_loop(32, 0x12345678, 0x9e3779b1)": {
+          "Simulator, one clock": {
+            "image_bytes": 288,
+            "move_slots": 170,
+            "unused_move_slots": 79,
+            "move_density_percent": 53.53,
+            "workload_clocks": 456,
+            "total_clocks": 464,
+            "used_move_slots": 91
+          },
+          "ECP5 RTL": {
+            "profile": {
+              "clocks": 2114,
+              "cache_enabled": 0,
+              "bram_ports": 1,
+              "const_stall": 0,
+              "instruction_stall": 161,
+              "redirect_stall": 80,
+              "execute_wait": 1336,
+              "decode_bubble": 81,
+              "const_fifo_empty": 0,
+              "const_stall_events": 0,
+              "instruction_stall_events": 65,
+              "empty_execute": 322,
+              "retired": 456,
+              "waiting": 1336,
+              "fetch_unready": 241,
+              "fetch_ready": 81,
+              "redirects": 97,
+              "bram_instruction_reads": 895,
+              "bram_data_reads": 0,
+              "bram_data_writes": 0,
+              "bram_instruction_port_wait": 0,
+              "stream_full": 0,
+              "stream_highwater": 14,
+              "constant_wait": 0,
+              "stream_words": 16,
+              "ahead_words": 8,
+              "resident_redirect_hits": 32,
+              "resident_redirect_misses": 65,
+              "history_evictions": 176,
+              "window_full": 1264,
+              "redirects_admitted": 97,
+              "redirect_to_admit_total": 470,
+              "redirect_to_admit_max": 6
+            },
+            "image_bytes": 288,
+            "move_slots": 170,
+            "unused_move_slots": 79,
+            "move_density_percent": 53.53,
+            "workload_clocks": 2114,
+            "total_clocks": 2156,
+            "used_move_slots": 91,
+            "derived": {
+              "instructions_per_clock": 0.21570482497634816,
+              "clocks_per_instruction": 4.635964912280702,
+              "resident_redirect_miss_fraction": 0.6701030927835051,
+              "average_redirect_to_admit_clocks": 4.845360824742268,
+              "clock_category_fractions": {
+                "retired": 0.21570482497634816,
+                "const_stall": 0.0,
+                "instruction_stall": 0.076158940397351,
+                "redirect_stall": 0.03784295175023652,
+                "execute_wait": 0.6319772942289499,
+                "decode_bubble": 0.038315988647114475
+              }
+            }
+          }
+        }
+      }
+    },
+    "alu1": {
+      "alu_mode": 1,
+      "bram_ports": 1,
+      "stream_words": 16,
+      "ahead_words": 8,
+      "workloads": {
+        "CoreMark": {
+          "Simulator, one clock": {
+            "image_bytes": 34976,
+            "move_slots": 20275,
+            "unused_move_slots": 9985,
+            "move_density_percent": 50.75,
+            "workload_clocks": 925741,
+            "total_clocks": 973584,
+            "coremark_per_mhz": 1.08021574,
+            "used_move_slots": 10290
+          },
+          "ECP5 RTL": {
+            "profile": {
+              "clocks": 2324123,
+              "cache_enabled": 0,
+              "bram_ports": 1,
+              "const_stall": 15453,
+              "instruction_stall": 198104,
+              "redirect_stall": 157299,
+              "execute_wait": 837396,
+              "decode_bubble": 100529,
+              "const_fifo_empty": 335,
+              "const_stall_events": 15118,
+              "instruction_stall_events": 66042,
+              "empty_execute": 455932,
+              "retired": 1015342,
+              "waiting": 852849,
+              "fetch_unready": 355403,
+              "fetch_ready": 100529,
+              "redirects": 99074,
+              "bram_instruction_reads": 1557791,
+              "bram_data_reads": 83941,
+              "bram_data_writes": 35054,
+              "bram_instruction_port_wait": 55275,
+              "stream_full": 0,
+              "stream_highwater": 15,
+              "constant_wait": 22660,
+              "stream_words": 16,
+              "ahead_words": 8,
+              "resident_redirect_hits": 26355,
+              "resident_redirect_misses": 72719,
+              "history_evictions": 639883,
+              "window_full": 1224423,
+              "redirects_admitted": 99074,
+              "redirect_to_admit_total": 489146,
+              "redirect_to_admit_max": 7
+            },
+            "image_bytes": 37088,
+            "move_slots": 21600,
+            "unused_move_slots": 11545,
+            "move_density_percent": 46.55,
+            "workload_clocks": 2324123,
+            "total_clocks": 2440389,
+            "coremark_per_mhz": 0.43026983,
+            "used_move_slots": 10055,
+            "derived": {
+              "instructions_per_clock": 0.4368710261892335,
+              "clocks_per_instruction": 2.2890050840012526,
+              "resident_redirect_miss_fraction": 0.7339867169994145,
+              "average_redirect_to_admit_clocks": 4.937178270787492,
+              "clock_category_fractions": {
+                "retired": 0.4368710261892335,
+                "const_stall": 0.006648959629072988,
+                "instruction_stall": 0.08523817371111597,
+                "redirect_stall": 0.06768101344033857,
+                "execute_wait": 0.36030623164092435,
+                "decode_bubble": 0.043254595389314594
+              }
+            }
+          }
+        },
+        "sum_to(10)": {
+          "Simulator, one clock": {
+            "image_bytes": 112,
+            "move_slots": 60,
+            "unused_move_slots": 24,
+            "move_density_percent": 60.0,
+            "workload_clocks": 25,
+            "total_clocks": 31,
+            "used_move_slots": 36
+          },
+          "ECP5 RTL": {
+            "profile": {
+              "clocks": 58,
+              "cache_enabled": 0,
+              "bram_ports": 1,
+              "const_stall": 0,
+              "instruction_stall": 0,
+              "redirect_stall": 10,
+              "execute_wait": 12,
+              "decode_bubble": 11,
+              "const_fifo_empty": 0,
+              "const_stall_events": 0,
+              "instruction_stall_events": 0,
+              "empty_execute": 21,
+              "retired": 25,
+              "waiting": 12,
+              "fetch_unready": 10,
+              "fetch_ready": 11,
+              "redirects": 11,
+              "bram_instruction_reads": 13,
+              "bram_data_reads": 0,
+              "bram_data_writes": 0,
+              "bram_instruction_port_wait": 0,
+              "stream_full": 0,
+              "stream_highwater": 15,
+              "constant_wait": 0,
+              "stream_words": 16,
+              "ahead_words": 8,
+              "resident_redirect_hits": 11,
+              "resident_redirect_misses": 0,
+              "history_evictions": 0,
+              "window_full": 40,
+              "redirects_admitted": 11,
+              "redirect_to_admit_total": 22,
+              "redirect_to_admit_max": 2
+            },
+            "image_bytes": 112,
+            "move_slots": 60,
+            "unused_move_slots": 24,
+            "move_density_percent": 60.0,
+            "workload_clocks": 58,
+            "total_clocks": 96,
+            "used_move_slots": 36,
+            "derived": {
+              "instructions_per_clock": 0.43103448275862066,
+              "clocks_per_instruction": 2.32,
+              "resident_redirect_miss_fraction": 0.0,
+              "average_redirect_to_admit_clocks": 2.0,
+              "clock_category_fractions": {
+                "retired": 0.43103448275862066,
+                "const_stall": 0.0,
+                "instruction_stall": 0.0,
+                "redirect_stall": 0.1724137931034483,
+                "execute_wait": 0.20689655172413793,
+                "decode_bubble": 0.1896551724137931
+              }
+            }
+          }
+        },
+        "mix_loop(32, 0x12345678, 0x9e3779b1)": {
+          "Simulator, one clock": {
+            "image_bytes": 288,
+            "move_slots": 170,
+            "unused_move_slots": 79,
+            "move_density_percent": 53.53,
+            "workload_clocks": 456,
+            "total_clocks": 464,
+            "used_move_slots": 91
+          },
+          "ECP5 RTL": {
+            "profile": {
+              "clocks": 1567,
+              "cache_enabled": 0,
+              "bram_ports": 1,
+              "const_stall": 0,
+              "instruction_stall": 195,
+              "redirect_stall": 161,
+              "execute_wait": 658,
+              "decode_bubble": 97,
+              "const_fifo_empty": 0,
+              "const_stall_events": 0,
+              "instruction_stall_events": 65,
+              "empty_execute": 453,
+              "retired": 456,
+              "waiting": 658,
+              "fetch_unready": 356,
+              "fetch_ready": 97,
+              "redirects": 97,
+              "bram_instruction_reads": 860,
+              "bram_data_reads": 0,
+              "bram_data_writes": 0,
+              "bram_instruction_port_wait": 0,
+              "stream_full": 0,
+              "stream_highwater": 13,
+              "constant_wait": 0,
+              "stream_words": 16,
+              "ahead_words": 8,
+              "resident_redirect_hits": 32,
+              "resident_redirect_misses": 65,
+              "history_evictions": 144,
+              "window_full": 720,
+              "redirects_admitted": 97,
+              "redirect_to_admit_total": 454,
+              "redirect_to_admit_max": 6
+            },
+            "image_bytes": 288,
+            "move_slots": 170,
+            "unused_move_slots": 79,
+            "move_density_percent": 53.53,
+            "workload_clocks": 1567,
+            "total_clocks": 1609,
+            "used_move_slots": 91,
+            "derived": {
+              "instructions_per_clock": 0.2910019144862795,
+              "clocks_per_instruction": 3.43640350877193,
+              "resident_redirect_miss_fraction": 0.6701030927835051,
+              "average_redirect_to_admit_clocks": 4.680412371134021,
+              "clock_category_fractions": {
+                "retired": 0.2910019144862795,
+                "const_stall": 0.0,
+                "instruction_stall": 0.1244416081684748,
+                "redirect_stall": 0.10274409700063816,
+                "execute_wait": 0.419910657306956,
+                "decode_bubble": 0.06190172303765156
+              }
+            }
+          }
+        }
+      }
+    },
+    "dual-port": {
+      "alu_mode": 2,
+      "bram_ports": 2,
+      "stream_words": 16,
+      "ahead_words": 8,
+      "workloads": {
+        "CoreMark": {
+          "Simulator, one clock": {
+            "image_bytes": 34976,
+            "move_slots": 20275,
+            "unused_move_slots": 9985,
+            "move_density_percent": 50.75,
+            "workload_clocks": 925741,
+            "total_clocks": 973584,
+            "coremark_per_mhz": 1.08021574,
+            "used_move_slots": 10290
+          },
+          "ECP5 RTL": {
+            "profile": {
+              "clocks": 2303122,
+              "cache_enabled": 0,
+              "bram_ports": 2,
+              "const_stall": 14799,
+              "instruction_stall": 197982,
+              "redirect_stall": 157299,
+              "execute_wait": 818350,
+              "decode_bubble": 99350,
+              "const_fifo_empty": 0,
+              "const_stall_events": 14799,
+              "instruction_stall_events": 66042,
+              "empty_execute": 454631,
+              "retired": 1015342,
+              "waiting": 833149,
+              "fetch_unready": 355281,
+              "fetch_ready": 99350,
+              "redirects": 99074,
+              "bram_instruction_reads": 1559774,
+              "bram_data_reads": 83941,
+              "bram_data_writes": 35054,
+              "bram_instruction_port_wait": 0,
+              "stream_full": 320,
+              "stream_highwater": 16,
+              "constant_wait": 22006,
+              "stream_words": 16,
+              "ahead_words": 8,
+              "resident_redirect_hits": 26355,
+              "resident_redirect_misses": 72719,
+              "history_evictions": 641933,
+              "window_full": 1231876,
+              "redirects_admitted": 99074,
+              "redirect_to_admit_total": 489024,
+              "redirect_to_admit_max": 6
+            },
+            "image_bytes": 37088,
+            "move_slots": 21600,
+            "unused_move_slots": 11545,
+            "move_density_percent": 46.55,
+            "workload_clocks": 2303122,
+            "total_clocks": 2418664,
+            "coremark_per_mhz": 0.43419324,
+            "used_move_slots": 10055,
+            "derived": {
+              "instructions_per_clock": 0.4408546312353406,
+              "clocks_per_instruction": 2.2683214128835405,
+              "resident_redirect_miss_fraction": 0.7339867169994145,
+              "average_redirect_to_admit_clocks": 4.935946867997658,
+              "clock_category_fractions": {
+                "retired": 0.4408546312353406,
+                "const_stall": 0.006425625737585764,
+                "instruction_stall": 0.08596244575840967,
+                "redirect_stall": 0.06829816223369843,
+                "execute_wait": 0.3553220367831144,
+                "decode_bubble": 0.043137098251851184
+              }
+            }
+          }
+        },
+        "sum_to(10)": {
+          "Simulator, one clock": {
+            "image_bytes": 112,
+            "move_slots": 60,
+            "unused_move_slots": 24,
+            "move_density_percent": 60.0,
+            "workload_clocks": 25,
+            "total_clocks": 31,
+            "used_move_slots": 36
+          },
+          "ECP5 RTL": {
+            "profile": {
+              "clocks": 58,
+              "cache_enabled": 0,
+              "bram_ports": 2,
+              "const_stall": 0,
+              "instruction_stall": 0,
+              "redirect_stall": 10,
+              "execute_wait": 12,
+              "decode_bubble": 11,
+              "const_fifo_empty": 0,
+              "const_stall_events": 0,
+              "instruction_stall_events": 0,
+              "empty_execute": 21,
+              "retired": 25,
+              "waiting": 12,
+              "fetch_unready": 10,
+              "fetch_ready": 11,
+              "redirects": 11,
+              "bram_instruction_reads": 13,
+              "bram_data_reads": 0,
+              "bram_data_writes": 0,
+              "bram_instruction_port_wait": 0,
+              "stream_full": 0,
+              "stream_highwater": 15,
+              "constant_wait": 0,
+              "stream_words": 16,
+              "ahead_words": 8,
+              "resident_redirect_hits": 11,
+              "resident_redirect_misses": 0,
+              "history_evictions": 0,
+              "window_full": 40,
+              "redirects_admitted": 11,
+              "redirect_to_admit_total": 22,
+              "redirect_to_admit_max": 2
+            },
+            "image_bytes": 112,
+            "move_slots": 60,
+            "unused_move_slots": 24,
+            "move_density_percent": 60.0,
+            "workload_clocks": 58,
+            "total_clocks": 96,
+            "used_move_slots": 36,
+            "derived": {
+              "instructions_per_clock": 0.43103448275862066,
+              "clocks_per_instruction": 2.32,
+              "resident_redirect_miss_fraction": 0.0,
+              "average_redirect_to_admit_clocks": 2.0,
+              "clock_category_fractions": {
+                "retired": 0.43103448275862066,
+                "const_stall": 0.0,
+                "instruction_stall": 0.0,
+                "redirect_stall": 0.1724137931034483,
+                "execute_wait": 0.20689655172413793,
+                "decode_bubble": 0.1896551724137931
+              }
+            }
+          }
+        },
+        "mix_loop(32, 0x12345678, 0x9e3779b1)": {
+          "Simulator, one clock": {
+            "image_bytes": 288,
+            "move_slots": 170,
+            "unused_move_slots": 79,
+            "move_density_percent": 53.53,
+            "workload_clocks": 456,
+            "total_clocks": 464,
+            "used_move_slots": 91
+          },
+          "ECP5 RTL": {
+            "profile": {
+              "clocks": 1567,
+              "cache_enabled": 0,
+              "bram_ports": 2,
+              "const_stall": 0,
+              "instruction_stall": 195,
+              "redirect_stall": 161,
+              "execute_wait": 658,
+              "decode_bubble": 97,
+              "const_fifo_empty": 0,
+              "const_stall_events": 0,
+              "instruction_stall_events": 65,
+              "empty_execute": 453,
+              "retired": 456,
+              "waiting": 658,
+              "fetch_unready": 356,
+              "fetch_ready": 97,
+              "redirects": 97,
+              "bram_instruction_reads": 860,
+              "bram_data_reads": 0,
+              "bram_data_writes": 0,
+              "bram_instruction_port_wait": 0,
+              "stream_full": 0,
+              "stream_highwater": 13,
+              "constant_wait": 0,
+              "stream_words": 16,
+              "ahead_words": 8,
+              "resident_redirect_hits": 32,
+              "resident_redirect_misses": 65,
+              "history_evictions": 144,
+              "window_full": 720,
+              "redirects_admitted": 97,
+              "redirect_to_admit_total": 454,
+              "redirect_to_admit_max": 6
+            },
+            "image_bytes": 288,
+            "move_slots": 170,
+            "unused_move_slots": 79,
+            "move_density_percent": 53.53,
+            "workload_clocks": 1567,
+            "total_clocks": 1609,
+            "used_move_slots": 91,
+            "derived": {
+              "instructions_per_clock": 0.2910019144862795,
+              "clocks_per_instruction": 3.43640350877193,
+              "resident_redirect_miss_fraction": 0.6701030927835051,
+              "average_redirect_to_admit_clocks": 4.680412371134021,
+              "clock_category_fractions": {
+                "retired": 0.2910019144862795,
+                "const_stall": 0.0,
+                "instruction_stall": 0.1244416081684748,
+                "redirect_stall": 0.10274409700063816,
+                "execute_wait": 0.419910657306956,
+                "decode_bubble": 0.06190172303765156
+              }
+            }
+          }
+        }
+      }
+    },
+    "stream-8": {
+      "alu_mode": 2,
+      "bram_ports": 1,
+      "stream_words": 8,
+      "ahead_words": 4,
+      "workloads": {
+        "CoreMark": {
+          "Simulator, one clock": {
+            "image_bytes": 34976,
+            "move_slots": 20275,
+            "unused_move_slots": 9985,
+            "move_density_percent": 50.75,
+            "workload_clocks": 925741,
+            "total_clocks": 973584,
+            "coremark_per_mhz": 1.08021574,
+            "used_move_slots": 10290
+          },
+          "ECP5 RTL": {
+            "profile": {
+              "clocks": 2359296,
+              "cache_enabled": 0,
+              "bram_ports": 1,
+              "const_stall": 47544,
+              "instruction_stall": 217472,
+              "redirect_stall": 163607,
+              "execute_wait": 796859,
+              "decode_bubble": 118472,
+              "const_fifo_empty": 3076,
+              "const_stall_events": 44468,
+              "instruction_stall_events": 72282,
+              "empty_execute": 499551,
+              "retired": 1015342,
+              "waiting": 844403,
+              "fetch_unready": 381079,
+              "fetch_ready": 118472,
+              "redirects": 99074,
+              "bram_instruction_reads": 1401281,
+              "bram_data_reads": 83941,
+              "bram_data_writes": 35054,
+              "bram_instruction_port_wait": 40739,
+              "stream_full": 5916,
+              "stream_highwater": 8,
+              "constant_wait": 55195,
+              "stream_words": 8,
+              "ahead_words": 4,
+              "resident_redirect_hits": 20047,
+              "resident_redirect_misses": 79027,
+              "history_evictions": 803371,
+              "window_full": 1642723,
+              "redirects_admitted": 99074,
+              "redirect_to_admit_total": 514890,
+              "redirect_to_admit_max": 7
+            },
+            "image_bytes": 37088,
+            "move_slots": 21600,
+            "unused_move_slots": 11545,
+            "move_density_percent": 46.55,
+            "workload_clocks": 2359296,
+            "total_clocks": 2475681,
+            "coremark_per_mhz": 0.42385525,
+            "used_move_slots": 10055,
+            "derived": {
+              "instructions_per_clock": 0.43035803900824654,
+              "clocks_per_instruction": 2.3236466136533305,
+              "resident_redirect_miss_fraction": 0.7976562973131195,
+              "average_redirect_to_admit_clocks": 5.197024446373418,
+              "clock_category_fractions": {
+                "retired": 0.43035803900824654,
+                "const_stall": 0.020151774088541668,
+                "instruction_stall": 0.09217664930555555,
+                "redirect_stall": 0.06934568617078993,
+                "execute_wait": 0.33775287204318577,
+                "decode_bubble": 0.05021497938368055
+              }
+            }
+          }
+        },
+        "sum_to(10)": {
+          "Simulator, one clock": {
+            "image_bytes": 112,
+            "move_slots": 60,
+            "unused_move_slots": 24,
+            "move_density_percent": 60.0,
+            "workload_clocks": 25,
+            "total_clocks": 31,
+            "used_move_slots": 36
+          },
+          "ECP5 RTL": {
+            "profile": {
+              "clocks": 58,
+              "cache_enabled": 0,
+              "bram_ports": 1,
+              "const_stall": 0,
+              "instruction_stall": 0,
+              "redirect_stall": 10,
+              "execute_wait": 12,
+              "decode_bubble": 11,
+              "const_fifo_empty": 0,
+              "const_stall_events": 0,
+              "instruction_stall_events": 0,
+              "empty_execute": 21,
+              "retired": 25,
+              "waiting": 12,
+              "fetch_unready": 10,
+              "fetch_ready": 11,
+              "redirects": 11,
+              "bram_instruction_reads": 5,
+              "bram_data_reads": 0,
+              "bram_data_writes": 0,
+              "bram_instruction_port_wait": 0,
+              "stream_full": 0,
+              "stream_highwater": 7,
+              "constant_wait": 0,
+              "stream_words": 8,
+              "ahead_words": 4,
+              "resident_redirect_hits": 11,
+              "resident_redirect_misses": 0,
+              "history_evictions": 1,
+              "window_full": 54,
+              "redirects_admitted": 11,
+              "redirect_to_admit_total": 22,
+              "redirect_to_admit_max": 2
+            },
+            "image_bytes": 112,
+            "move_slots": 60,
+            "unused_move_slots": 24,
+            "move_density_percent": 60.0,
+            "workload_clocks": 58,
+            "total_clocks": 96,
+            "used_move_slots": 36,
+            "derived": {
+              "instructions_per_clock": 0.43103448275862066,
+              "clocks_per_instruction": 2.32,
+              "resident_redirect_miss_fraction": 0.0,
+              "average_redirect_to_admit_clocks": 2.0,
+              "clock_category_fractions": {
+                "retired": 0.43103448275862066,
+                "const_stall": 0.0,
+                "instruction_stall": 0.0,
+                "redirect_stall": 0.1724137931034483,
+                "execute_wait": 0.20689655172413793,
+                "decode_bubble": 0.1896551724137931
+              }
+            }
+          }
+        },
+        "mix_loop(32, 0x12345678, 0x9e3779b1)": {
+          "Simulator, one clock": {
+            "image_bytes": 288,
+            "move_slots": 170,
+            "unused_move_slots": 79,
+            "move_density_percent": 53.53,
+            "workload_clocks": 456,
+            "total_clocks": 464,
+            "used_move_slots": 91
+          },
+          "ECP5 RTL": {
+            "profile": {
+              "clocks": 1695,
+              "cache_enabled": 0,
+              "bram_ports": 1,
+              "const_stall": 0,
+              "instruction_stall": 291,
+              "redirect_stall": 193,
+              "execute_wait": 658,
+              "decode_bubble": 97,
+              "const_fifo_empty": 0,
+              "const_stall_events": 0,
+              "instruction_stall_events": 97,
+              "empty_execute": 581,
+              "retired": 456,
+              "waiting": 658,
+              "fetch_unready": 484,
+              "fetch_ready": 97,
+              "redirects": 97,
+              "bram_instruction_reads": 875,
+              "bram_data_reads": 0,
+              "bram_data_writes": 0,
+              "bram_instruction_port_wait": 0,
+              "stream_full": 0,
+              "stream_highwater": 6,
+              "constant_wait": 0,
+              "stream_words": 8,
+              "ahead_words": 4,
+              "resident_redirect_hits": 0,
+              "resident_redirect_misses": 97,
+              "history_evictions": 162,
+              "window_full": 821,
+              "redirects_admitted": 97,
+              "redirect_to_admit_total": 582,
+              "redirect_to_admit_max": 6
+            },
+            "image_bytes": 288,
+            "move_slots": 170,
+            "unused_move_slots": 79,
+            "move_density_percent": 53.53,
+            "workload_clocks": 1695,
+            "total_clocks": 1737,
+            "used_move_slots": 91,
+            "derived": {
+              "instructions_per_clock": 0.26902654867256637,
+              "clocks_per_instruction": 3.7171052631578947,
+              "resident_redirect_miss_fraction": 1.0,
+              "average_redirect_to_admit_clocks": 6.0,
+              "clock_category_fractions": {
+                "retired": 0.26902654867256637,
+                "const_stall": 0.0,
+                "instruction_stall": 0.17168141592920355,
+                "redirect_stall": 0.11386430678466077,
+                "execute_wait": 0.3882005899705015,
+                "decode_bubble": 0.057227138643067846
+              }
+            }
+          }
+        }
+      }
+    },
+    "stream-32": {
+      "alu_mode": 2,
+      "bram_ports": 1,
+      "stream_words": 32,
+      "ahead_words": 16,
+      "workloads": {
+        "CoreMark": {
+          "Simulator, one clock": {
+            "image_bytes": 34976,
+            "move_slots": 20275,
+            "unused_move_slots": 9985,
+            "move_density_percent": 50.75,
+            "workload_clocks": 925741,
+            "total_clocks": 973584,
+            "coremark_per_mhz": 1.08021574,
+            "used_move_slots": 10290
+          },
+          "ECP5 RTL": {
+            "profile": {
+              "clocks": 2273732,
+              "cache_enabled": 0,
+              "bram_ports": 1,
+              "const_stall": 6255,
+              "instruction_stall": 181568,
+              "redirect_stall": 151811,
+              "execute_wait": 817591,
+              "decode_bubble": 101165,
+              "const_fifo_empty": 16,
+              "const_stall_events": 6239,
+              "instruction_stall_events": 60482,
+              "empty_execute": 434544,
+              "retired": 1015342,
+              "waiting": 823846,
+              "fetch_unready": 333379,
+              "fetch_ready": 101165,
+              "redirects": 99074,
+              "bram_instruction_reads": 1671168,
+              "bram_data_reads": 83941,
+              "bram_data_writes": 35054,
+              "bram_instruction_port_wait": 77206,
+              "stream_full": 24,
+              "stream_highwater": 32,
+              "constant_wait": 13354,
+              "stream_words": 32,
+              "ahead_words": 16,
+              "resident_redirect_hits": 31843,
+              "resident_redirect_misses": 67231,
+              "history_evictions": 393745,
+              "window_full": 749324,
+              "redirects_admitted": 99074,
+              "redirect_to_admit_total": 467194,
+              "redirect_to_admit_max": 7
+            },
+            "image_bytes": 37088,
+            "move_slots": 21600,
+            "unused_move_slots": 11545,
+            "move_density_percent": 46.55,
+            "workload_clocks": 2273732,
+            "total_clocks": 2388133,
+            "coremark_per_mhz": 0.43980557,
+            "used_move_slots": 10055,
+            "derived": {
+              "instructions_per_clock": 0.4465530678197782,
+              "clocks_per_instruction": 2.239375501062696,
+              "resident_redirect_miss_fraction": 0.6785937783878717,
+              "average_redirect_to_admit_clocks": 4.715606516341321,
+              "clock_category_fractions": {
+                "retired": 0.4465530678197782,
+                "const_stall": 0.002750983845061775,
+                "instruction_stall": 0.0798546178705318,
+                "redirect_stall": 0.0667673235016264,
+                "execute_wait": 0.35958107639774606,
+                "decode_bubble": 0.04449293056525571
+              }
+            }
+          }
+        },
+        "sum_to(10)": {
+          "Simulator, one clock": {
+            "image_bytes": 112,
+            "move_slots": 60,
+            "unused_move_slots": 24,
+            "move_density_percent": 60.0,
+            "workload_clocks": 25,
+            "total_clocks": 31,
+            "used_move_slots": 36
+          },
+          "ECP5 RTL": {
+            "profile": {
+              "clocks": 58,
+              "cache_enabled": 0,
+              "bram_ports": 1,
+              "const_stall": 0,
+              "instruction_stall": 0,
+              "redirect_stall": 10,
+              "execute_wait": 12,
+              "decode_bubble": 11,
+              "const_fifo_empty": 0,
+              "const_stall_events": 0,
+              "instruction_stall_events": 0,
+              "empty_execute": 21,
+              "retired": 25,
+              "waiting": 12,
+              "fetch_unready": 10,
+              "fetch_ready": 11,
+              "redirects": 11,
+              "bram_instruction_reads": 29,
+              "bram_data_reads": 0,
+              "bram_data_writes": 0,
+              "bram_instruction_port_wait": 0,
+              "stream_full": 0,
+              "stream_highwater": 31,
+              "constant_wait": 0,
+              "stream_words": 32,
+              "ahead_words": 16,
+              "resident_redirect_hits": 11,
+              "resident_redirect_misses": 0,
+              "history_evictions": 0,
+              "window_full": 14,
+              "redirects_admitted": 11,
+              "redirect_to_admit_total": 22,
+              "redirect_to_admit_max": 2
+            },
+            "image_bytes": 112,
+            "move_slots": 60,
+            "unused_move_slots": 24,
+            "move_density_percent": 60.0,
+            "workload_clocks": 58,
+            "total_clocks": 96,
+            "used_move_slots": 36,
+            "derived": {
+              "instructions_per_clock": 0.43103448275862066,
+              "clocks_per_instruction": 2.32,
+              "resident_redirect_miss_fraction": 0.0,
+              "average_redirect_to_admit_clocks": 2.0,
+              "clock_category_fractions": {
+                "retired": 0.43103448275862066,
+                "const_stall": 0.0,
+                "instruction_stall": 0.0,
+                "redirect_stall": 0.1724137931034483,
+                "execute_wait": 0.20689655172413793,
+                "decode_bubble": 0.1896551724137931
+              }
+            }
+          }
+        },
+        "mix_loop(32, 0x12345678, 0x9e3779b1)": {
+          "Simulator, one clock": {
+            "image_bytes": 288,
+            "move_slots": 170,
+            "unused_move_slots": 79,
+            "move_density_percent": 53.53,
+            "workload_clocks": 456,
+            "total_clocks": 464,
+            "used_move_slots": 91
+          },
+          "ECP5 RTL": {
+            "profile": {
+              "clocks": 1567,
+              "cache_enabled": 0,
+              "bram_ports": 1,
+              "const_stall": 0,
+              "instruction_stall": 195,
+              "redirect_stall": 161,
+              "execute_wait": 658,
+              "decode_bubble": 97,
+              "const_fifo_empty": 0,
+              "const_stall_events": 0,
+              "instruction_stall_events": 65,
+              "empty_execute": 453,
+              "retired": 456,
+              "waiting": 658,
+              "fetch_unready": 356,
+              "fetch_ready": 97,
+              "redirects": 97,
+              "bram_instruction_reads": 1228,
+              "bram_data_reads": 0,
+              "bram_data_writes": 0,
+              "bram_instruction_port_wait": 0,
+              "stream_full": 0,
+              "stream_highwater": 21,
+              "constant_wait": 0,
+              "stream_words": 32,
+              "ahead_words": 16,
+              "resident_redirect_hits": 32,
+              "resident_redirect_misses": 65,
+              "history_evictions": 0,
+              "window_full": 144,
+              "redirects_admitted": 97,
+              "redirect_to_admit_total": 454,
+              "redirect_to_admit_max": 6
+            },
+            "image_bytes": 288,
+            "move_slots": 170,
+            "unused_move_slots": 79,
+            "move_density_percent": 53.53,
+            "workload_clocks": 1567,
+            "total_clocks": 1609,
+            "used_move_slots": 91,
+            "derived": {
+              "instructions_per_clock": 0.2910019144862795,
+              "clocks_per_instruction": 3.43640350877193,
+              "resident_redirect_miss_fraction": 0.6701030927835051,
+              "average_redirect_to_admit_clocks": 4.680412371134021,
+              "clock_category_fractions": {
+                "retired": 0.2910019144862795,
+                "const_stall": 0.0,
+                "instruction_stall": 0.1244416081684748,
+                "redirect_stall": 0.10274409700063816,
+                "execute_wait": 0.419910657306956,
+                "decode_bubble": 0.06190172303765156
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "icache": {
+    "present": false,
+    "hits": null,
+    "misses": null,
+    "refills": null
+  },
+  "board_example_workloads": {
+    "coremark": {
+      "total_clocks": 2419245,
+      "image_bytes": 37088,
+      "workload_clocks": 2303676,
+      "profile": {
+        "clocks": 2303676,
+        "cache_enabled": 0,
+        "bram_ports": 1,
+        "const_stall": 15453,
+        "instruction_stall": 198104,
+        "redirect_stall": 157299,
+        "execute_wait": 816949,
+        "decode_bubble": 100529,
+        "const_fifo_empty": 335,
+        "const_stall_events": 15118,
+        "instruction_stall_events": 66042,
+        "empty_execute": 455932,
+        "retired": 1015342,
+        "waiting": 832402,
+        "fetch_unready": 355403,
+        "fetch_ready": 100529,
+        "redirects": 99074,
+        "bram_instruction_reads": 1552815,
+        "bram_data_reads": 83941,
+        "bram_data_writes": 35054,
+        "bram_instruction_port_wait": 56247,
+        "stream_full": 0,
+        "stream_highwater": 15,
+        "constant_wait": 22660,
+        "stream_words": 16,
+        "ahead_words": 8,
+        "resident_redirect_hits": 26355,
+        "resident_redirect_misses": 72719,
+        "history_evictions": 635199,
+        "window_full": 1204268,
+        "redirects_admitted": 99074,
+        "redirect_to_admit_total": 489146,
+        "redirect_to_admit_max": 7
+      },
+      "derived": {
+        "instructions_per_clock": 0.4407486122180376,
+        "clocks_per_instruction": 2.268867041844029,
+        "resident_redirect_miss_fraction": 0.7339867169994145,
+        "average_redirect_to_admit_clocks": 4.937178270787492,
+        "clock_category_fractions": {
+          "retired": 0.4407486122180376,
+          "const_stall": 0.006707974558922349,
+          "instruction_stall": 0.08599473189806206,
+          "redirect_stall": 0.06828173753600766,
+          "execute_wait": 0.35462842865055677,
+          "decode_bubble": 0.04363851513841356
+        }
+      }
+    },
+    "bresenham": {
+      "total_clocks": 4021,
+      "image_bytes": 1728,
+      "workload_clocks": 3999,
+      "profile": {
+        "clocks": 3999,
+        "cache_enabled": 0,
+        "bram_ports": 1,
+        "const_stall": 77,
+        "instruction_stall": 327,
+        "redirect_stall": 282,
+        "execute_wait": 1363,
+        "decode_bubble": 176,
+        "const_fifo_empty": 0,
+        "const_stall_events": 77,
+        "instruction_stall_events": 109,
+        "empty_execute": 785,
+        "retired": 1774,
+        "waiting": 1440,
+        "fetch_unready": 609,
+        "fetch_ready": 176,
+        "redirects": 173,
+        "bram_instruction_reads": 2823,
+        "bram_data_reads": 132,
+        "bram_data_writes": 14,
+        "bram_instruction_port_wait": 82,
+        "stream_full": 0,
+        "stream_highwater": 11,
+        "constant_wait": 84,
+        "stream_words": 16,
+        "ahead_words": 8,
+        "resident_redirect_hits": 64,
+        "resident_redirect_misses": 109,
+        "history_evictions": 1176,
+        "window_full": 2079,
+        "redirects_admitted": 173,
+        "redirect_to_admit_total": 782,
+        "redirect_to_admit_max": 6
+      },
+      "derived": {
+        "instructions_per_clock": 0.44361090272568143,
+        "clocks_per_instruction": 2.254227733934611,
+        "resident_redirect_miss_fraction": 0.630057803468208,
+        "average_redirect_to_admit_clocks": 4.520231213872832,
+        "clock_category_fractions": {
+          "retired": 0.44361090272568143,
+          "const_stall": 0.019254813703425855,
+          "instruction_stall": 0.08177044261065267,
+          "redirect_stall": 0.07051762940735183,
+          "execute_wait": 0.34083520880220053,
+          "decode_bubble": 0.04401100275068767
+        }
+      }
+    },
+    "bubble_sort": {
+      "total_clocks": 2721,
+      "image_bytes": 832,
+      "workload_clocks": 2699,
+      "profile": {
+        "clocks": 2699,
+        "cache_enabled": 0,
+        "bram_ports": 1,
+        "const_stall": 17,
+        "instruction_stall": 202,
+        "redirect_stall": 173,
+        "execute_wait": 941,
+        "decode_bubble": 136,
+        "const_fifo_empty": 8,
+        "const_stall_events": 17,
+        "instruction_stall_events": 62,
+        "empty_execute": 511,
+        "retired": 1230,
+        "waiting": 958,
+        "fetch_unready": 375,
+        "fetch_ready": 136,
+        "redirects": 111,
+        "bram_instruction_reads": 1827,
+        "bram_data_reads": 98,
+        "bram_data_writes": 32,
+        "bram_instruction_port_wait": 49,
+        "stream_full": 0,
+        "stream_highwater": 8,
+        "constant_wait": 25,
+        "stream_words": 16,
+        "ahead_words": 8,
+        "resident_redirect_hits": 49,
+        "resident_redirect_misses": 62,
+        "history_evictions": 1019,
+        "window_full": 1689,
+        "redirects_admitted": 111,
+        "redirect_to_admit_total": 486,
+        "redirect_to_admit_max": 7
+      },
+      "derived": {
+        "instructions_per_clock": 0.45572434234901815,
+        "clocks_per_instruction": 2.194308943089431,
+        "resident_redirect_miss_fraction": 0.5585585585585585,
+        "average_redirect_to_admit_clocks": 4.378378378378378,
+        "clock_category_fractions": {
+          "retired": 0.45572434234901815,
+          "const_stall": 0.006298629121896999,
+          "instruction_stall": 0.07484253427195257,
+          "redirect_stall": 0.0640978140051871,
+          "execute_wait": 0.34864764727676917,
+          "decode_bubble": 0.05038903297517599
+        }
+      }
+    },
+    "crc32": {
+      "total_clocks": 2372,
+      "image_bytes": 512,
+      "workload_clocks": 2350,
+      "profile": {
+        "clocks": 2350,
+        "cache_enabled": 0,
+        "bram_ports": 1,
+        "const_stall": 131,
+        "instruction_stall": 420,
+        "redirect_stall": 287,
+        "execute_wait": 396,
+        "decode_bubble": 149,
+        "const_fifo_empty": 0,
+        "const_stall_events": 131,
+        "instruction_stall_events": 140,
+        "empty_execute": 856,
+        "retired": 967,
+        "waiting": 527,
+        "fetch_unready": 707,
+        "fetch_ready": 149,
+        "redirects": 149,
+        "bram_instruction_reads": 1867,
+        "bram_data_reads": 9,
+        "bram_data_writes": 0,
+        "bram_instruction_port_wait": 9,
+        "stream_full": 0,
+        "stream_highwater": 8,
+        "constant_wait": 131,
+        "stream_words": 16,
+        "ahead_words": 8,
+        "resident_redirect_hits": 9,
+        "resident_redirect_misses": 140,
+        "history_evictions": 261,
+        "window_full": 461,
+        "redirects_admitted": 149,
+        "redirect_to_admit_total": 858,
+        "redirect_to_admit_max": 6
+      },
+      "derived": {
+        "instructions_per_clock": 0.4114893617021277,
+        "clocks_per_instruction": 2.4301964839710446,
+        "resident_redirect_miss_fraction": 0.9395973154362416,
+        "average_redirect_to_admit_clocks": 5.758389261744966,
+        "clock_category_fractions": {
+          "retired": 0.4114893617021277,
+          "const_stall": 0.05574468085106383,
+          "instruction_stall": 0.17872340425531916,
+          "redirect_stall": 0.12212765957446808,
+          "execute_wait": 0.16851063829787233,
+          "decode_bubble": 0.06340425531914894
+        }
+      }
+    },
+    "fibonacci": {
+      "total_clocks": 1132,
+      "image_bytes": 272,
+      "workload_clocks": 1110,
+      "profile": {
+        "clocks": 1110,
+        "cache_enabled": 0,
+        "bram_ports": 1,
+        "const_stall": 1,
+        "instruction_stall": 18,
+        "redirect_stall": 105,
+        "execute_wait": 383,
+        "decode_bubble": 101,
+        "const_fifo_empty": 0,
+        "const_stall_events": 1,
+        "instruction_stall_events": 6,
+        "empty_execute": 224,
+        "retired": 502,
+        "waiting": 384,
+        "fetch_unready": 123,
+        "fetch_ready": 101,
+        "redirects": 100,
+        "bram_instruction_reads": 76,
+        "bram_data_reads": 0,
+        "bram_data_writes": 0,
+        "bram_instruction_port_wait": 0,
+        "stream_full": 0,
+        "stream_highwater": 13,
+        "constant_wait": 1,
+        "stream_words": 16,
+        "ahead_words": 8,
+        "resident_redirect_hits": 94,
+        "resident_redirect_misses": 6,
+        "history_evictions": 15,
+        "window_full": 1033,
+        "redirects_admitted": 100,
+        "redirect_to_admit_total": 224,
+        "redirect_to_admit_max": 6
+      },
+      "derived": {
+        "instructions_per_clock": 0.45225225225225224,
+        "clocks_per_instruction": 2.2111553784860556,
+        "resident_redirect_miss_fraction": 0.06,
+        "average_redirect_to_admit_clocks": 2.24,
+        "clock_category_fractions": {
+          "retired": 0.45225225225225224,
+          "const_stall": 0.0009009009009009009,
+          "instruction_stall": 0.016216216216216217,
+          "redirect_stall": 0.0945945945945946,
+          "execute_wait": 0.345045045045045,
+          "decode_bubble": 0.09099099099099099
+        }
+      }
+    },
+    "goertzel": {
+      "total_clocks": 4003,
+      "image_bytes": 800,
+      "workload_clocks": 3981,
+      "profile": {
+        "clocks": 3981,
+        "cache_enabled": 0,
+        "bram_ports": 1,
+        "const_stall": 5,
+        "instruction_stall": 165,
+        "redirect_stall": 106,
+        "execute_wait": 2510,
+        "decode_bubble": 55,
+        "const_fifo_empty": 0,
+        "const_stall_events": 5,
+        "instruction_stall_events": 55,
+        "empty_execute": 326,
+        "retired": 1140,
+        "waiting": 2515,
+        "fetch_unready": 271,
+        "fetch_ready": 55,
+        "redirects": 55,
+        "bram_instruction_reads": 1569,
+        "bram_data_reads": 24,
+        "bram_data_writes": 0,
+        "bram_instruction_port_wait": 24,
+        "stream_full": 0,
+        "stream_highwater": 8,
+        "constant_wait": 5,
+        "stream_words": 16,
+        "ahead_words": 8,
+        "resident_redirect_hits": 0,
+        "resident_redirect_misses": 55,
+        "history_evictions": 879,
+        "window_full": 3156,
+        "redirects_admitted": 55,
+        "redirect_to_admit_total": 330,
+        "redirect_to_admit_max": 6
+      },
+      "derived": {
+        "instructions_per_clock": 0.2863602110022607,
+        "clocks_per_instruction": 3.4921052631578946,
+        "resident_redirect_miss_fraction": 1.0,
+        "average_redirect_to_admit_clocks": 6.0,
+        "clock_category_fractions": {
+          "retired": 0.2863602110022607,
+          "const_stall": 0.0012559658377292139,
+          "instruction_stall": 0.04144687264506405,
+          "redirect_stall": 0.026626475759859332,
+          "execute_wait": 0.6304948505400653,
+          "decode_bubble": 0.013815624215021352
+        }
+      }
+    },
+    "mat_mul": {
+      "total_clocks": 1714,
+      "image_bytes": 1184,
+      "workload_clocks": 1692,
+      "profile": {
+        "clocks": 1692,
+        "cache_enabled": 0,
+        "bram_ports": 1,
+        "const_stall": 15,
+        "instruction_stall": 129,
+        "redirect_stall": 90,
+        "execute_wait": 703,
+        "decode_bubble": 47,
+        "const_fifo_empty": 5,
+        "const_stall_events": 14,
+        "instruction_stall_events": 43,
+        "empty_execute": 266,
+        "retired": 708,
+        "waiting": 718,
+        "fetch_unready": 219,
+        "fetch_ready": 47,
+        "redirects": 47,
+        "bram_instruction_reads": 1064,
+        "bram_data_reads": 34,
+        "bram_data_writes": 6,
+        "bram_instruction_port_wait": 31,
+        "stream_full": 0,
+        "stream_highwater": 13,
+        "constant_wait": 19,
+        "stream_words": 16,
+        "ahead_words": 8,
+        "resident_redirect_hits": 4,
+        "resident_redirect_misses": 43,
+        "history_evictions": 484,
+        "window_full": 1023,
+        "redirects_admitted": 47,
+        "redirect_to_admit_total": 266,
+        "redirect_to_admit_max": 6
+      },
+      "derived": {
+        "instructions_per_clock": 0.41843971631205673,
+        "clocks_per_instruction": 2.389830508474576,
+        "resident_redirect_miss_fraction": 0.9148936170212766,
+        "average_redirect_to_admit_clocks": 5.659574468085107,
+        "clock_category_fractions": {
+          "retired": 0.41843971631205673,
+          "const_stall": 0.008865248226950355,
+          "instruction_stall": 0.07624113475177305,
+          "redirect_stall": 0.05319148936170213,
+          "execute_wait": 0.41548463356973997,
+          "decode_bubble": 0.027777777777777776
+        }
+      }
+    },
+    "memmove": {
+      "total_clocks": 1323,
+      "image_bytes": 1024,
+      "workload_clocks": 1301,
+      "profile": {
+        "clocks": 1301,
+        "cache_enabled": 0,
+        "bram_ports": 1,
+        "const_stall": 20,
+        "instruction_stall": 165,
+        "redirect_stall": 111,
+        "execute_wait": 433,
+        "decode_bubble": 56,
+        "const_fifo_empty": 0,
+        "const_stall_events": 20,
+        "instruction_stall_events": 55,
+        "empty_execute": 332,
+        "retired": 516,
+        "waiting": 453,
+        "fetch_unready": 276,
+        "fetch_ready": 56,
+        "redirects": 56,
+        "bram_instruction_reads": 953,
+        "bram_data_reads": 48,
+        "bram_data_writes": 12,
+        "bram_instruction_port_wait": 32,
+        "stream_full": 0,
+        "stream_highwater": 8,
+        "constant_wait": 20,
+        "stream_words": 16,
+        "ahead_words": 8,
+        "resident_redirect_hits": 1,
+        "resident_redirect_misses": 55,
+        "history_evictions": 259,
+        "window_full": 471,
+        "redirects_admitted": 56,
+        "redirect_to_admit_total": 332,
+        "redirect_to_admit_max": 6
+      },
+      "derived": {
+        "instructions_per_clock": 0.39661798616448884,
+        "clocks_per_instruction": 2.5213178294573644,
+        "resident_redirect_miss_fraction": 0.9821428571428571,
+        "average_redirect_to_admit_clocks": 5.928571428571429,
+        "clock_category_fractions": {
+          "retired": 0.39661798616448884,
+          "const_stall": 0.015372790161414296,
+          "instruction_stall": 0.12682551883166795,
+          "redirect_stall": 0.08531898539584935,
+          "execute_wait": 0.3328209069946195,
+          "decode_bubble": 0.04304381245196003
+        }
+      }
+    },
+    "mix_loop": {
+      "total_clocks": 1609,
+      "image_bytes": 288,
+      "workload_clocks": 1587,
+      "profile": {
+        "clocks": 1587,
+        "cache_enabled": 0,
+        "bram_ports": 1,
+        "const_stall": 2,
+        "instruction_stall": 201,
+        "redirect_stall": 165,
+        "execute_wait": 659,
+        "decode_bubble": 99,
+        "const_fifo_empty": 0,
+        "const_stall_events": 2,
+        "instruction_stall_events": 67,
+        "empty_execute": 465,
+        "retired": 461,
+        "waiting": 661,
+        "fetch_unready": 366,
+        "fetch_ready": 99,
+        "redirects": 99,
+        "bram_instruction_reads": 874,
+        "bram_data_reads": 0,
+        "bram_data_writes": 0,
+        "bram_instruction_port_wait": 0,
+        "stream_full": 0,
+        "stream_highwater": 13,
+        "constant_wait": 2,
+        "stream_words": 16,
+        "ahead_words": 8,
+        "resident_redirect_hits": 32,
+        "resident_redirect_misses": 67,
+        "history_evictions": 144,
+        "window_full": 720,
+        "redirects_admitted": 99,
+        "redirect_to_admit_total": 466,
+        "redirect_to_admit_max": 6
+      },
+      "derived": {
+        "instructions_per_clock": 0.2904851921865154,
+        "clocks_per_instruction": 3.4425162689804774,
+        "resident_redirect_miss_fraction": 0.6767676767676768,
+        "average_redirect_to_admit_clocks": 4.707070707070707,
+        "clock_category_fractions": {
+          "retired": 0.2904851921865154,
+          "const_stall": 0.001260239445494644,
+          "instruction_stall": 0.1266540642722117,
+          "redirect_stall": 0.10396975425330812,
+          "execute_wait": 0.4152488972904852,
+          "decode_bubble": 0.062381852551984876
+        }
+      }
+    },
+    "quick_sort": {
+      "total_clocks": 3749,
+      "image_bytes": 2336,
+      "workload_clocks": 3727,
+      "profile": {
+        "clocks": 3727,
+        "cache_enabled": 0,
+        "bram_ports": 1,
+        "const_stall": 29,
+        "instruction_stall": 232,
+        "redirect_stall": 171,
+        "execute_wait": 1588,
+        "decode_bubble": 96,
+        "const_fifo_empty": 0,
+        "const_stall_events": 29,
+        "instruction_stall_events": 75,
+        "empty_execute": 499,
+        "retired": 1611,
+        "waiting": 1617,
+        "fetch_unready": 403,
+        "fetch_ready": 96,
+        "redirects": 96,
+        "bram_instruction_reads": 2311,
+        "bram_data_reads": 140,
+        "bram_data_writes": 64,
+        "bram_instruction_port_wait": 101,
+        "stream_full": 0,
+        "stream_highwater": 10,
+        "constant_wait": 29,
+        "stream_words": 16,
+        "ahead_words": 8,
+        "resident_redirect_hits": 21,
+        "resident_redirect_misses": 75,
+        "history_evictions": 1238,
+        "window_full": 2503,
+        "redirects_admitted": 96,
+        "redirect_to_admit_total": 499,
+        "redirect_to_admit_max": 7
+      },
+      "derived": {
+        "instructions_per_clock": 0.432251140327341,
+        "clocks_per_instruction": 2.3134698944754812,
+        "resident_redirect_miss_fraction": 0.78125,
+        "average_redirect_to_admit_clocks": 5.197916666666667,
+        "clock_category_fractions": {
+          "retired": 0.432251140327341,
+          "const_stall": 0.007781057150523209,
+          "instruction_stall": 0.062248457204185675,
+          "redirect_stall": 0.04588140595653341,
+          "execute_wait": 0.4260799570700295,
+          "decode_bubble": 0.025757982291387174
+        }
+      }
+    },
+    "rgba_blend": {
+      "total_clocks": 2933,
+      "image_bytes": 1456,
+      "workload_clocks": 2911,
+      "profile": {
+        "clocks": 2911,
+        "cache_enabled": 0,
+        "bram_ports": 1,
+        "const_stall": 24,
+        "instruction_stall": 81,
+        "redirect_stall": 56,
+        "execute_wait": 1859,
+        "decode_bubble": 33,
+        "const_fifo_empty": 0,
+        "const_stall_events": 24,
+        "instruction_stall_events": 27,
+        "empty_execute": 170,
+        "retired": 858,
+        "waiting": 1883,
+        "fetch_unready": 137,
+        "fetch_ready": 33,
+        "redirects": 30,
+        "bram_instruction_reads": 1127,
+        "bram_data_reads": 0,
+        "bram_data_writes": 0,
+        "bram_instruction_port_wait": 0,
+        "stream_full": 0,
+        "stream_highwater": 9,
+        "constant_wait": 24,
+        "stream_words": 16,
+        "ahead_words": 8,
+        "resident_redirect_hits": 3,
+        "resident_redirect_misses": 27,
+        "history_evictions": 767,
+        "window_full": 2496,
+        "redirects_admitted": 30,
+        "redirect_to_admit_total": 168,
+        "redirect_to_admit_max": 6
+      },
+      "derived": {
+        "instructions_per_clock": 0.2947440742013054,
+        "clocks_per_instruction": 3.3927738927738926,
+        "resident_redirect_miss_fraction": 0.9,
+        "average_redirect_to_admit_clocks": 5.6,
+        "clock_category_fractions": {
+          "retired": 0.2947440742013054,
+          "const_stall": 0.008244589488148402,
+          "instruction_stall": 0.02782548952250086,
+          "redirect_stall": 0.019237375472346274,
+          "execute_wait": 0.638612160769495,
+          "decode_bubble": 0.011336310546204053
+        }
+      }
+    },
+    "sha256": {
+      "total_clocks": 68069,
+      "image_bytes": 6080,
+      "workload_clocks": 68047,
+      "profile": {
+        "clocks": 68047,
+        "cache_enabled": 0,
+        "bram_ports": 1,
+        "const_stall": 2995,
+        "instruction_stall": 2880,
+        "redirect_stall": 1975,
+        "execute_wait": 10685,
+        "decode_bubble": 1209,
+        "const_fifo_empty": 258,
+        "const_stall_events": 2737,
+        "instruction_stall_events": 960,
+        "empty_execute": 6064,
+        "retired": 48303,
+        "waiting": 13680,
+        "fetch_unready": 4855,
+        "fetch_ready": 1209,
+        "redirects": 1017,
+        "bram_instruction_reads": 60155,
+        "bram_data_reads": 1745,
+        "bram_data_writes": 520,
+        "bram_instruction_port_wait": 1499,
+        "stream_full": 0,
+        "stream_highwater": 12,
+        "constant_wait": 3213,
+        "stream_words": 16,
+        "ahead_words": 8,
+        "resident_redirect_hits": 57,
+        "resident_redirect_misses": 960,
+        "history_evictions": 46460,
+        "window_full": 52636,
+        "redirects_admitted": 1017,
+        "redirect_to_admit_total": 5874,
+        "redirect_to_admit_max": 6
+      },
+      "derived": {
+        "instructions_per_clock": 0.7098476053316091,
+        "clocks_per_instruction": 1.4087530795188705,
+        "resident_redirect_miss_fraction": 0.943952802359882,
+        "average_redirect_to_admit_clocks": 5.775811209439528,
+        "clock_category_fractions": {
+          "retired": 0.7098476053316091,
+          "const_stall": 0.04401369641571267,
+          "instruction_stall": 0.04232368803914941,
+          "redirect_stall": 0.029024056901847253,
+          "execute_wait": 0.15702382177024704,
+          "decode_bubble": 0.017767131541434597
+        }
+      }
+    },
+    "strcpy": {
+      "total_clocks": 434,
+      "image_bytes": 656,
+      "workload_clocks": 412,
+      "profile": {
+        "clocks": 412,
+        "cache_enabled": 0,
+        "bram_ports": 1,
+        "const_stall": 3,
+        "instruction_stall": 48,
+        "redirect_stall": 33,
+        "execute_wait": 141,
+        "decode_bubble": 17,
+        "const_fifo_empty": 0,
+        "const_stall_events": 3,
+        "instruction_stall_events": 16,
+        "empty_execute": 98,
+        "retired": 170,
+        "waiting": 144,
+        "fetch_unready": 81,
+        "fetch_ready": 17,
+        "redirects": 17,
+        "bram_instruction_reads": 307,
+        "bram_data_reads": 17,
+        "bram_data_writes": 5,
+        "bram_instruction_port_wait": 11,
+        "stream_full": 0,
+        "stream_highwater": 8,
+        "constant_wait": 3,
+        "stream_words": 16,
+        "ahead_words": 8,
+        "resident_redirect_hits": 1,
+        "resident_redirect_misses": 16,
+        "history_evictions": 95,
+        "window_full": 163,
+        "redirects_admitted": 17,
+        "redirect_to_admit_total": 98,
+        "redirect_to_admit_max": 6
+      },
+      "derived": {
+        "instructions_per_clock": 0.41262135922330095,
+        "clocks_per_instruction": 2.4235294117647057,
+        "resident_redirect_miss_fraction": 0.9411764705882353,
+        "average_redirect_to_admit_clocks": 5.764705882352941,
+        "clock_category_fractions": {
+          "retired": 0.41262135922330095,
+          "const_stall": 0.007281553398058253,
+          "instruction_stall": 0.11650485436893204,
+          "redirect_stall": 0.08009708737864078,
+          "execute_wait": 0.3422330097087379,
+          "decode_bubble": 0.0412621359223301
+        }
+      }
+    },
+    "sum_to": {
+      "total_clocks": 96,
+      "image_bytes": 112,
+      "workload_clocks": 74,
+      "profile": {
+        "clocks": 74,
+        "cache_enabled": 0,
+        "bram_ports": 1,
+        "const_stall": 0,
+        "instruction_stall": 6,
+        "redirect_stall": 14,
+        "execute_wait": 13,
+        "decode_bubble": 13,
+        "const_fifo_empty": 0,
+        "const_stall_events": 0,
+        "instruction_stall_events": 2,
+        "empty_execute": 33,
+        "retired": 28,
+        "waiting": 13,
+        "fetch_unready": 20,
+        "fetch_ready": 13,
+        "redirects": 13,
+        "bram_instruction_reads": 22,
+        "bram_data_reads": 0,
+        "bram_data_writes": 0,
+        "bram_instruction_port_wait": 0,
+        "stream_full": 0,
+        "stream_highwater": 15,
+        "constant_wait": 0,
+        "stream_words": 16,
+        "ahead_words": 8,
+        "resident_redirect_hits": 11,
+        "resident_redirect_misses": 2,
+        "history_evictions": 0,
+        "window_full": 42,
+        "redirects_admitted": 13,
+        "redirect_to_admit_total": 34,
+        "redirect_to_admit_max": 6
+      },
+      "derived": {
+        "instructions_per_clock": 0.3783783783783784,
+        "clocks_per_instruction": 2.642857142857143,
+        "resident_redirect_miss_fraction": 0.15384615384615385,
+        "average_redirect_to_admit_clocks": 2.6153846153846154,
+        "clock_category_fractions": {
+          "retired": 0.3783783783783784,
+          "const_stall": 0.0,
+          "instruction_stall": 0.08108108108108109,
+          "redirect_stall": 0.1891891891891892,
+          "execute_wait": 0.17567567567567569,
+          "decode_bubble": 0.17567567567567569
+        }
+      }
+    }
+  },
+  "simulator_example_workloads": {
+    "bubble_sort": {
+      "one-clock": {
+        "image_bytes": 800,
+        "kernel_calls": 1,
+        "kernel_clocks": 987,
+        "main_clocks": 1125,
+        "total_clocks": 1128
+      },
+      "simulator": {
+        "image_bytes": 800,
+        "kernel_calls": 1,
+        "kernel_clocks": 1151,
+        "main_clocks": 1337,
+        "total_clocks": 1342
+      }
+    },
+    "quick_sort": {
+      "one-clock": {
+        "image_bytes": 2304,
+        "kernel_calls": 1,
+        "kernel_clocks": 1309,
+        "main_clocks": 1516,
+        "total_clocks": 1519
+      },
+      "simulator": {
+        "image_bytes": 2304,
+        "kernel_calls": 1,
+        "kernel_clocks": 1707,
+        "main_clocks": 1980,
+        "total_clocks": 1987
+      }
+    },
+    "fibonacci": {
+      "one-clock": {
+        "image_bytes": 272,
+        "kernel_calls": 3,
+        "kernel_clocks": 490,
+        "main_clocks": 502,
+        "total_clocks": 505
+      },
+      "simulator": {
+        "image_bytes": 272,
+        "kernel_calls": 3,
+        "kernel_clocks": 490,
+        "main_clocks": 502,
+        "total_clocks": 507
+      }
+    },
+    "mat_mul": {
+      "one-clock": {
+        "image_bytes": 1136,
+        "kernel_calls": 1,
+        "kernel_clocks": 573,
+        "main_clocks": 652,
+        "total_clocks": 655
+      },
+      "simulator": {
+        "image_bytes": 1136,
+        "kernel_calls": 1,
+        "kernel_clocks": 602,
+        "main_clocks": 705,
+        "total_clocks": 710
+      }
+    },
+    "crc32": {
+      "one-clock": {
+        "image_bytes": 496,
+        "kernel_calls": 2,
+        "kernel_clocks": 812,
+        "main_clocks": 823,
+        "total_clocks": 826
+      },
+      "simulator": {
+        "image_bytes": 496,
+        "kernel_calls": 2,
+        "kernel_clocks": 830,
+        "main_clocks": 841,
+        "total_clocks": 846
+      }
+    },
+    "rgba_blend": {
+      "one-clock": {
+        "image_bytes": 1424,
+        "kernel_calls": 4,
+        "kernel_clocks": 764,
+        "main_clocks": 787,
+        "total_clocks": 790
+      },
+      "simulator": {
+        "image_bytes": 1424,
+        "kernel_calls": 4,
+        "kernel_clocks": 899,
+        "main_clocks": 922,
+        "total_clocks": 927
+      }
+    },
+    "strcpy": {
+      "one-clock": {
+        "image_bytes": 624,
+        "kernel_calls": 1,
+        "kernel_clocks": 33,
+        "main_clocks": 150,
+        "total_clocks": 153
+      },
+      "simulator": {
+        "image_bytes": 624,
+        "kernel_calls": 1,
+        "kernel_clocks": 51,
+        "main_clocks": 198,
+        "total_clocks": 203
+      }
+    },
+    "memmove": {
+      "one-clock": {
+        "image_bytes": 992,
+        "kernel_calls": 2,
+        "kernel_clocks": 142,
+        "main_clocks": 474,
+        "total_clocks": 477
+      },
+      "simulator": {
+        "image_bytes": 992,
+        "kernel_calls": 2,
+        "kernel_clocks": 172,
+        "main_clocks": 594,
+        "total_clocks": 599
+      }
+    },
+    "bresenham": {
+      "one-clock": {
+        "image_bytes": 1712,
+        "kernel_calls": 2,
+        "kernel_clocks": 565,
+        "main_clocks": 1614,
+        "total_clocks": 1617
+      },
+      "simulator": {
+        "image_bytes": 1712,
+        "kernel_calls": 2,
+        "kernel_clocks": 572,
+        "main_clocks": 2005,
+        "total_clocks": 2010
+      }
+    },
+    "sha256": {
+      "one-clock": {
+        "image_bytes": 5712,
+        "kernel_calls": 2,
+        "kernel_clocks": 41997,
+        "main_clocks": 42297,
+        "total_clocks": 42300
+      },
+      "simulator": {
+        "image_bytes": 5712,
+        "kernel_calls": 2,
+        "kernel_clocks": 43046,
+        "main_clocks": 43471,
+        "total_clocks": 43478
+      }
+    },
+    "goertzel": {
+      "one-clock": {
+        "image_bytes": 784,
+        "kernel_calls": 3,
+        "kernel_clocks": 1071,
+        "main_clocks": 1089,
+        "total_clocks": 1092
+      },
+      "simulator": {
+        "image_bytes": 784,
+        "kernel_calls": 3,
+        "kernel_clocks": 1287,
+        "main_clocks": 1305,
+        "total_clocks": 1310
+      }
+    }
+  },
+  "alu_microbenchmarks": {
+    "0": {
+      "dispatch_benchmark": [
+        "cached consecutive five-transfer pairs: 2",
+        "consecutive ARITH pops: 2; concurrent ARITH/LOGIC launches: 4",
+        "ARITH latency: 3..3 clocks, 4 results",
+        "storage readable after push: STASH 1, STACK 1 clock edges"
+      ],
+      "units": {
+        "ARITH_A": {
+          "dispatch_to_ready_clocks": 5,
+          "dispatch_to_use_clocks": 5,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "ARITH_B": {
+          "dispatch_to_ready_clocks": 5,
+          "dispatch_to_use_clocks": 5,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "LOGIC_A": {
+          "dispatch_to_ready_clocks": 5,
+          "dispatch_to_use_clocks": 5,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "LOGIC_B": {
+          "dispatch_to_ready_clocks": 5,
+          "dispatch_to_use_clocks": 5,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "SHIFT_A": {
+          "dispatch_to_ready_clocks": 6,
+          "dispatch_to_use_clocks": 6,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "SHIFT_B": {
+          "dispatch_to_ready_clocks": 6,
+          "dispatch_to_use_clocks": 6,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "CMP": {
+          "dispatch_to_ready_clocks": 5,
+          "dispatch_to_use_clocks": 5,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "MASK": {
+          "dispatch_to_ready_clocks": 5,
+          "dispatch_to_use_clocks": 5,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "UOP_A": {
+          "dispatch_to_ready_clocks": 5,
+          "dispatch_to_use_clocks": 5,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "UOP_B": {
+          "dispatch_to_ready_clocks": 5,
+          "dispatch_to_use_clocks": 5,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "BITCNT": {
+          "dispatch_to_ready_clocks": 5,
+          "dispatch_to_use_clocks": 5,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "SEL_A": {
+          "dispatch_to_ready_clocks": 5,
+          "dispatch_to_use_clocks": 5,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "SEL_B": {
+          "dispatch_to_ready_clocks": 5,
+          "dispatch_to_use_clocks": 5,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "PACK": {
+          "dispatch_to_ready_clocks": 5,
+          "dispatch_to_use_clocks": 5,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "UNPACK": {
+          "dispatch_to_ready_clocks": 5,
+          "dispatch_to_use_clocks": 5,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "SWIZZLE8": {
+          "dispatch_to_ready_clocks": 5,
+          "dispatch_to_use_clocks": 5,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        }
+      }
+    },
+    "1": {
+      "dispatch_benchmark": [
+        "cached consecutive five-transfer pairs: 2",
+        "consecutive ARITH pops: 2; concurrent ARITH/LOGIC launches: 4",
+        "ARITH latency: 1..1 clocks, 4 results",
+        "storage readable after push: STASH 1, STACK 1 clock edges"
+      ],
+      "units": {
+        "ARITH_A": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "ARITH_B": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "LOGIC_A": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "LOGIC_B": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "SHIFT_A": {
+          "dispatch_to_ready_clocks": 3,
+          "dispatch_to_use_clocks": 3,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "SHIFT_B": {
+          "dispatch_to_ready_clocks": 3,
+          "dispatch_to_use_clocks": 3,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "CMP": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "MASK": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "UOP_A": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "UOP_B": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "BITCNT": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "SEL_A": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "SEL_B": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "PACK": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "UNPACK": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "SWIZZLE8": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        }
+      }
+    },
+    "2": {
+      "dispatch_benchmark": [
+        "cached consecutive five-transfer pairs: 2",
+        "consecutive ARITH pops: 2; concurrent ARITH/LOGIC launches: 4",
+        "ARITH latency: 1..1 clocks, 4 results",
+        "storage readable after push: STASH 1, STACK 1 clock edges"
+      ],
+      "units": {
+        "ARITH_A": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "ARITH_B": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "LOGIC_A": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "LOGIC_B": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "SHIFT_A": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "SHIFT_B": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "CMP": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "MASK": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "UOP_A": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "UOP_B": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "BITCNT": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "SEL_A": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "SEL_B": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "PACK": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "UNPACK": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        },
+        "SWIZZLE8": {
+          "dispatch_to_ready_clocks": 2,
+          "dispatch_to_use_clocks": 2,
+          "burst_requests": 4,
+          "burst_clocks": 4
+        }
+      }
+    }
+  },
+  "regression": {
+    "results": {
+      "00-memory/00_store_and_halt.mdma": {
+        "ticks": 11,
+        "clocks": 11
+      },
+      "00-memory/01_load.mdma": {
+        "ticks": 25,
+        "clocks": 25
+      },
+      "00-memory/02_mask.mdma": {
+        "ticks": 22,
+        "clocks": 22
+      },
+      "00-memory/03_incomplete_store.mdma": {
+        "ticks": 25,
+        "clocks": 25
+      },
+      "00-memory/04_issue_order.mdma": {
+        "ticks": 29,
+        "clocks": 29
+      },
+      "00-memory/05_swap.mdma": {
+        "ticks": 26,
+        "clocks": 26
+      },
+      "00-memory/06_drain_stores.mdma": {
+        "ticks": 15,
+        "clocks": 15
+      },
+      "10-instructions/call_return.mdma": {
+        "ticks": 36,
+        "clocks": 36
+      },
+      "10-instructions/immediates.mdma": {
+        "ticks": 26,
+        "clocks": 26
+      },
+      "10-instructions/pc_rel.mdma": {
+        "ticks": 31,
+        "clocks": 31
+      },
+      "10-instructions/predication.mdma": {
+        "ticks": 66,
+        "clocks": 66
+      },
+      "10-instructions/predication_forward.mdma": {
+        "ticks": 23,
+        "clocks": 23
+      },
+      "20-units/arith_a.mdma": {
+        "ticks": 23,
+        "clocks": 23
+      },
+      "20-units/arith_a_input_fifo.mdma": {
+        "ticks": 33,
+        "clocks": 33
+      },
+      "20-units/arith_b.mdma": {
+        "ticks": 23,
+        "clocks": 23
+      },
+      "20-units/bitcnt.mdma": {
+        "ticks": 33,
+        "clocks": 33
+      },
+      "20-units/cmp.mdma": {
+        "ticks": 53,
+        "clocks": 53
+      },
+      "20-units/div.mdma": {
+        "ticks": 325,
+        "clocks": 325
+      },
+      "20-units/div_wide.mdma": {
+        "ticks": 327,
+        "clocks": 327
+      },
+      "20-units/divs.mdma": {
+        "ticks": 382,
+        "clocks": 382
+      },
+      "20-units/logic_a.mdma": {
+        "ticks": 28,
+        "clocks": 28
+      },
+      "20-units/logic_b.mdma": {
+        "ticks": 28,
+        "clocks": 28
+      },
+      "20-units/mask.mdma": {
+        "ticks": 30,
+        "clocks": 30
+      },
+      "20-units/mul.mdma": {
+        "ticks": 48,
+        "clocks": 48
+      },
+      "20-units/muls.mdma": {
+        "ticks": 55,
+        "clocks": 55
+      },
+      "20-units/pack.mdma": {
+        "ticks": 84,
+        "clocks": 84
+      },
+      "20-units/sel_a.mdma": {
+        "ticks": 26,
+        "clocks": 26
+      },
+      "20-units/sel_b.mdma": {
+        "ticks": 25,
+        "clocks": 25
+      },
+      "20-units/shift_a.mdma": {
+        "ticks": 43,
+        "clocks": 43
+      },
+      "20-units/shift_b.mdma": {
+        "ticks": 43,
+        "clocks": 43
+      },
+      "20-units/stack_a.mdma": {
+        "ticks": 45,
+        "clocks": 45
+      },
+      "20-units/stack_a_forward.mdma": {
+        "ticks": 35,
+        "clocks": 35
+      },
+      "20-units/stack_a_replace.mdma": {
+        "ticks": 20,
+        "clocks": 20
+      },
+      "20-units/stack_b.mdma": {
+        "ticks": 21,
+        "clocks": 21
+      },
+      "20-units/stash_a.mdma": {
+        "ticks": 45,
+        "clocks": 45
+      },
+      "20-units/stash_a_forward.mdma": {
+        "ticks": 35,
+        "clocks": 35
+      },
+      "20-units/stash_a_replace.mdma": {
+        "ticks": 20,
+        "clocks": 20
+      },
+      "20-units/stash_b.mdma": {
+        "ticks": 21,
+        "clocks": 21
+      },
+      "20-units/stash_c.mdma": {
+        "ticks": 21,
+        "clocks": 21
+      },
+      "20-units/stash_d.mdma": {
+        "ticks": 21,
+        "clocks": 21
+      },
+      "20-units/swizzle8.mdma": {
+        "ticks": 20,
+        "clocks": 20
+      },
+      "20-units/unpack.mdma": {
+        "ticks": 69,
+        "clocks": 69
+      },
+      "20-units/uop_a.mdma": {
+        "ticks": 28,
+        "clocks": 28
+      },
+      "20-units/uop_b.mdma": {
+        "ticks": 28,
+        "clocks": 28
+      },
+      "30-interactions/asynchronous_chain.mdma": {
+        "ticks": 31,
+        "clocks": 31
+      },
+      "30-interactions/five_move_extended.mdma": {
+        "ticks": 25,
+        "clocks": 25
+      },
+      "30-interactions/sibling_retirement.mdma": {
+        "ticks": 34,
+        "clocks": 34
+      },
+      "30-interactions/source_reuse.mdma": {
+        "ticks": 18,
+        "clocks": 18
+      },
+      "30-interactions/stack_exchange.mdma": {
+        "ticks": 21,
+        "clocks": 21
+      },
+      "30-interactions/synchronized_swap.mdma": {
+        "ticks": 180,
+        "clocks": 180
+      },
+      "30-interactions/typed_swap.mdma": {
+        "ticks": 36,
+        "clocks": 36
+      },
+      "40-faults/division_by_zero.mdma": {
+        "ticks": 13,
+        "clocks": 13
+      },
+      "40-faults/division_queued_at_halt.mdma": {
+        "ticks": 161,
+        "clocks": 161
+      },
+      "40-faults/empty_source.mdma": {
+        "ticks": 5,
+        "clocks": 5
+      },
+      "40-faults/fetch_bounds.mdma": {
+        "ticks": 9,
+        "clocks": 9
+      },
+      "40-faults/invalid_type.mdma": {
+        "ticks": 7,
+        "clocks": 7
+      },
+      "40-faults/load_bounds.mdma": {
+        "ticks": 8,
+        "clocks": 8
+      },
+      "40-faults/load_on_halt.mdma": {
+        "ticks": 8,
+        "clocks": 8
+      },
+      "40-faults/misaligned_pack.mdma": {
+        "ticks": 6,
+        "clocks": 6
+      },
+      "40-faults/missing_predicate.mdma": {
+        "ticks": 4,
+        "clocks": 4
+      },
+      "40-faults/pc_rel_bounds.mdma": {
+        "ticks": 10,
+        "clocks": 10
+      },
+      "40-faults/pc_rel_conflict.mdma": {
+        "ticks": 4,
+        "clocks": 4
+      },
+      "40-faults/reserved_sink.mdma": {
+        "ticks": 4,
+        "clocks": 4
+      },
+      "40-faults/reserved_source.mdma": {
+        "ticks": 4,
+        "clocks": 4
+      },
+      "40-faults/store_bounds.mdma": {
+        "ticks": 9,
+        "clocks": 9
+      },
+      "40-faults/unaligned_jump.mdma": {
+        "ticks": 5,
+        "clocks": 5
+      },
+      "40-faults/unpack_type_on_halt.mdma": {
+        "ticks": 6,
+        "clocks": 6
+      },
+      "50-backpressure/arith_writeback.mdma": {
+        "ticks": 33,
+        "clocks": 33
+      },
+      "50-backpressure/memory_output.mdma": {
+        "ticks": 81,
+        "clocks": 81
+      },
+      "50-backpressure/unit_output.mdma": {
+        "ticks": 35,
+        "clocks": 35
+      }
+    },
+    "unit_latency": {
+      "ARITH_A": {
+        "clocks": 1,
+        "domain": "CPU"
+      },
+      "ARITH_B": {
+        "clocks": 1,
+        "domain": "CPU"
+      },
+      "LOGIC_A": {
+        "clocks": 1,
+        "domain": "CPU"
+      },
+      "LOGIC_B": {
+        "clocks": 1,
+        "domain": "CPU"
+      },
+      "SHIFT_A": {
+        "clocks": 1,
+        "domain": "CPU"
+      },
+      "SHIFT_B": {
+        "clocks": 1,
+        "domain": "CPU"
+      },
+      "CMP": {
+        "clocks": 1,
+        "domain": "CPU"
+      },
+      "MUL": {
+        "clocks": 7,
+        "domain": "FU"
+      },
+      "MULS": {
+        "clocks": 7,
+        "domain": "FU"
+      },
+      "DIV": {
+        "clocks": 67,
+        "domain": "FU"
+      },
+      "DIVS": {
+        "clocks": 67,
+        "domain": "FU"
+      },
+      "MASK": {
+        "clocks": 1,
+        "domain": "CPU"
+      },
+      "UOP_A": {
+        "clocks": 1,
+        "domain": "CPU"
+      },
+      "UOP_B": {
+        "clocks": 1,
+        "domain": "CPU"
+      },
+      "BITCNT": {
+        "clocks": 1,
+        "domain": "CPU"
+      },
+      "SEL_A": {
+        "clocks": 1,
+        "domain": "CPU"
+      },
+      "SEL_B": {
+        "clocks": 1,
+        "domain": "CPU"
+      },
+      "PACK": {
+        "clocks": 1,
+        "domain": "CPU"
+      },
+      "UNPACK": {
+        "clocks": 1,
+        "domain": "CPU"
+      },
+      "SWIZZLE8": {
+        "clocks": 1,
+        "domain": "CPU"
+      },
+      "MEM store": {
+        "clocks": 2,
+        "domain": "CPU"
+      },
+      "MEM load": {
+        "clocks": 3,
+        "domain": "CPU"
+      },
+      "MEM swap": {
+        "clocks": 4,
+        "domain": "CPU"
+      }
+    },
+    "qbe_tests_passed": 63,
+    "assembler_simulator_tests_passed": 113,
+    "simulator_results_passed": 70
+  },
+  "fpga": {
+    "board_separate_math_clocks": {
+      "configuration": "place-only, HeAP default, seed 1, unconstrained pins",
+      "routed_fmax_mhz": null,
+      "synthesis": {
+        "cells_by_type": {
+          "$scopeinfo": 7368,
+          "CCU2C": 1683,
+          "DP16KD": 180,
+          "L6MUX21": 3948,
+          "LUT4": 33648,
+          "MULT18X18D": 32,
+          "PFUMX": 8312,
+          "TRELLIS_DPR16X4": 977,
+          "TRELLIS_FF": 7874
+        },
+        "ports": 7,
+        "port_bits": 13,
+        "net_names": 55646,
+        "yosys_final_design_counts": {
+          "wires": 55646,
+          "wire bits": 94188,
+          "public wires": 55646,
+          "public wire bits": 94188,
+          "ports": 7,
+          "port bits": 13,
+          "cells": 7580,
+          "submodules": 56442
+        },
+        "yosys_warnings": [
+          "Feature 'write_xaiger2' is experimental.",
+          "Replacing memory \\dst with list of registers. See src/rtl/mdma_cpu.v:144",
+          "Replacing memory \\group with list of registers. See src/rtl/mdma_cpu.v:145",
+          "Replacing memory \\src with list of registers. See src/rtl/mdma_cpu.v:143",
+          "Replacing memory \\staged_data with list of registers. See src/rtl/mdma_cpu.v:184",
+          "Replacing memory \\writeback_data with list of registers. See src/rtl/mdma_cpu.v:172"
+        ],
+        "storage_and_dsp_by_instance": {
+          "DP16KD": {
+            "bram": 128,
+            "cpu.sink[11]": 2,
+            "cpu.sink[13]": 2,
+            "cpu.sink[14]": 2,
+            "cpu.sink[1]": 2,
+            "cpu.sink[24]": 2,
+            "cpu.sink[25]": 2,
+            "cpu.sink[27]": 2,
+            "cpu.sink[29]": 2,
+            "cpu.sink[2]": 2,
+            "cpu.sink[30]": 2,
+            "cpu.sink[32]": 2,
+            "cpu.sink[33]": 2,
+            "cpu.sink[34]": 2,
+            "cpu.sink[35]": 2,
+            "cpu.sink[36]": 2,
+            "cpu.sink[38]": 2,
+            "cpu.sink[3]": 2,
+            "cpu.sink[40]": 2,
+            "cpu.sink[43]": 2,
+            "cpu.sink[44]": 2,
+            "cpu.sink[4]": 2,
+            "cpu.sink[5]": 2,
+            "cpu.sink[6]": 2,
+            "cpu.sink[7]": 2,
+            "cpu.sink[8]": 2,
+            "cpu.sink[9]": 2
+          },
+          "MULT18X18D": {
+            "cpu.unit[7]": 16,
+            "cpu.unit[8]": 16
+          },
+          "TRELLIS_DPR16X4": {
+            "cpu.sink[10]": 2,
+            "cpu.sink[12]": 2,
+            "cpu.sink[23]": 2,
+            "cpu.sink[28]": 1,
+            "cpu.sink[31]": 1,
+            "cpu.sink[37]": 2,
+            "cpu.sink[39]": 1,
+            "cpu.sink[41]": 1,
+            "cpu.sink[42]": 1,
+            "cpu.sink[45]": 6,
+            "cpu.sink[62]": 1,
+            "cpu.stream": 34,
+            "cpu.unit[0]": 32,
+            "cpu.unit[10]": 64,
+            "cpu.unit[11]": 32,
+            "cpu.unit[12]": 48,
+            "cpu.unit[13]": 48,
+            "cpu.unit[14]": 6,
+            "cpu.unit[15]": 16,
+            "cpu.unit[16]": 16,
+            "cpu.unit[17]": 17,
+            "cpu.unit[18]": 34,
+            "cpu.unit[19]": 16,
+            "cpu.unit[1]": 32,
+            "cpu.unit[20]": 16,
+            "cpu.unit[21]": 16,
+            "cpu.unit[22]": 16,
+            "cpu.unit[23]": 16,
+            "cpu.unit[24]": 16,
+            "cpu.unit[25]": 16,
+            "cpu.unit[26]": 16,
+            "cpu.unit[2]": 48,
+            "cpu.unit[3]": 48,
+            "cpu.unit[4]": 80,
+            "cpu.unit[5]": 80,
+            "cpu.unit[6]": 2,
+            "cpu.unit[7]": 64,
+            "cpu.unit[8]": 64,
+            "cpu.unit[9]": 64
+          }
+        },
+        "sha256": "bf6644bc37ce512e5b1a6fb776193e94a592fc8438842851c137377b38b19210"
+      },
+      "placement_report": {
+        "critical_paths": [],
+        "fmax": {},
+        "utilization": {
+          "ALU54B": {
+            "available": 78,
+            "used": 0
+          },
+          "CLKDIVF": {
+            "available": 4,
+            "used": 0
+          },
+          "DCCA": {
+            "available": 56,
+            "used": 5
+          },
+          "DCSC": {
+            "available": 2,
+            "used": 0
+          },
+          "DCUA": {
+            "available": 2,
+            "used": 0
+          },
+          "DDRDLL": {
+            "available": 4,
+            "used": 0
+          },
+          "DLLDELD": {
+            "available": 8,
+            "used": 0
+          },
+          "DP16KD": {
+            "available": 208,
+            "used": 180
+          },
+          "DQSBUFM": {
+            "available": 14,
+            "used": 0
+          },
+          "DTR": {
+            "available": 1,
+            "used": 0
+          },
+          "ECLKBRIDGECS": {
+            "available": 2,
+            "used": 0
+          },
+          "ECLKSYNCB": {
+            "available": 10,
+            "used": 0
+          },
+          "EHXPLLL": {
+            "available": 4,
+            "used": 0
+          },
+          "EXTREFB": {
+            "available": 2,
+            "used": 0
+          },
+          "GSR": {
+            "available": 1,
+            "used": 0
+          },
+          "IOLOGIC": {
+            "available": 224,
+            "used": 0
+          },
+          "JTAGG": {
+            "available": 1,
+            "used": 0
+          },
+          "MULT18X18D": {
+            "available": 156,
+            "used": 32
+          },
+          "OSCG": {
+            "available": 1,
+            "used": 0
+          },
+          "PCSCLKDIV": {
+            "available": 2,
+            "used": 0
+          },
+          "SEDGA": {
+            "available": 1,
+            "used": 0
+          },
+          "SIOLOGIC": {
+            "available": 141,
+            "used": 0
+          },
+          "TRELLIS_COMB": {
+            "available": 83640,
+            "used": 43450
+          },
+          "TRELLIS_ECLKBUF": {
+            "available": 8,
+            "used": 0
+          },
+          "TRELLIS_FF": {
+            "available": 83640,
+            "used": 7874
+          },
+          "TRELLIS_IO": {
+            "available": 365,
+            "used": 13
+          },
+          "TRELLIS_RAMW": {
+            "available": 10455,
+            "used": 977
+          },
+          "USRMCLK": {
+            "available": 1,
+            "used": 0
+          }
+        }
+      },
+      "log_statistics": {
+        "ffs_paired_with_luts": 6057,
+        "device_utilization": {
+          "TRELLIS_IO": {
+            "used": 13,
+            "available": 365
+          },
+          "DCCA": {
+            "used": 5,
+            "available": 56
+          },
+          "DP16KD": {
+            "used": 180,
+            "available": 208
+          },
+          "MULT18X18D": {
+            "used": 32,
+            "available": 156
+          },
+          "ALU54B": {
+            "used": 0,
+            "available": 78
+          },
+          "EHXPLLL": {
+            "used": 0,
+            "available": 4
+          },
+          "EXTREFB": {
+            "used": 0,
+            "available": 2
+          },
+          "DCUA": {
+            "used": 0,
+            "available": 2
+          },
+          "PCSCLKDIV": {
+            "used": 0,
+            "available": 2
+          },
+          "IOLOGIC": {
+            "used": 0,
+            "available": 224
+          },
+          "SIOLOGIC": {
+            "used": 0,
+            "available": 141
+          },
+          "GSR": {
+            "used": 0,
+            "available": 1
+          },
+          "JTAGG": {
+            "used": 0,
+            "available": 1
+          },
+          "OSCG": {
+            "used": 0,
+            "available": 1
+          },
+          "SEDGA": {
+            "used": 0,
+            "available": 1
+          },
+          "DTR": {
+            "used": 0,
+            "available": 1
+          },
+          "USRMCLK": {
+            "used": 0,
+            "available": 1
+          },
+          "CLKDIVF": {
+            "used": 0,
+            "available": 4
+          },
+          "ECLKSYNCB": {
+            "used": 0,
+            "available": 10
+          },
+          "DLLDELD": {
+            "used": 0,
+            "available": 8
+          },
+          "DDRDLL": {
+            "used": 0,
+            "available": 4
+          },
+          "DQSBUFM": {
+            "used": 0,
+            "available": 14
+          },
+          "TRELLIS_ECLKBUF": {
+            "used": 0,
+            "available": 8
+          },
+          "ECLKBRIDGECS": {
+            "used": 0,
+            "available": 2
+          },
+          "DCSC": {
+            "used": 0,
+            "available": 2
+          },
+          "TRELLIS_FF": {
+            "used": 7874,
+            "available": 83640
+          },
+          "TRELLIS_COMB": {
+            "used": 43450,
+            "available": 83640
+          },
+          "TRELLIS_RAMW": {
+            "used": 977,
+            "available": 10455
+          }
+        },
+        "prepack_logic": {
+          "Total LUT4s": {
+            "used": 42876,
+            "available": 83640
+          },
+          "logic LUTs": {
+            "used": 33648,
+            "available": 83640
+          },
+          "carry LUTs": {
+            "used": 3366,
+            "available": 83640
+          },
+          "RAM LUTs": {
+            "used": 3908,
+            "available": 10455
+          },
+          "RAMW LUTs": {
+            "used": 1954,
+            "available": 20910
+          },
+          "Total DFFs": {
+            "used": 7874,
+            "available": 83640
+          }
+        },
+        "placement_clock_estimates": {
+          "$glbnet$math_clk[2]$TRELLIS_IO_IN": {
+            "estimated_mhz": 78.25,
+            "target_mhz": 25.0
+          },
+          "$glbnet$math_clk[1]$TRELLIS_IO_IN": {
+            "estimated_mhz": 84.23,
+            "target_mhz": 25.0
+          },
+          "$glbnet$math_clk[0]$TRELLIS_IO_IN": {
+            "estimated_mhz": 72.45,
+            "target_mhz": 25.0
+          },
+          "$glbnet$math_clk[3]$TRELLIS_IO_IN": {
+            "estimated_mhz": 67.76,
+            "target_mhz": 25.0
+          },
+          "$glbnet$clk$TRELLIS_IO_IN": {
+            "estimated_mhz": 41.99,
+            "target_mhz": 25.0
+          }
+        },
+        "placement_max_delays_ns": {
+          "<async> -> posedge $glbnet$clk$TRELLIS_IO_IN": 2.56,
+          "posedge $glbnet$clk$TRELLIS_IO_IN -> <async>": 7.94,
+          "posedge $glbnet$clk$TRELLIS_IO_IN -> posedge $glbnet$math_clk[0]$TRELLIS_IO_IN": 1.17,
+          "posedge $glbnet$clk$TRELLIS_IO_IN -> posedge $glbnet$math_clk[1]$TRELLIS_IO_IN": 2.65,
+          "posedge $glbnet$clk$TRELLIS_IO_IN -> posedge $glbnet$math_clk[2]$TRELLIS_IO_IN": 5.94,
+          "posedge $glbnet$clk$TRELLIS_IO_IN -> posedge $glbnet$math_clk[3]$TRELLIS_IO_IN": 1.65,
+          "posedge $glbnet$math_clk[0]$TRELLIS_IO_IN -> posedge $glbnet$clk$TRELLIS_IO_IN": 0.84,
+          "posedge $glbnet$math_clk[1]$TRELLIS_IO_IN -> posedge $glbnet$clk$TRELLIS_IO_IN": 0.94,
+          "posedge $glbnet$math_clk[2]$TRELLIS_IO_IN -> posedge $glbnet$clk$TRELLIS_IO_IN": 0.84,
+          "posedge $glbnet$math_clk[3]$TRELLIS_IO_IN -> posedge $glbnet$clk$TRELLIS_IO_IN": 0.84
+        },
+        "slack_histogram_bars": [
+          {
+            "lower_ps": 16184,
+            "upper_ps": 17353,
+            "display": "*+"
+          },
+          {
+            "lower_ps": 17353,
+            "upper_ps": 18522,
+            "display": "**+"
+          },
+          {
+            "lower_ps": 18522,
+            "upper_ps": 19691,
+            "display": "****+"
+          },
+          {
+            "lower_ps": 19691,
+            "upper_ps": 20860,
+            "display": "****+"
+          },
+          {
+            "lower_ps": 20860,
+            "upper_ps": 22029,
+            "display": "************+"
+          },
+          {
+            "lower_ps": 22029,
+            "upper_ps": 23198,
+            "display": "****************+"
+          },
+          {
+            "lower_ps": 23198,
+            "upper_ps": 24367,
+            "display": "************+"
+          },
+          {
+            "lower_ps": 24367,
+            "upper_ps": 25536,
+            "display": "******+"
+          },
+          {
+            "lower_ps": 25536,
+            "upper_ps": 26705,
+            "display": "*****+"
+          },
+          {
+            "lower_ps": 26705,
+            "upper_ps": 27874,
+            "display": "*******+"
+          },
+          {
+            "lower_ps": 27874,
+            "upper_ps": 29043,
+            "display": "******+"
+          },
+          {
+            "lower_ps": 29043,
+            "upper_ps": 30212,
+            "display": "****************+"
+          },
+          {
+            "lower_ps": 30212,
+            "upper_ps": 31381,
+            "display": "*********************+"
+          },
+          {
+            "lower_ps": 31381,
+            "upper_ps": 32550,
+            "display": "**********************+"
+          },
+          {
+            "lower_ps": 32550,
+            "upper_ps": 33719,
+            "display": "******************************+"
+          },
+          {
+            "lower_ps": 33719,
+            "upper_ps": 34888,
+            "display": "****************************************+"
+          },
+          {
+            "lower_ps": 34888,
+            "upper_ps": 36057,
+            "display": "*********************************************+"
+          },
+          {
+            "lower_ps": 36057,
+            "upper_ps": 37226,
+            "display": "******************************************************+"
+          },
+          {
+            "lower_ps": 37226,
+            "upper_ps": 38395,
+            "display": "************************************************************"
+          },
+          {
+            "lower_ps": 38395,
+            "upper_ps": 39564,
+            "display": "********************************+"
+          }
+        ],
+        "router2_iterations": [],
+        "final_router1_progress": null,
+        "errors": []
+      }
+    },
+    "comparison_single_clock": {
+      "synthesis": {
+        "cells_by_type": {
+          "$scopeinfo": 7369,
+          "CCU2C": 1681,
+          "DP16KD": 180,
+          "L6MUX21": 3931,
+          "LUT4": 33667,
+          "MULT18X18D": 32,
+          "PFUMX": 8268,
+          "TRELLIS_DPR16X4": 977,
+          "TRELLIS_FF": 7866
+        },
+        "ports": 6,
+        "port_bits": 9,
+        "net_names": 55704,
+        "yosys_final_design_counts": {
+          "wires": 55704,
+          "wire bits": 93126,
+          "public wires": 55704,
+          "public wire bits": 93126,
+          "ports": 6,
+          "port bits": 9,
+          "cells": 7581,
+          "submodules": 56390
+        },
+        "yosys_warnings": [
+          "Feature 'write_xaiger2' is experimental.",
+          "Replacing memory \\dst with list of registers. See src/rtl/mdma_cpu.v:144",
+          "Replacing memory \\group with list of registers. See src/rtl/mdma_cpu.v:145",
+          "Replacing memory \\src with list of registers. See src/rtl/mdma_cpu.v:143",
+          "Replacing memory \\staged_data with list of registers. See src/rtl/mdma_cpu.v:184",
+          "Replacing memory \\writeback_data with list of registers. See src/rtl/mdma_cpu.v:172"
+        ],
+        "storage_and_dsp_by_instance": {
+          "DP16KD": {
+            "bram": 128,
+            "cpu.sink[11]": 2,
+            "cpu.sink[13]": 2,
+            "cpu.sink[14]": 2,
+            "cpu.sink[1]": 2,
+            "cpu.sink[24]": 2,
+            "cpu.sink[25]": 2,
+            "cpu.sink[27]": 2,
+            "cpu.sink[29]": 2,
+            "cpu.sink[2]": 2,
+            "cpu.sink[30]": 2,
+            "cpu.sink[32]": 2,
+            "cpu.sink[33]": 2,
+            "cpu.sink[34]": 2,
+            "cpu.sink[35]": 2,
+            "cpu.sink[36]": 2,
+            "cpu.sink[38]": 2,
+            "cpu.sink[3]": 2,
+            "cpu.sink[40]": 2,
+            "cpu.sink[43]": 2,
+            "cpu.sink[44]": 2,
+            "cpu.sink[4]": 2,
+            "cpu.sink[5]": 2,
+            "cpu.sink[6]": 2,
+            "cpu.sink[7]": 2,
+            "cpu.sink[8]": 2,
+            "cpu.sink[9]": 2
+          },
+          "MULT18X18D": {
+            "cpu.unit[7]": 16,
+            "cpu.unit[8]": 16
+          },
+          "TRELLIS_DPR16X4": {
+            "cpu.sink[10]": 2,
+            "cpu.sink[12]": 2,
+            "cpu.sink[23]": 2,
+            "cpu.sink[28]": 1,
+            "cpu.sink[31]": 1,
+            "cpu.sink[37]": 2,
+            "cpu.sink[39]": 1,
+            "cpu.sink[41]": 1,
+            "cpu.sink[42]": 1,
+            "cpu.sink[45]": 6,
+            "cpu.sink[62]": 1,
+            "cpu.stream": 34,
+            "cpu.unit[0]": 32,
+            "cpu.unit[10]": 64,
+            "cpu.unit[11]": 32,
+            "cpu.unit[12]": 48,
+            "cpu.unit[13]": 48,
+            "cpu.unit[14]": 6,
+            "cpu.unit[15]": 16,
+            "cpu.unit[16]": 16,
+            "cpu.unit[17]": 17,
+            "cpu.unit[18]": 34,
+            "cpu.unit[19]": 16,
+            "cpu.unit[1]": 32,
+            "cpu.unit[20]": 16,
+            "cpu.unit[21]": 16,
+            "cpu.unit[22]": 16,
+            "cpu.unit[23]": 16,
+            "cpu.unit[24]": 16,
+            "cpu.unit[25]": 16,
+            "cpu.unit[26]": 16,
+            "cpu.unit[2]": 48,
+            "cpu.unit[3]": 48,
+            "cpu.unit[4]": 80,
+            "cpu.unit[5]": 80,
+            "cpu.unit[6]": 2,
+            "cpu.unit[7]": 64,
+            "cpu.unit[8]": 64,
+            "cpu.unit[9]": 64
+          }
+        },
+        "sha256": "74f9519332a36bf9d599236e6d35a8beb602d3e65cae16e2f92728f15c11b288"
+      },
+      "routing_attempts": {
+        "mdma": {
+          "status": "router1 stopped after more than 15 minutes",
+          "routed_fmax_mhz": null,
+          "ffs_paired_with_luts": 6013,
+          "device_utilization": {
+            "TRELLIS_IO": {
+              "used": 9,
+              "available": 365
+            },
+            "DCCA": {
+              "used": 1,
+              "available": 56
+            },
+            "DP16KD": {
+              "used": 180,
+              "available": 208
+            },
+            "MULT18X18D": {
+              "used": 32,
+              "available": 156
+            },
+            "ALU54B": {
+              "used": 0,
+              "available": 78
+            },
+            "EHXPLLL": {
+              "used": 0,
+              "available": 4
+            },
+            "EXTREFB": {
+              "used": 0,
+              "available": 2
+            },
+            "DCUA": {
+              "used": 0,
+              "available": 2
+            },
+            "PCSCLKDIV": {
+              "used": 0,
+              "available": 2
+            },
+            "IOLOGIC": {
+              "used": 0,
+              "available": 224
+            },
+            "SIOLOGIC": {
+              "used": 0,
+              "available": 141
+            },
+            "GSR": {
+              "used": 0,
+              "available": 1
+            },
+            "JTAGG": {
+              "used": 0,
+              "available": 1
+            },
+            "OSCG": {
+              "used": 0,
+              "available": 1
+            },
+            "SEDGA": {
+              "used": 0,
+              "available": 1
+            },
+            "DTR": {
+              "used": 0,
+              "available": 1
+            },
+            "USRMCLK": {
+              "used": 0,
+              "available": 1
+            },
+            "CLKDIVF": {
+              "used": 0,
+              "available": 4
+            },
+            "ECLKSYNCB": {
+              "used": 0,
+              "available": 10
+            },
+            "DLLDELD": {
+              "used": 0,
+              "available": 8
+            },
+            "DDRDLL": {
+              "used": 0,
+              "available": 4
+            },
+            "DQSBUFM": {
+              "used": 0,
+              "available": 14
+            },
+            "TRELLIS_ECLKBUF": {
+              "used": 0,
+              "available": 8
+            },
+            "ECLKBRIDGECS": {
+              "used": 0,
+              "available": 2
+            },
+            "DCSC": {
+              "used": 0,
+              "available": 2
+            },
+            "TRELLIS_FF": {
+              "used": 7866,
+              "available": 83640
+            },
+            "TRELLIS_COMB": {
+              "used": 43461,
+              "available": 83640
+            },
+            "TRELLIS_RAMW": {
+              "used": 977,
+              "available": 10455
+            }
+          },
+          "prepack_logic": {
+            "Total LUT4s": {
+              "used": 42891,
+              "available": 83640
+            },
+            "logic LUTs": {
+              "used": 33667,
+              "available": 83640
+            },
+            "carry LUTs": {
+              "used": 3362,
+              "available": 83640
+            },
+            "RAM LUTs": {
+              "used": 3908,
+              "available": 10455
+            },
+            "RAMW LUTs": {
+              "used": 1954,
+              "available": 20910
+            },
+            "Total DFFs": {
+              "used": 7866,
+              "available": 83640
+            }
+          },
+          "placement_clock_estimates": {
+            "$glbnet$clk$TRELLIS_IO_IN": {
+              "estimated_mhz": 43.28,
+              "target_mhz": 25.0
+            }
+          },
+          "placement_max_delays_ns": {
+            "<async> -> posedge $glbnet$clk$TRELLIS_IO_IN": 1.82,
+            "posedge $glbnet$clk$TRELLIS_IO_IN -> <async>": 8.7
+          },
+          "slack_histogram_bars": [
+            {
+              "lower_ps": 16893,
+              "upper_ps": 18026,
+              "display": "**+"
+            },
+            {
+              "lower_ps": 18026,
+              "upper_ps": 19159,
+              "display": "**+"
+            },
+            {
+              "lower_ps": 19159,
+              "upper_ps": 20292,
+              "display": "****+"
+            },
+            {
+              "lower_ps": 20292,
+              "upper_ps": 21425,
+              "display": "**+"
+            },
+            {
+              "lower_ps": 21425,
+              "upper_ps": 22558,
+              "display": "*****+"
+            },
+            {
+              "lower_ps": 22558,
+              "upper_ps": 23691,
+              "display": "********+"
+            },
+            {
+              "lower_ps": 23691,
+              "upper_ps": 24824,
+              "display": "*************+"
+            },
+            {
+              "lower_ps": 24824,
+              "upper_ps": 25957,
+              "display": "*************+"
+            },
+            {
+              "lower_ps": 25957,
+              "upper_ps": 27090,
+              "display": "******+"
+            },
+            {
+              "lower_ps": 27090,
+              "upper_ps": 28223,
+              "display": "****+"
+            },
+            {
+              "lower_ps": 28223,
+              "upper_ps": 29356,
+              "display": "******+"
+            },
+            {
+              "lower_ps": 29356,
+              "upper_ps": 30489,
+              "display": "***********+"
+            },
+            {
+              "lower_ps": 30489,
+              "upper_ps": 31622,
+              "display": "**********************+"
+            },
+            {
+              "lower_ps": 31622,
+              "upper_ps": 32755,
+              "display": "************************+"
+            },
+            {
+              "lower_ps": 32755,
+              "upper_ps": 33888,
+              "display": "************************+"
+            },
+            {
+              "lower_ps": 33888,
+              "upper_ps": 35021,
+              "display": "****************************************+"
+            },
+            {
+              "lower_ps": 35021,
+              "upper_ps": 36154,
+              "display": "******************************************+"
+            },
+            {
+              "lower_ps": 36154,
+              "upper_ps": 37287,
+              "display": "***************************************+"
+            },
+            {
+              "lower_ps": 37287,
+              "upper_ps": 38420,
+              "display": "************************************************************"
+            },
+            {
+              "lower_ps": 38420,
+              "upper_ps": 39553,
+              "display": "**************************+"
+            }
+          ],
+          "router2_iterations": [],
+          "final_router1_progress": "Info:     681000 |   127465     553534 |  196   804 |     91487|       3.61    1018.17|",
+          "errors": []
+        },
+        "mdma-router2": {
+          "status": "installed router2 aborted in setup with std::out_of_range",
+          "routed_fmax_mhz": null,
+          "ffs_paired_with_luts": 6013,
+          "device_utilization": {
+            "TRELLIS_IO": {
+              "used": 9,
+              "available": 365
+            },
+            "DCCA": {
+              "used": 1,
+              "available": 56
+            },
+            "DP16KD": {
+              "used": 180,
+              "available": 208
+            },
+            "MULT18X18D": {
+              "used": 32,
+              "available": 156
+            },
+            "ALU54B": {
+              "used": 0,
+              "available": 78
+            },
+            "EHXPLLL": {
+              "used": 0,
+              "available": 4
+            },
+            "EXTREFB": {
+              "used": 0,
+              "available": 2
+            },
+            "DCUA": {
+              "used": 0,
+              "available": 2
+            },
+            "PCSCLKDIV": {
+              "used": 0,
+              "available": 2
+            },
+            "IOLOGIC": {
+              "used": 0,
+              "available": 224
+            },
+            "SIOLOGIC": {
+              "used": 0,
+              "available": 141
+            },
+            "GSR": {
+              "used": 0,
+              "available": 1
+            },
+            "JTAGG": {
+              "used": 0,
+              "available": 1
+            },
+            "OSCG": {
+              "used": 0,
+              "available": 1
+            },
+            "SEDGA": {
+              "used": 0,
+              "available": 1
+            },
+            "DTR": {
+              "used": 0,
+              "available": 1
+            },
+            "USRMCLK": {
+              "used": 0,
+              "available": 1
+            },
+            "CLKDIVF": {
+              "used": 0,
+              "available": 4
+            },
+            "ECLKSYNCB": {
+              "used": 0,
+              "available": 10
+            },
+            "DLLDELD": {
+              "used": 0,
+              "available": 8
+            },
+            "DDRDLL": {
+              "used": 0,
+              "available": 4
+            },
+            "DQSBUFM": {
+              "used": 0,
+              "available": 14
+            },
+            "TRELLIS_ECLKBUF": {
+              "used": 0,
+              "available": 8
+            },
+            "ECLKBRIDGECS": {
+              "used": 0,
+              "available": 2
+            },
+            "DCSC": {
+              "used": 0,
+              "available": 2
+            },
+            "TRELLIS_FF": {
+              "used": 7866,
+              "available": 83640
+            },
+            "TRELLIS_COMB": {
+              "used": 43461,
+              "available": 83640
+            },
+            "TRELLIS_RAMW": {
+              "used": 977,
+              "available": 10455
+            }
+          },
+          "prepack_logic": {
+            "Total LUT4s": {
+              "used": 42891,
+              "available": 83640
+            },
+            "logic LUTs": {
+              "used": 33667,
+              "available": 83640
+            },
+            "carry LUTs": {
+              "used": 3362,
+              "available": 83640
+            },
+            "RAM LUTs": {
+              "used": 3908,
+              "available": 10455
+            },
+            "RAMW LUTs": {
+              "used": 1954,
+              "available": 20910
+            },
+            "Total DFFs": {
+              "used": 7866,
+              "available": 83640
+            }
+          },
+          "placement_clock_estimates": {
+            "$glbnet$clk$TRELLIS_IO_IN": {
+              "estimated_mhz": 40.49,
+              "target_mhz": 25.0
+            }
+          },
+          "placement_max_delays_ns": {
+            "<async> -> posedge $glbnet$clk$TRELLIS_IO_IN": 1.92,
+            "posedge $glbnet$clk$TRELLIS_IO_IN -> <async>": 8.81
+          },
+          "slack_histogram_bars": [
+            {
+              "lower_ps": 15303,
+              "upper_ps": 16516,
+              "display": "*+"
+            },
+            {
+              "lower_ps": 16516,
+              "upper_ps": 17729,
+              "display": "*+"
+            },
+            {
+              "lower_ps": 17729,
+              "upper_ps": 18942,
+              "display": "***+"
+            },
+            {
+              "lower_ps": 18942,
+              "upper_ps": 20155,
+              "display": "****+"
+            },
+            {
+              "lower_ps": 20155,
+              "upper_ps": 21368,
+              "display": "**+"
+            },
+            {
+              "lower_ps": 21368,
+              "upper_ps": 22581,
+              "display": "*****+"
+            },
+            {
+              "lower_ps": 22581,
+              "upper_ps": 23794,
+              "display": "*******+"
+            },
+            {
+              "lower_ps": 23794,
+              "upper_ps": 25007,
+              "display": "*************+"
+            },
+            {
+              "lower_ps": 25007,
+              "upper_ps": 26220,
+              "display": "************+"
+            },
+            {
+              "lower_ps": 26220,
+              "upper_ps": 27433,
+              "display": "*******+"
+            },
+            {
+              "lower_ps": 27433,
+              "upper_ps": 28646,
+              "display": "******+"
+            },
+            {
+              "lower_ps": 28646,
+              "upper_ps": 29859,
+              "display": "********+"
+            },
+            {
+              "lower_ps": 29859,
+              "upper_ps": 31072,
+              "display": "***************+"
+            },
+            {
+              "lower_ps": 31072,
+              "upper_ps": 32285,
+              "display": "**************************+"
+            },
+            {
+              "lower_ps": 32285,
+              "upper_ps": 33498,
+              "display": "*********************+"
+            },
+            {
+              "lower_ps": 33498,
+              "upper_ps": 34711,
+              "display": "*************************************+"
+            },
+            {
+              "lower_ps": 34711,
+              "upper_ps": 35924,
+              "display": "*******************************************+"
+            },
+            {
+              "lower_ps": 35924,
+              "upper_ps": 37137,
+              "display": "*************************************+"
+            },
+            {
+              "lower_ps": 37137,
+              "upper_ps": 38350,
+              "display": "************************************************************"
+            },
+            {
+              "lower_ps": 38350,
+              "upper_ps": 39563,
+              "display": "*******************************+"
+            }
+          ],
+          "router2_iterations": [],
+          "final_router1_progress": null,
+          "errors": [
+            "terminate called after throwing an instance of 'std::out_of_range'",
+            "what():  vector::_M_range_check: __n (which is 18446744073709551614) >= this->size() (which is 80395)"
+          ]
+        },
+        "mdma-router2-fixed": {
+          "status": "local router2 build stopped with unresolved conflicts",
+          "routed_fmax_mhz": null,
+          "ffs_paired_with_luts": 6013,
+          "device_utilization": {
+            "TRELLIS_IO": {
+              "used": 9,
+              "available": 365
+            },
+            "DCCA": {
+              "used": 1,
+              "available": 56
+            },
+            "DP16KD": {
+              "used": 180,
+              "available": 208
+            },
+            "MULT18X18D": {
+              "used": 32,
+              "available": 156
+            },
+            "ALU54B": {
+              "used": 0,
+              "available": 78
+            },
+            "EHXPLLL": {
+              "used": 0,
+              "available": 4
+            },
+            "EXTREFB": {
+              "used": 0,
+              "available": 2
+            },
+            "DCUA": {
+              "used": 0,
+              "available": 2
+            },
+            "PCSCLKDIV": {
+              "used": 0,
+              "available": 2
+            },
+            "IOLOGIC": {
+              "used": 0,
+              "available": 224
+            },
+            "SIOLOGIC": {
+              "used": 0,
+              "available": 141
+            },
+            "GSR": {
+              "used": 0,
+              "available": 1
+            },
+            "JTAGG": {
+              "used": 0,
+              "available": 1
+            },
+            "OSCG": {
+              "used": 0,
+              "available": 1
+            },
+            "SEDGA": {
+              "used": 0,
+              "available": 1
+            },
+            "DTR": {
+              "used": 0,
+              "available": 1
+            },
+            "USRMCLK": {
+              "used": 0,
+              "available": 1
+            },
+            "CLKDIVF": {
+              "used": 0,
+              "available": 4
+            },
+            "ECLKSYNCB": {
+              "used": 0,
+              "available": 10
+            },
+            "DLLDELD": {
+              "used": 0,
+              "available": 8
+            },
+            "DDRDLL": {
+              "used": 0,
+              "available": 4
+            },
+            "DQSBUFM": {
+              "used": 0,
+              "available": 14
+            },
+            "TRELLIS_ECLKBUF": {
+              "used": 0,
+              "available": 8
+            },
+            "ECLKBRIDGECS": {
+              "used": 0,
+              "available": 2
+            },
+            "DCSC": {
+              "used": 0,
+              "available": 2
+            },
+            "TRELLIS_FF": {
+              "used": 7866,
+              "available": 83640
+            },
+            "TRELLIS_COMB": {
+              "used": 43461,
+              "available": 83640
+            },
+            "TRELLIS_RAMW": {
+              "used": 977,
+              "available": 10455
+            }
+          },
+          "prepack_logic": {
+            "Total LUT4s": {
+              "used": 42891,
+              "available": 83640
+            },
+            "logic LUTs": {
+              "used": 33667,
+              "available": 83640
+            },
+            "carry LUTs": {
+              "used": 3362,
+              "available": 83640
+            },
+            "RAM LUTs": {
+              "used": 3908,
+              "available": 10455
+            },
+            "RAMW LUTs": {
+              "used": 1954,
+              "available": 20910
+            },
+            "Total DFFs": {
+              "used": 7866,
+              "available": 83640
+            }
+          },
+          "placement_clock_estimates": {
+            "$glbnet$clk$TRELLIS_IO_IN": {
+              "estimated_mhz": 42.69,
+              "target_mhz": 25.0
+            }
+          },
+          "placement_max_delays_ns": {
+            "<async> -> posedge $glbnet$clk$TRELLIS_IO_IN": 2.29,
+            "posedge $glbnet$clk$TRELLIS_IO_IN -> <async>": 8.81
+          },
+          "slack_histogram_bars": [
+            {
+              "lower_ps": 16575,
+              "upper_ps": 17724,
+              "display": "*+"
+            },
+            {
+              "lower_ps": 17724,
+              "upper_ps": 18873,
+              "display": "**+"
+            },
+            {
+              "lower_ps": 18873,
+              "upper_ps": 20022,
+              "display": "*****+"
+            },
+            {
+              "lower_ps": 20022,
+              "upper_ps": 21171,
+              "display": "***+"
+            },
+            {
+              "lower_ps": 21171,
+              "upper_ps": 22320,
+              "display": "***+"
+            },
+            {
+              "lower_ps": 22320,
+              "upper_ps": 23469,
+              "display": "*******+"
+            },
+            {
+              "lower_ps": 23469,
+              "upper_ps": 24618,
+              "display": "**************+"
+            },
+            {
+              "lower_ps": 24618,
+              "upper_ps": 25767,
+              "display": "****************+"
+            },
+            {
+              "lower_ps": 25767,
+              "upper_ps": 26916,
+              "display": "*********+"
+            },
+            {
+              "lower_ps": 26916,
+              "upper_ps": 28065,
+              "display": "******+"
+            },
+            {
+              "lower_ps": 28065,
+              "upper_ps": 29214,
+              "display": "********+"
+            },
+            {
+              "lower_ps": 29214,
+              "upper_ps": 30363,
+              "display": "************+"
+            },
+            {
+              "lower_ps": 30363,
+              "upper_ps": 31512,
+              "display": "***************************+"
+            },
+            {
+              "lower_ps": 31512,
+              "upper_ps": 32661,
+              "display": "************************+"
+            },
+            {
+              "lower_ps": 32661,
+              "upper_ps": 33810,
+              "display": "**************************+"
+            },
+            {
+              "lower_ps": 33810,
+              "upper_ps": 34959,
+              "display": "********************************************+"
+            },
+            {
+              "lower_ps": 34959,
+              "upper_ps": 36108,
+              "display": "***********************************************+"
+            },
+            {
+              "lower_ps": 36108,
+              "upper_ps": 37257,
+              "display": "***********************************************+"
+            },
+            {
+              "lower_ps": 37257,
+              "upper_ps": 38406,
+              "display": "************************************************************"
+            },
+            {
+              "lower_ps": 38406,
+              "upper_ps": 39555,
+              "display": "**************************************+"
+            }
+          ],
+          "router2_iterations": [
+            {
+              "iteration": 1,
+              "wires": 753517,
+              "overused": 67221,
+              "overuse": 82967
+            },
+            {
+              "iteration": 2,
+              "wires": 785831,
+              "overused": 44511,
+              "overuse": 48433
+            },
+            {
+              "iteration": 3,
+              "wires": 801013,
+              "overused": 32817,
+              "overuse": 34243
+            },
+            {
+              "iteration": 4,
+              "wires": 813022,
+              "overused": 25901,
+              "overuse": 26631
+            },
+            {
+              "iteration": 5,
+              "wires": 822541,
+              "overused": 20870,
+              "overuse": 21327
+            },
+            {
+              "iteration": 6,
+              "wires": 831359,
+              "overused": 17442,
+              "overuse": 17719
+            },
+            {
+              "iteration": 7,
+              "wires": 837437,
+              "overused": 15272,
+              "overuse": 15451
+            },
+            {
+              "iteration": 8,
+              "wires": 844315,
+              "overused": 12958,
+              "overuse": 13074
+            },
+            {
+              "iteration": 9,
+              "wires": 849754,
+              "overused": 12692,
+              "overuse": 12832
+            },
+            {
+              "iteration": 10,
+              "wires": 855524,
+              "overused": 12006,
+              "overuse": 12113
+            },
+            {
+              "iteration": 11,
+              "wires": 861030,
+              "overused": 11734,
+              "overuse": 11821
+            },
+            {
+              "iteration": 12,
+              "wires": 868677,
+              "overused": 11846,
+              "overuse": 11946
+            },
+            {
+              "iteration": 13,
+              "wires": 875987,
+              "overused": 11890,
+              "overuse": 11971
+            }
+          ],
+          "final_router1_progress": null,
+          "errors": []
+        },
+        "mdma-spread": {
+          "status": "local router2 build, seed 2 and HeAP beta 0.72, stopped with unresolved conflicts",
+          "routed_fmax_mhz": null,
+          "ffs_paired_with_luts": 6013,
+          "device_utilization": {
+            "TRELLIS_IO": {
+              "used": 9,
+              "available": 365
+            },
+            "DCCA": {
+              "used": 1,
+              "available": 56
+            },
+            "DP16KD": {
+              "used": 180,
+              "available": 208
+            },
+            "MULT18X18D": {
+              "used": 32,
+              "available": 156
+            },
+            "ALU54B": {
+              "used": 0,
+              "available": 78
+            },
+            "EHXPLLL": {
+              "used": 0,
+              "available": 4
+            },
+            "EXTREFB": {
+              "used": 0,
+              "available": 2
+            },
+            "DCUA": {
+              "used": 0,
+              "available": 2
+            },
+            "PCSCLKDIV": {
+              "used": 0,
+              "available": 2
+            },
+            "IOLOGIC": {
+              "used": 0,
+              "available": 224
+            },
+            "SIOLOGIC": {
+              "used": 0,
+              "available": 141
+            },
+            "GSR": {
+              "used": 0,
+              "available": 1
+            },
+            "JTAGG": {
+              "used": 0,
+              "available": 1
+            },
+            "OSCG": {
+              "used": 0,
+              "available": 1
+            },
+            "SEDGA": {
+              "used": 0,
+              "available": 1
+            },
+            "DTR": {
+              "used": 0,
+              "available": 1
+            },
+            "USRMCLK": {
+              "used": 0,
+              "available": 1
+            },
+            "CLKDIVF": {
+              "used": 0,
+              "available": 4
+            },
+            "ECLKSYNCB": {
+              "used": 0,
+              "available": 10
+            },
+            "DLLDELD": {
+              "used": 0,
+              "available": 8
+            },
+            "DDRDLL": {
+              "used": 0,
+              "available": 4
+            },
+            "DQSBUFM": {
+              "used": 0,
+              "available": 14
+            },
+            "TRELLIS_ECLKBUF": {
+              "used": 0,
+              "available": 8
+            },
+            "ECLKBRIDGECS": {
+              "used": 0,
+              "available": 2
+            },
+            "DCSC": {
+              "used": 0,
+              "available": 2
+            },
+            "TRELLIS_FF": {
+              "used": 7866,
+              "available": 83640
+            },
+            "TRELLIS_COMB": {
+              "used": 43461,
+              "available": 83640
+            },
+            "TRELLIS_RAMW": {
+              "used": 977,
+              "available": 10455
+            }
+          },
+          "prepack_logic": {
+            "Total LUT4s": {
+              "used": 42891,
+              "available": 83640
+            },
+            "logic LUTs": {
+              "used": 33667,
+              "available": 83640
+            },
+            "carry LUTs": {
+              "used": 3362,
+              "available": 83640
+            },
+            "RAM LUTs": {
+              "used": 3908,
+              "available": 10455
+            },
+            "RAMW LUTs": {
+              "used": 1954,
+              "available": 20910
+            },
+            "Total DFFs": {
+              "used": 7866,
+              "available": 83640
+            }
+          },
+          "placement_clock_estimates": {
+            "$glbnet$clk$TRELLIS_IO_IN": {
+              "estimated_mhz": 45.27,
+              "target_mhz": 25.0
+            }
+          },
+          "placement_max_delays_ns": {
+            "<async> -> posedge $glbnet$clk$TRELLIS_IO_IN": 4.09,
+            "posedge $glbnet$clk$TRELLIS_IO_IN -> <async>": 8.86
+          },
+          "slack_histogram_bars": [
+            {
+              "lower_ps": 17908,
+              "upper_ps": 18991,
+              "display": "**+"
+            },
+            {
+              "lower_ps": 18991,
+              "upper_ps": 20074,
+              "display": "+"
+            },
+            {
+              "lower_ps": 20074,
+              "upper_ps": 21157,
+              "display": "***+"
+            },
+            {
+              "lower_ps": 21157,
+              "upper_ps": 22240,
+              "display": "*****+"
+            },
+            {
+              "lower_ps": 22240,
+              "upper_ps": 23323,
+              "display": "****+"
+            },
+            {
+              "lower_ps": 23323,
+              "upper_ps": 24406,
+              "display": "**************+"
+            },
+            {
+              "lower_ps": 24406,
+              "upper_ps": 25489,
+              "display": "***************+"
+            },
+            {
+              "lower_ps": 25489,
+              "upper_ps": 26572,
+              "display": "***********+"
+            },
+            {
+              "lower_ps": 26572,
+              "upper_ps": 27655,
+              "display": "******+"
+            },
+            {
+              "lower_ps": 27655,
+              "upper_ps": 28738,
+              "display": "*****+"
+            },
+            {
+              "lower_ps": 28738,
+              "upper_ps": 29821,
+              "display": "********+"
+            },
+            {
+              "lower_ps": 29821,
+              "upper_ps": 30904,
+              "display": "*************+"
+            },
+            {
+              "lower_ps": 30904,
+              "upper_ps": 31987,
+              "display": "*******************+"
+            },
+            {
+              "lower_ps": 31987,
+              "upper_ps": 33070,
+              "display": "****************************+"
+            },
+            {
+              "lower_ps": 33070,
+              "upper_ps": 34153,
+              "display": "***************************+"
+            },
+            {
+              "lower_ps": 34153,
+              "upper_ps": 35236,
+              "display": "**********************************************+"
+            },
+            {
+              "lower_ps": 35236,
+              "upper_ps": 36319,
+              "display": "****************************************+"
+            },
+            {
+              "lower_ps": 36319,
+              "upper_ps": 37402,
+              "display": "**************************************+"
+            },
+            {
+              "lower_ps": 37402,
+              "upper_ps": 38485,
+              "display": "************************************************************"
+            },
+            {
+              "lower_ps": 38485,
+              "upper_ps": 39568,
+              "display": "**************************+"
+            }
+          ],
+          "router2_iterations": [
+            {
+              "iteration": 1,
+              "wires": 763058,
+              "overused": 72165,
+              "overuse": 88707
+            },
+            {
+              "iteration": 2,
+              "wires": 794527,
+              "overused": 48758,
+              "overuse": 53387
+            },
+            {
+              "iteration": 3,
+              "wires": 811395,
+              "overused": 36588,
+              "overuse": 38313
+            },
+            {
+              "iteration": 4,
+              "wires": 824258,
+              "overused": 29999,
+              "overuse": 31073
+            },
+            {
+              "iteration": 5,
+              "wires": 834178,
+              "overused": 26187,
+              "overuse": 27014
+            },
+            {
+              "iteration": 6,
+              "wires": 843008,
+              "overused": 24546,
+              "overuse": 25214
+            },
+            {
+              "iteration": 7,
+              "wires": 852039,
+              "overused": 24066,
+              "overuse": 24677
+            }
+          ],
+          "final_router1_progress": null,
+          "errors": []
+        },
+        "mdma-lut4": {
+          "status": "Synthesis with -nowidelut and local router2 stopped with unresolved conflicts",
+          "routed_fmax_mhz": null,
+          "ffs_paired_with_luts": 6535,
+          "device_utilization": {
+            "TRELLIS_IO": {
+              "used": 9,
+              "available": 365
+            },
+            "DCCA": {
+              "used": 1,
+              "available": 56
+            },
+            "DP16KD": {
+              "used": 180,
+              "available": 208
+            },
+            "MULT18X18D": {
+              "used": 32,
+              "available": 156
+            },
+            "ALU54B": {
+              "used": 0,
+              "available": 78
+            },
+            "EHXPLLL": {
+              "used": 0,
+              "available": 4
+            },
+            "EXTREFB": {
+              "used": 0,
+              "available": 2
+            },
+            "DCUA": {
+              "used": 0,
+              "available": 2
+            },
+            "PCSCLKDIV": {
+              "used": 0,
+              "available": 2
+            },
+            "IOLOGIC": {
+              "used": 0,
+              "available": 224
+            },
+            "SIOLOGIC": {
+              "used": 0,
+              "available": 141
+            },
+            "GSR": {
+              "used": 0,
+              "available": 1
+            },
+            "JTAGG": {
+              "used": 0,
+              "available": 1
+            },
+            "OSCG": {
+              "used": 0,
+              "available": 1
+            },
+            "SEDGA": {
+              "used": 0,
+              "available": 1
+            },
+            "DTR": {
+              "used": 0,
+              "available": 1
+            },
+            "USRMCLK": {
+              "used": 0,
+              "available": 1
+            },
+            "CLKDIVF": {
+              "used": 0,
+              "available": 4
+            },
+            "ECLKSYNCB": {
+              "used": 0,
+              "available": 10
+            },
+            "DLLDELD": {
+              "used": 0,
+              "available": 8
+            },
+            "DDRDLL": {
+              "used": 0,
+              "available": 4
+            },
+            "DQSBUFM": {
+              "used": 0,
+              "available": 14
+            },
+            "TRELLIS_ECLKBUF": {
+              "used": 0,
+              "available": 8
+            },
+            "ECLKBRIDGECS": {
+              "used": 0,
+              "available": 2
+            },
+            "DCSC": {
+              "used": 0,
+              "available": 2
+            },
+            "TRELLIS_FF": {
+              "used": 7866,
+              "available": 83640
+            },
+            "TRELLIS_COMB": {
+              "used": 43123,
+              "available": 83640
+            },
+            "TRELLIS_RAMW": {
+              "used": 977,
+              "available": 10455
+            }
+          },
+          "prepack_logic": {
+            "Total LUT4s": {
+              "used": 42553,
+              "available": 83640
+            },
+            "logic LUTs": {
+              "used": 33329,
+              "available": 83640
+            },
+            "carry LUTs": {
+              "used": 3362,
+              "available": 83640
+            },
+            "RAM LUTs": {
+              "used": 3908,
+              "available": 10455
+            },
+            "RAMW LUTs": {
+              "used": 1954,
+              "available": 20910
+            },
+            "Total DFFs": {
+              "used": 7866,
+              "available": 83640
+            }
+          },
+          "placement_clock_estimates": {
+            "$glbnet$clk$TRELLIS_IO_IN": {
+              "estimated_mhz": 46.13,
+              "target_mhz": 25.0
+            }
+          },
+          "placement_max_delays_ns": {
+            "<async> -> posedge $glbnet$clk$TRELLIS_IO_IN": 1.33,
+            "posedge $glbnet$clk$TRELLIS_IO_IN -> <async>": 8.79
+          },
+          "slack_histogram_bars": [
+            {
+              "lower_ps": 18323,
+              "upper_ps": 19385,
+              "display": "+"
+            },
+            {
+              "lower_ps": 19385,
+              "upper_ps": 20447,
+              "display": "***+"
+            },
+            {
+              "lower_ps": 20447,
+              "upper_ps": 21509,
+              "display": "****+"
+            },
+            {
+              "lower_ps": 21509,
+              "upper_ps": 22571,
+              "display": "******+"
+            },
+            {
+              "lower_ps": 22571,
+              "upper_ps": 23633,
+              "display": "***+"
+            },
+            {
+              "lower_ps": 23633,
+              "upper_ps": 24695,
+              "display": "******+"
+            },
+            {
+              "lower_ps": 24695,
+              "upper_ps": 25757,
+              "display": "***********+"
+            },
+            {
+              "lower_ps": 25757,
+              "upper_ps": 26819,
+              "display": "**********+"
+            },
+            {
+              "lower_ps": 26819,
+              "upper_ps": 27881,
+              "display": "***********+"
+            },
+            {
+              "lower_ps": 27881,
+              "upper_ps": 28943,
+              "display": "********+"
+            },
+            {
+              "lower_ps": 28943,
+              "upper_ps": 30005,
+              "display": "********+"
+            },
+            {
+              "lower_ps": 30005,
+              "upper_ps": 31067,
+              "display": "***************+"
+            },
+            {
+              "lower_ps": 31067,
+              "upper_ps": 32129,
+              "display": "********************+"
+            },
+            {
+              "lower_ps": 32129,
+              "upper_ps": 33191,
+              "display": "*********************+"
+            },
+            {
+              "lower_ps": 33191,
+              "upper_ps": 34253,
+              "display": "************************************+"
+            },
+            {
+              "lower_ps": 34253,
+              "upper_ps": 35315,
+              "display": "**************************************+"
+            },
+            {
+              "lower_ps": 35315,
+              "upper_ps": 36377,
+              "display": "************************************+"
+            },
+            {
+              "lower_ps": 36377,
+              "upper_ps": 37439,
+              "display": "*********************************+"
+            },
+            {
+              "lower_ps": 37439,
+              "upper_ps": 38501,
+              "display": "************************************************************"
+            },
+            {
+              "lower_ps": 38501,
+              "upper_ps": 39563,
+              "display": "*****************************+"
+            }
+          ],
+          "router2_iterations": [
+            {
+              "iteration": 1,
+              "wires": 735767,
+              "overused": 64403,
+              "overuse": 78797
+            },
+            {
+              "iteration": 2,
+              "wires": 766078,
+              "overused": 41706,
+              "overuse": 45314
+            },
+            {
+              "iteration": 3,
+              "wires": 780943,
+              "overused": 29586,
+              "overuse": 30793
+            },
+            {
+              "iteration": 4,
+              "wires": 791558,
+              "overused": 22797,
+              "overuse": 23412
+            },
+            {
+              "iteration": 5,
+              "wires": 801121,
+              "overused": 17602,
+              "overuse": 17908
+            },
+            {
+              "iteration": 6,
+              "wires": 809658,
+              "overused": 14331,
+              "overuse": 14513
+            },
+            {
+              "iteration": 7,
+              "wires": 815346,
+              "overused": 12134,
+              "overuse": 12275
+            },
+            {
+              "iteration": 8,
+              "wires": 820593,
+              "overused": 10459,
+              "overuse": 10565
+            },
+            {
+              "iteration": 9,
+              "wires": 825543,
+              "overused": 9320,
+              "overuse": 9403
+            },
+            {
+              "iteration": 10,
+              "wires": 829881,
+              "overused": 8518,
+              "overuse": 8581
+            },
+            {
+              "iteration": 11,
+              "wires": 834518,
+              "overused": 7613,
+              "overuse": 7661
+            },
+            {
+              "iteration": 12,
+              "wires": 838444,
+              "overused": 7398,
+              "overuse": 7434
+            },
+            {
+              "iteration": 13,
+              "wires": 842438,
+              "overused": 7596,
+              "overuse": 7641
+            },
+            {
+              "iteration": 14,
+              "wires": 846528,
+              "overused": 7340,
+              "overuse": 7380
+            },
+            {
+              "iteration": 15,
+              "wires": 850131,
+              "overused": 7547,
+              "overuse": 7599
+            }
+          ],
+          "final_router1_progress": null,
+          "errors": []
+        }
+      },
+      "nowidelut_synthesis": {
+        "cells_by_type": {
+          "$scopeinfo": 7369,
+          "CCU2C": 1681,
+          "DP16KD": 180,
+          "L6MUX21": 3840,
+          "LUT4": 33329,
+          "MULT18X18D": 32,
+          "PFUMX": 5650,
+          "TRELLIS_DPR16X4": 977,
+          "TRELLIS_FF": 7866
+        },
+        "ports": 6,
+        "port_bits": 9,
+        "net_names": 51115,
+        "yosys_final_design_counts": {
+          "wires": 51115,
+          "wire bits": 85396,
+          "public wires": 51115,
+          "public wire bits": 85396,
+          "ports": 6,
+          "port bits": 9,
+          "cells": 7581,
+          "submodules": 53343
+        },
+        "yosys_warnings": [
+          "Feature 'write_xaiger2' is experimental.",
+          "Replacing memory \\dst with list of registers. See src/rtl/mdma_cpu.v:144",
+          "Replacing memory \\group with list of registers. See src/rtl/mdma_cpu.v:145",
+          "Replacing memory \\src with list of registers. See src/rtl/mdma_cpu.v:143",
+          "Replacing memory \\staged_data with list of registers. See src/rtl/mdma_cpu.v:184",
+          "Replacing memory \\writeback_data with list of registers. See src/rtl/mdma_cpu.v:172"
+        ],
+        "storage_and_dsp_by_instance": {
+          "DP16KD": {
+            "bram": 128,
+            "cpu.sink[11]": 2,
+            "cpu.sink[13]": 2,
+            "cpu.sink[14]": 2,
+            "cpu.sink[1]": 2,
+            "cpu.sink[24]": 2,
+            "cpu.sink[25]": 2,
+            "cpu.sink[27]": 2,
+            "cpu.sink[29]": 2,
+            "cpu.sink[2]": 2,
+            "cpu.sink[30]": 2,
+            "cpu.sink[32]": 2,
+            "cpu.sink[33]": 2,
+            "cpu.sink[34]": 2,
+            "cpu.sink[35]": 2,
+            "cpu.sink[36]": 2,
+            "cpu.sink[38]": 2,
+            "cpu.sink[3]": 2,
+            "cpu.sink[40]": 2,
+            "cpu.sink[43]": 2,
+            "cpu.sink[44]": 2,
+            "cpu.sink[4]": 2,
+            "cpu.sink[5]": 2,
+            "cpu.sink[6]": 2,
+            "cpu.sink[7]": 2,
+            "cpu.sink[8]": 2,
+            "cpu.sink[9]": 2
+          },
+          "MULT18X18D": {
+            "cpu.unit[7]": 16,
+            "cpu.unit[8]": 16
+          },
+          "TRELLIS_DPR16X4": {
+            "cpu.sink[10]": 2,
+            "cpu.sink[12]": 2,
+            "cpu.sink[23]": 2,
+            "cpu.sink[28]": 1,
+            "cpu.sink[31]": 1,
+            "cpu.sink[37]": 2,
+            "cpu.sink[39]": 1,
+            "cpu.sink[41]": 1,
+            "cpu.sink[42]": 1,
+            "cpu.sink[45]": 6,
+            "cpu.sink[62]": 1,
+            "cpu.stream": 34,
+            "cpu.unit[0]": 32,
+            "cpu.unit[10]": 64,
+            "cpu.unit[11]": 32,
+            "cpu.unit[12]": 48,
+            "cpu.unit[13]": 48,
+            "cpu.unit[14]": 6,
+            "cpu.unit[15]": 16,
+            "cpu.unit[16]": 16,
+            "cpu.unit[17]": 17,
+            "cpu.unit[18]": 34,
+            "cpu.unit[19]": 16,
+            "cpu.unit[1]": 32,
+            "cpu.unit[20]": 16,
+            "cpu.unit[21]": 16,
+            "cpu.unit[22]": 16,
+            "cpu.unit[23]": 16,
+            "cpu.unit[24]": 16,
+            "cpu.unit[25]": 16,
+            "cpu.unit[26]": 16,
+            "cpu.unit[2]": 48,
+            "cpu.unit[3]": 48,
+            "cpu.unit[4]": 80,
+            "cpu.unit[5]": 80,
+            "cpu.unit[6]": 2,
+            "cpu.unit[7]": 64,
+            "cpu.unit[8]": 64,
+            "cpu.unit[9]": 64
+          }
+        },
+        "sha256": "940d9b16c4ae851a64c5a5ea45bcee6ff6a91b5a69b043f0f88f52bead469c92"
+      }
+    }
+  }
+}

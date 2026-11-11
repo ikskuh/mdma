@@ -1,8 +1,7 @@
-"""Validate and time the pinned CoreMark kernels in the simulator or ECP5 RTL."""
+"""Validate and time the pinned CoreMark kernels in the simulator."""
 
 import argparse
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -14,7 +13,6 @@ ROOT = PORT.parents[2]
 UPSTREAM = ROOT / 'vendor/coremark'
 sys.path[:0] = [str(ROOT / 'src/assembler'), str(ROOT / 'src/simulator')]
 from mdma_asm import MoveDensity, assemble_with_labels
-from rtl_runner import BRAM_BYTES, RTL, prepare, rtl_defines, write_bram_image
 from simulator import Simulator
 
 
@@ -44,48 +42,6 @@ def functional(image, labels, start_pc, end_pc, profile):
     return end - start, sim.ticks, values
 
 
-def build_ecp5(work):
-    verilator = shutil.which(os.environ.get('VERILATOR', 'verilator'))
-    if not verilator:
-        raise ValueError('install Verilator or set VERILATOR to its executable')
-    prepare(work)
-    obj = work / 'obj'
-    bench = ROOT / 'tests/rtl/mdma_coremark_tb.v'
-    command = [verilator, '--binary', '--timing', '-O3', '-CFLAGS', '-O3', '-j', '4',
-               '-Wno-fatal', '--top-module', 'mdma_coremark_tb', '--Mdir', obj, f'-I{work}',
-               *rtl_defines(), *sorted(RTL.glob('*.v')), bench]
-    build = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    if build.returncode:
-        raise ValueError(f'Verilator build failed:\n{build.stdout}')
-    return obj / 'Vmdma_coremark_tb'
-
-
-def ecp5(work, image, labels, start_pc, end_pc, executable=None, *, profile=None):
-    """Run RTL; optionally collect integer PROFILE counters in the supplied dict."""
-    if executable is None:
-        executable = build_ecp5(work)
-    path = work / 'image.hex'
-    write_bram_image(image, path)
-    result = subprocess.run([executable, f'+image={path}', f'+words={BRAM_BYTES // 8}',
-                             f'+start_pc={start_pc}', f'+end_pc={end_pc}',
-                             *(f'+{name}_word={address // 8}' for name, address in labels.items())],
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    match = re.search(r'^COREMARK (\d+) (\d+) ((?:[0-9a-fA-F]+ ?){4})$', result.stdout, re.MULTILINE)
-    if result.returncode or not match:
-        raise ValueError(f'ECP5 simulation failed:\n{result.stdout}')
-    counters = {}
-    for line in result.stdout.splitlines():
-        if line.startswith('PROFILE '):
-            counters.update((key, int(value)) for key, value in re.findall(r'(\w+)=(\d+)', line))
-            print(line, flush=True)
-    if profile is not None:
-        profile.update(counters)
-    if counters.get('retired'):
-        print(f'ECP5 instruction throughput: {counters["retired"] / int(match[1]):.8f} instructions/clock '
-              f'({int(match[1]) / counters["retired"]:.4f} clocks/instruction).', flush=True)
-    return int(match[1]), int(match[2]), [int(value, 16) for value in match[3].split()]
-
-
 def compile_inputs(work):
     cproc = shutil.which(os.environ.get('CPROC', 'cproc'))
     if not cproc:
@@ -108,7 +64,6 @@ def compile_inputs(work):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--ecp5', action='store_true', help='simulate the full board RTL with BRAM')
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--schedule', type=Path, help='override the scheduling profile')
     mode.add_argument('--no-schedule', action='store_true', help='run the original backend')
@@ -117,7 +72,7 @@ def main():
         work = Path(directory)
         inputs = compile_inputs(work)
         asm = work / 'coremark.mdma'
-        profile = args.schedule or PORT.parent / 'profiles' / ('ecp5.conf' if args.ecp5 else 'simulator.conf')
+        profile = args.schedule or PORT.parent / 'profiles' / 'simulator.conf'
         options = ['--no-schedule'] if args.no_schedule else ['--schedule', profile]
         subprocess.run([ROOT / 'build/qbe-mdma', *options, '-o', asm, *inputs], check=True)
         density = MoveDensity()
@@ -125,15 +80,11 @@ def main():
         checks = {name: labels[exported(f'coremark_{name}_crc')] for name in CRCS}
         checks['result'] = labels['__mdma_result']
         start, end = (labels[exported(f'coremark_{name}')] for name in ('iteration', 'timed_end'))
-        print(f'Running {len(image):,}-byte MDMA image on {"ECP5 RTL" if args.ecp5 else "the simulator"}.',
-              flush=True)
+        print(f'Running {len(image):,}-byte MDMA image on the simulator.', flush=True)
         print(density, flush=True)
         image += bytes(65536)
-        if args.ecp5:
-            timed, total, values = ecp5(work, image, checks, start, end)
-        else:
-            timed, total, values = functional(image, checks, start, end,
-                                               None if args.no_schedule else profile)
+        timed, total, values = functional(image, checks, start, end,
+                                           None if args.no_schedule else profile)
 
     for name, expected, actual in zip(CRCS, CRCS.values(), values):
         if actual != expected:
@@ -141,10 +92,7 @@ def main():
         print(f'{name} CRC 0x{actual:04x}')
     if values[-1] != 0:
         raise ValueError(f'MDMA kernel driver returned {values[-1]}')
-    unit = 'CPU clocks' if args.ecp5 else 'simulator ticks'
-    print(f'Timed one iteration in {timed:,} {unit}. Halted after {total:,} {unit}.')
-    if args.ecp5:
-        print(f'ECP5 RTL CoreMark/MHz estimate {1_000_000 / timed:.8f} (BRAM on the CPU clock and math:CPU at 1:1).')
+    print(f'Timed one iteration in {timed:,} simulator ticks. Halted after {total:,} simulator ticks.')
 
 
 if __name__ == '__main__':

@@ -101,9 +101,9 @@ python src/simulator/simulator.py program.bin --profile src/qbe/profiles/ecp5.co
 ```
 
 Python callers can pass the same path as `Simulator(image, profile=path)` and
-optionally pass `latencies={"MUL": 5, "ARITH_A": 2}`. The ECP5 profile models
-FU timing. The Python runner still fetches instructions immediately. Use
-`--rtl-timing ecp5` for the RTL execution path.
+optionally pass `latencies={"MUL": 5, "ARITH_A": 2}`. The legacy ECP5
+profile models FU timing. The Python runner fetches instructions immediately.
+See the [legacy ECP5 statistics](ecp5-legacy-stats.md) for RTL measurements.
 
 MEM queues a load when `READ` is available and queues a store when `WRITE`,
 `CHUNK`, and `MASK` are all available. Requests execute in the order they
