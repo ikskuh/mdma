@@ -103,6 +103,14 @@ Both requests can address the same word. In that case the second store
 request masks all byte lanes. This keeps live values in the scheduler across
 the access.
 
+For leaf functions with multiple loop accesses that would benefit from known
+alignment, the compiler can emit two bodies. The entry checks the required
+alignment once and preserves the FIFO arguments for either body.
+
+Before scheduling, the compiler folds branches proved by preceding integer
+comparisons or by the possible constants reaching a phi. It keeps word and
+long comparisons separate and recomputes the CFG and phi inputs after folding.
+
 ### FIFO calling convention
 
 In scheduled images the first four scalar arguments travel in STASH A–D.

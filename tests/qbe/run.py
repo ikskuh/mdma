@@ -122,6 +122,27 @@ class QbeTest(unittest.TestCase):
                 body = re.split(r'^__mdma_g[01]_[0-9a-f]+:\n', body, maxsplit=1, flags=re.MULTILINE)[0]
                 self.assertEqual(body.count(' -> MEM.READ'), reads)
 
+    def test_alignment_guard_selects_two_fifo_bodies(self):
+        result = compile_fixture(HERE / 'alignment_guard.ssa', ())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        label = '__mdma_g1_' + 'sum_pairs'.encode().hex()
+        guard, bodies = result.stdout.split(label + '_aligned:\n', 1)
+        aligned, generic = bodies.split(label + '_generic:\n', 1)
+        generic = generic.split('__mdma_g0_6d61696e:\n', 1)[0]
+        self.assertIn('[pred, rel=' + label + '_generic]', guard)
+        self.assertEqual(aligned.count(' -> MEM.READ'), 2)
+        self.assertEqual(generic.count(' -> MEM.READ'), 4)
+
+    def test_known_branches_remove_only_proven_comparisons(self):
+        result = compile_fixture(HERE / 'branch_facts.ssa', ())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for name, comparisons in (('word_bounds', 2), ('small_range', 2), ('state_domain', 0)):
+            with self.subTest(name=name):
+                label = '__mdma_g1_' + name.encode().hex()
+                body = result.stdout.split(label + ':\n', 1)[1]
+                body = re.split(r'^__mdma_g[01]_[0-9a-f]+:\n', body, maxsplit=1, flags=re.MULTILINE)[0]
+                self.assertEqual(body.count(' -> CMP.LHS'), comparisons)
+
     def test_independent_queue_rotations_share_a_pack(self):
         result = compile_fixture(HERE / 'call_alignment.ssa', MODES[2])
         self.assertEqual(result.returncode, 0, result.stderr)

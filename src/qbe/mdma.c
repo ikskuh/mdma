@@ -1261,6 +1261,236 @@ simplify_values(void)
     } while (changed);
 }
 
+typedef struct {
+    Ref value;
+    uint64_t constant;
+    unsigned bits;
+    int cmp;
+} BranchFact;
+
+static BranchFact
+branch_fact(const Blk *b, int taken)
+{
+    if (b->jmp.type != Jjnz || rtype(b->jmp.arg) != RTmp || b->jmp.arg.val < Tmp0)
+        return (BranchFact){0};
+    const Tmp *cond = &fn->tmp[b->jmp.arg.val];
+    const Ins *i = cond->def;
+    if (!i || cond->ndef != 1 || cond->bid != b->id ||
+        (!INRANGE(i->op, Ocmpw, Ocmpw1) && !INRANGE(i->op, Ocmpl, Ocmpl1)))
+        return (BranchFact){0};
+    unsigned bits = i->op < Ocmpl ? 32 : 64;
+    int op = taken ? i->op : cmpwlneg(i->op);
+    int cmp = op - (bits == 32 ? Ocmpw : Ocmpl);
+    Ref value = i->arg[0], constant = i->arg[1];
+    if (plain_constant(value)) {
+        value = i->arg[1];
+        constant = i->arg[0];
+        cmp = cmpop(cmp);
+    }
+    if (rtype(value) != RTmp || value.val < Tmp0 || fn->tmp[value.val].ndef != 1 ||
+        !plain_constant(constant))
+        return (BranchFact){0};
+    uint64_t c = fn->con[constant.val].bits.i;
+    return (BranchFact){value, bits == 32 ? (uint32_t)c : c, bits, cmp};
+}
+
+static int
+signed_fact(BranchFact fact)
+{
+    return INRANGE(fact.cmp, Cisge, Cislt);
+}
+
+typedef struct {
+    uint64_t lo, hi;
+} BranchRange;
+
+static int
+restrict_range(BranchRange *range, BranchFact fact, int sign)
+{
+    uint64_t c = fact.constant;
+    if (sign)
+        c ^= UINT64_C(1) << (fact.bits - 1);
+    uint64_t lo = range->lo, hi = range->hi;
+    switch (fact.cmp) {
+    case Cieq:
+        if (c < lo || c > hi)
+            return 0;
+        lo = hi = c;
+        break;
+    case Cine:
+        if (lo == c && hi == c)
+            return 0;
+        if (lo == c)
+            ++lo;
+        if (hi == c)
+            --hi;
+        break;
+    case Cisge: case Ciuge:
+        if (lo < c)
+            lo = c;
+        break;
+    case Cisgt: case Ciugt:
+        if (hi <= c)
+            return 0;
+        if (lo <= c)
+            lo = c + 1;
+        break;
+    case Cisle: case Ciule:
+        if (hi > c)
+            hi = c;
+        break;
+    case Cislt: case Ciult:
+        if (lo >= c)
+            return 0;
+        if (hi >= c)
+            hi = c - 1;
+        break;
+    }
+    *range = (BranchRange){lo, hi};
+    return lo <= hi;
+}
+
+/* Small finite domains preserve holes in phi-merged state values. An
+ * unsupported value uses all bits as the unknown sentinel. */
+static uint64_t
+constant_domain(Ref ref, const uint64_t *domains)
+{
+    if (rtype(ref) == RTmp && ref.val >= Tmp0)
+        return domains[ref.val];
+    if (!plain_constant(ref))
+        return UINT64_MAX;
+    uint64_t c = fn->con[ref.val].bits.i;
+    return c < 64 ? UINT64_C(1) << c : UINT64_MAX;
+}
+
+static void
+branch_domains(uint64_t *domains)
+{
+    for (int t = Tmp0; t < fn->ntmp; ++t) {
+        const Tmp *tmp = &fn->tmp[t];
+        domains[t] = tmp->ndef != 1 || tmp->cls > Kl ||
+                     (tmp->def && tmp->def->op != Ocopy) ? UINT64_MAX : 0;
+    }
+    int changed;
+    do {
+        changed = 0;
+        for (Blk *b = fn->start; b; b = b->link) {
+            for (Phi *p = b->phi; p; p = p->link) {
+                uint64_t old = domains[p->to.val];
+                for (unsigned n = 0; n < p->narg; ++n)
+                    domains[p->to.val] |= constant_domain(p->arg[n], domains);
+                changed |= old != domains[p->to.val];
+            }
+            for (Ins *i = b->ins; i < b->ins + b->nins; ++i)
+                if (i->op == Ocopy && !req(i->to, R)) {
+                    uint64_t old = domains[i->to.val];
+                    domains[i->to.val] |= constant_domain(i->arg[0], domains);
+                    changed |= old != domains[i->to.val];
+                }
+        }
+    } while (changed);
+}
+
+static int
+fact_accepts(BranchFact fact, unsigned value)
+{
+    int sign = signed_fact(fact);
+    uint64_t rank = sign ? value ^ (UINT64_C(1) << (fact.bits - 1)) : value;
+    BranchRange range = {rank, rank};
+    return restrict_range(&range, fact, sign);
+}
+
+static int
+known_branch(Blk *b, BranchFact *facts, const uint64_t *domains)
+{
+    BranchFact test = branch_fact(b, 1);
+    if (!test.bits)
+        return 0;
+    unsigned def = fn->tmp[test.value.val].bid;
+    unsigned count = 0;
+    for (Blk *at = b; at->id != def && at->npred == 1;) {
+        Blk *prev = at->pred[0];
+        if (prev->id >= at->id)
+            break;
+        if (prev->s1 != prev->s2) {
+            BranchFact fact = branch_fact(prev, prev->s1 == at);
+            if (fact.bits == test.bits && req(fact.value, test.value))
+                facts[count++] = fact;
+        }
+        at = prev;
+    }
+    uint64_t domain = domains[test.value.val];
+    if (domain && domain != UINT64_MAX) {
+        int yes = 0, no = 0;
+        for (unsigned value = 0; value < 64; ++value) {
+            if (!(domain & (UINT64_C(1) << value)))
+                continue;
+            unsigned n = 0;
+            while (n < count && fact_accepts(facts[n], value))
+                ++n;
+            if (n == count) {
+                if (fact_accepts(test, value))
+                    yes = 1;
+                else
+                    no = 1;
+            }
+        }
+        return yes == no ? 0 : yes ? 1 : 2;
+    }
+    /* Equality can use either ordering. Ordered bounds only combine with
+     * comparisons of the same signedness and width. */
+    int sign = signed_fact(test);
+    if (test.cmp == Cieq || test.cmp == Cine)
+        for (unsigned n = 0; n < count; ++n)
+            if (facts[n].cmp != Cieq && facts[n].cmp != Cine) {
+                sign = signed_fact(facts[n]);
+                break;
+            }
+    BranchRange range = {0, test.bits == 32 ? UINT32_MAX : UINT64_MAX};
+    while (count) {
+        BranchFact fact = facts[--count];
+        if ((fact.cmp == Cieq || fact.cmp == Cine || signed_fact(fact) == sign) &&
+            !restrict_range(&range, fact, sign))
+            return 0;
+    }
+    BranchRange other = range;
+    int yes = restrict_range(&range, test, sign);
+    int no = restrict_range(&other, branch_fact(b, 0), sign);
+    return yes == no ? 0 : yes ? 1 : 2;
+}
+
+static void
+fold_known_branches(void)
+{
+    BranchFact *facts = alloc(fn->nblk * sizeof *facts);
+    unsigned char *choice = alloc(fn->nblk);
+    uint64_t *domains = alloc(fn->ntmp * sizeof *domains);
+    int changed;
+    do {
+        branch_domains(domains);
+        changed = 0;
+        for (Blk *b = fn->start; b; b = b->link) {
+            choice[b->id] = known_branch(b, facts, domains);
+            changed |= choice[b->id];
+        }
+        if (!changed)
+            break;
+        for (Blk *b = fn->start; b; b = b->link)
+            if (choice[b->id]) {
+                if (choice[b->id] == 2)
+                    b->s1 = b->s2;
+                b->s2 = NULL;
+                b->jmp.type = Jjmp;
+                b->jmp.arg = R;
+            }
+        fillcfg(fn);
+        filluse(fn);
+        simplify_values();
+        simplcfg(fn);
+        filluse(fn);
+    } while (changed);
+}
+
 static Ref
 substitute(Ref value, const Ref *replacement, int count)
 {
@@ -1439,14 +1669,19 @@ narrow_alignment(Ref ref, unsigned alignment)
 }
 
 static void
-compute_alignment(const Symbol *s)
+compute_alignment(const Symbol *s, const unsigned char *assumed)
 {
-    tmp_alignment = alloc(fn->ntmp);
+    if (!tmp_alignment)
+        tmp_alignment = alloc(fn->ntmp);
     for (int t = Tmp0; t < fn->ntmp; ++t)
         tmp_alignment[t] = fn->tmp[t].ndef == 1 ? 8 : 1;
     unsigned n = 0;
-    for (Ins *i = fn->start->ins; i < fn->start->ins + fn->start->nins && ispar(i->op); ++i, ++n)
-        tmp_alignment[i->to.val] = !s->address_taken && i->op == Opar ? s->param_align[n] : 1;
+    for (Ins *i = fn->start->ins; i < fn->start->ins + fn->start->nins && ispar(i->op); ++i, ++n) {
+        unsigned align = !s->address_taken && i->op == Opar ? s->param_align[n] : 1;
+        if (assumed && assumed[n] > align)
+            align = assumed[n];
+        tmp_alignment[i->to.val] = align;
+    }
 
     /* A loop-carried address keeps its alignment if both the incoming
      * value and the backedge preserve it. Weaken facts to a fixed point. */
@@ -1472,7 +1707,7 @@ infer_parameter_alignment(Symbol *caller)
     if (!caller->calls)
         return;
     promote_locals();
-    compute_alignment(caller);
+    compute_alignment(caller, NULL);
     for (Blk *b = fn->start; b; b = b->link) {
         Ins *args = NULL;
         for (Ins *i = b->ins; i < b->ins + b->nins; ++i) {
@@ -2920,7 +3155,7 @@ split_long_blocks(void)
 }
 
 static int
-try_fifo_function(Symbol *f)
+try_fifo_function(Symbol *f, int split)
 {
     forced_spill = alloc(fn->ntmp * sizeof *forced_spill);
     blocked_result = alloc(fn->ntmp * sizeof *blocked_result);
@@ -2946,7 +3181,7 @@ try_fifo_function(Symbol *f)
             return 1;
         serial = label_base;
         schedule_reset_peak();
-        if (!attempt && schedule_overflow && split_long_blocks())
+        if (split && !attempt && schedule_overflow && split_long_blocks())
             continue;
         if (failed_result)
             blocked_result[failed_result] = 1;
@@ -2956,6 +3191,109 @@ try_fifo_function(Symbol *f)
             break;
     }
     return 0;
+}
+
+static unsigned
+new_aligned_accesses(const unsigned char *baseline)
+{
+    unsigned count = 0;
+    for (Blk *b = fn->start; b; b = b->link) {
+        if (b->loop <= 1)
+            continue;
+        for (Ins *i = b->ins; i < b->ins + b->nins; ++i) {
+            int store = isstore(i->op);
+            if (!store && !isload(i->op))
+                continue;
+            Ref addr = i->arg[store];
+            if (rtype(addr) == RTmp && baseline[addr.val] < memory_width(i) &&
+                tmp_alignment[addr.val] >= memory_width(i))
+                ++count;
+        }
+    }
+    return count;
+}
+
+static int
+try_aligned_function(Symbol *f)
+{
+    if (!f->nparam || f->nparam > FIFO_ARGS || f->calls || f->indirect || f->depth < 0)
+        return 0;
+    unsigned char assumed[FIFO_ARGS] = {0};
+    for (unsigned n = 0; n < f->nparam; ++n) {
+        const Ins *i = &fn->start->ins[n];
+        if (i->op == Opar && i->cls == Kl)
+            assumed[n] = 8;
+    }
+    fillloop(fn);
+    unsigned char *baseline = alloc(fn->ntmp);
+    memcpy(baseline, tmp_alignment, fn->ntmp);
+    compute_alignment(f, assumed);
+    unsigned count = new_aligned_accesses(baseline);
+    if (count < 2) {
+        memcpy(tmp_alignment, baseline, fn->ntmp);
+        return 0;
+    }
+    for (unsigned n = 0; n < f->nparam; ++n) {
+        unsigned align = baseline[fn->start->ins[n].to.val];
+        while (assumed[n] > align) {
+            assumed[n] /= 2;
+            compute_alignment(f, assumed);
+            if (new_aligned_accesses(baseline) != count) {
+                assumed[n] *= 2;
+                break;
+            }
+        }
+    }
+
+    /* Both versions must schedule before publishing the entry guard. */
+    Blk **order = alloc(fn->nblk * sizeof *order);
+    unsigned nblocks = 0;
+    for (Blk *b = fn->start; b; b = b->link)
+        order[nblocks++] = b;
+    unsigned label_base = serial;
+    FILE *saved = out;
+    char *body = NULL;
+    size_t size = 0;
+    out = open_memstream(&body, &size);
+    if (!out)
+        error("cannot buffer aligned function");
+    char *label = alloc(strlen(f->label) + sizeof "_generic");
+    sprintf(label, "%s_aligned", f->label);
+    Symbol version = *f;
+    version.label = label;
+    compute_alignment(f, assumed);
+    int ok = try_fifo_function(&version, 0);
+    int peak = schedule_stack_peak();
+    for (unsigned n = 0; n < nblocks; ++n)
+        order[n]->link = n + 1 < nblocks ? order[n + 1] : NULL;
+    sprintf(label, "%s_generic", f->label);
+    memcpy(tmp_alignment, baseline, fn->ntmp);
+    schedule_reset_peak();
+    ok = ok && try_fifo_function(&version, 0);
+    if (fclose(out))
+        error("cannot buffer aligned function");
+    out = saved;
+    if (ok) {
+        line("%s:", f->label);
+        for (unsigned n = 0; n < f->nparam; ++n) {
+            if (assumed[n] <= baseline[fn->start->ins[n].to.val])
+                continue;
+            line("%s.OUT -> %s.IN, %s.OUT -> LOGIC_A.LHS, CONST -> LOGIC_A.RHS [sync, imm=%u]",
+                 abi_stash[n], abi_stash[n], abi_stash[n], assumed[n] - 1);
+            move("LOGIC_A.AND", "COND");
+            line("CONST -> PC_REL [pred, rel=%s]", label);
+        }
+        fwrite(body, 1, size, out);
+        if (analyze_leaves)
+            current_function->stack_peak = peak > schedule_stack_peak() ? peak : schedule_stack_peak();
+    } else {
+        for (unsigned n = 0; n < nblocks; ++n)
+            order[n]->link = n + 1 < nblocks ? order[n + 1] : NULL;
+        serial = label_base;
+        schedule_reset_peak();
+    }
+    free(body);
+    return ok;
 }
 
 static size_t
@@ -3030,8 +3368,9 @@ function(Fn *parsed)
         inline_calls();
         if (!main_entry && countdown_function(f))
             goto emitted;
+        fold_known_branches();
         rotate_loops();
-        compute_alignment(f);
+        compute_alignment(f, NULL);
         scheduled_value = alloc(fn->ntmp * sizeof *scheduled_value);
         scheduled_known = alloc(fn->ntmp * sizeof *scheduled_known);
         uncanonical_word = alloc(fn->ntmp * sizeof *uncanonical_word);
@@ -3040,7 +3379,9 @@ function(Fn *parsed)
             for (Blk *b = fn->start; b; b = b->link)
                 if (main_entry && (isret(b->jmp.type) || isretbh(b->jmp.type)) && b->jmp.type != Jretw)
                     valid_entry = 0;
-            if (valid_entry && try_fifo_function(f))
+            if (valid_entry && !main_entry && try_aligned_function(f))
+                goto done;
+            if (valid_entry && try_fifo_function(f, 1))
                 goto emitted;
             schedule_reset_peak();
         }

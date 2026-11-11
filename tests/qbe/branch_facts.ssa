@@ -1,0 +1,86 @@
+# expect mem64 __mdma_result = 1
+
+function w $word_bounds(l %x) {
+@entry
+    %negative =w csltw %x, 0
+    jnz %negative, @neg, @nonneg
+@neg
+    %bounded =w csgew -1, %x
+    jnz %bounded, @full, @wrong
+@full
+    %same =w ceql %x, -1
+    jnz %same, @minus_one, @word_only
+@minus_one
+    ret 1
+@word_only
+    ret 2
+@nonneg
+    %below =w cultw %x, 0
+    jnz %below, @wrong, @zero
+@zero
+    ret 3
+@wrong
+    ret 0
+}
+
+function w $small_range(w %x) {
+@entry
+    %below =w cultw %x, 4
+    jnz %below, @small, @join
+@small
+    %not_end =w cnew %x, 3
+    jnz %not_end, @limited, @join
+@limited
+    %implied =w cultw %x, 3
+    jnz %implied, @yes, @join
+@yes
+    jmp @join
+@join
+    %value =w phi @entry 40, @small 30, @limited 99, @yes 10
+    ret %value
+}
+
+function w $state_domain(w %input) {
+@entry
+    jnz %input, @first, @second
+@first
+    jmp @join
+@second
+    jmp @join
+@join
+    %state =w phi @first 1, @second 6
+    %impossible =w ceqw %state, 4
+    jnz %impossible, @wrong, @finish
+@wrong
+    ret 0
+@finish
+    ret %state
+}
+
+export function w $main() {
+@entry
+    %a =w call $word_bounds(l -1)
+    %b =w call $word_bounds(l 4294967295)
+    %c =w call $word_bounds(l -4294967296)
+    %d =w call $small_range(w 2)
+    %e =w call $small_range(w 3)
+    %f =w call $small_range(w 4)
+    %ok_a =w ceqw %a, 1
+    %ok_b =w ceqw %b, 2
+    %ok_c =w ceqw %c, 3
+    %ok_d =w ceqw %d, 10
+    %ok_e =w ceqw %e, 30
+    %ok_f =w ceqw %f, 40
+    %g =w call $state_domain(w 0)
+    %h =w call $state_domain(w 1)
+    %ok_g =w ceqw %g, 6
+    %ok_h =w ceqw %h, 1
+    %ab =w and %ok_a, %ok_b
+    %cd =w and %ok_c, %ok_d
+    %ef =w and %ok_e, %ok_f
+    %abcd =w and %ab, %cd
+    %gh =w and %ok_g, %ok_h
+    %efgh =w and %ef, %gh
+    %ok =w and %abcd, %efgh
+    ret %ok
+}

@@ -1,0 +1,37 @@
+# expect mem64 __mdma_result = 1
+data $bytes = { b 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 }
+
+function w $sum_pairs(l %p, w %count) {
+@entry
+    jmp @head
+@head
+    %address =l phi @entry %p, @body %next
+    %left =w phi @entry %count, @body %remaining
+    %sum =w phi @entry 0, @body %total
+    jnz %left, @body, @exit
+@body
+    %a =w loaduh %address
+    %second =l add %address, 2
+    %b =w loaduh %second
+    %pair =w add %a, %b
+    %total =w add %sum, %pair
+    %next =l add %address, 4
+    %remaining =w sub %left, 1
+    jmp @head
+@exit
+    ret %sum
+}
+
+export function w $main() {
+@entry
+    %p =l add $bytes, 7
+    %aligned =w call $sum_pairs(l $bytes, w 2)
+    %unaligned =w call $sum_pairs(l %p, w 2)
+    %zero =w call $sum_pairs(l -1, w 0)
+    %ok1 =w ceqw %aligned, 5136
+    %ok2 =w ceqw %unaligned, 12332
+    %ok3 =w ceqw %zero, 0
+    %both =w and %ok1, %ok2
+    %ok =w and %both, %ok3
+    ret %ok
+}
