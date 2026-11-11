@@ -13,24 +13,39 @@ struct CallEdge {
 };
 
 typedef struct Symbol Symbol;
+typedef struct InlineBody InlineBody;
+enum { INLINE_OPS = 4, INLINE_ARGS = 4 };
+struct InlineBody {
+    Ins param[INLINE_ARGS], ins[INLINE_OPS];
+    unsigned nparam, nins, ntmp;
+    int cls;
+    Ref result;
+    Con con[];
+};
+
 struct Symbol {
     Symbol *next;
     char *name, *label;
     int module, origin, function;
     unsigned alignment;
     CallEdge *calls;
+    InlineBody *body;
+    unsigned nparam;
+    unsigned char *param_align;
+    int address_taken;
     int indirect, depth, visiting, stack_peak;
 };
 
 static Symbol *symbols;
 static FILE *out;
 static char *input;
-static int module, collect, analyze_leaves, optimize = 1;
+static int module, collect, collect_inline, analyze_alignment, alignment_changed, analyze_leaves, optimize = 1;
 static Fn *fn;
 static Symbol *current_function;
 static Blk *block;
 static size_t frame_size, phi_base, *objects;
 static unsigned serial, max_args;
+static unsigned char *tmp_alignment;
 
 #define SP "__mdma_sp"
 #define CONT "__mdma_cont"
@@ -80,11 +95,16 @@ lookup(const char *name, int scope)
 }
 
 static Symbol *
-symbol(const char *name)
+find_symbol(const char *name)
 {
     Symbol *s = lookup(name, module);
-    if (!s)
-        s = lookup(name, 0);
+    return s ? s : lookup(name, 0);
+}
+
+static Symbol *
+symbol(const char *name)
+{
+    Symbol *s = find_symbol(name);
     if (!s)
         error("undefined symbol $%s", name);
     return s;
@@ -509,7 +529,7 @@ instruction(Ins *i)
     case Oloadsb: case Oloadub: case Oloadsh: case Oloaduh: case Oloadsw: case Oloaduw: case Oload: {
         unsigned k = i->op - Oloadsb;
         value(i->arg[0], A);
-        memory(k < 2 ? 1 : k < 4 ? 2 : k < 6 ? 4 : 8, k < 6 && !(k & 1), 0);
+        memory(loadsz(i), i->op != Oload && !(k & 1), 0);
         save(i->to, i->cls, D);
         break;
     }
@@ -672,44 +692,142 @@ sched_value(Ref ref)
     return sched_number(req(ref, UNDEF) ? 0 : (uint64_t)con->bits.i);
 }
 
-static SchedValue
-sched_extend(SchedValue value, unsigned width, int sign)
+static int
+sched_constant(SchedValue value, uint64_t *number, unsigned budget)
 {
-    if (sign) {
-        SchedValue count = sched_number(64 - width);
-        value = sched_pair(SHIFT_A, "LSL", value, count);
-        return sched_pair(SHIFT_A, "ASR", value, count);
+    if (!budget)
+        return 0;
+    if (!value.node) {
+        if (!value.imm) {
+            *number = 0;
+            return 1;
+        }
+        char *end;
+        *number = strtoull(value.imm, &end, 0);
+        return !*end;
     }
-    return sched_pair(LOGIC_A, "AND", value, sched_number((UINT64_C(1) << width) - 1));
+    const SchedNode *node = &scheduled.node[value.node - 1];
+    if (node->unit == HOLD && node->count == 1)
+        return sched_constant(node->move[0].value, number, budget - 1);
+    return 0;
 }
 
 static int
-aligned_address(Ref ref, unsigned bytes, unsigned budget)
+sched_narrow(SchedValue value, unsigned width, unsigned budget)
 {
-    if (bytes == 1)
-        return 1;
-    if (!budget)
+    uint64_t number;
+    if (sched_constant(value, &number, budget))
+        return !(number >> width);
+    if (!budget || !value.node)
         return 0;
+    const SchedNode *node = &scheduled.node[value.node - 1];
+    if (node->unit == CMP)
+        return 1;
+    if (!node->result || (value.port && strcmp(value.port, node->result)))
+        return 0;
+    if ((node->unit == HOLD || (node->unit >= STASH_A && node->unit <= STACK_A)) && node->count == 1)
+        return sched_narrow(node->move[0].value, width, budget - 1);
+    if ((node->unit == LOGIC_A || node->unit == LOGIC_B) && node->count == 2) {
+        if (!strcmp(node->result, "AND"))
+            return sched_narrow(node->move[0].value, width, budget - 1) ||
+                   sched_narrow(node->move[1].value, width, budget - 1);
+        if (!strcmp(node->result, "OR") || !strcmp(node->result, "XOR"))
+            return sched_narrow(node->move[0].value, width, budget - 1) &&
+                   sched_narrow(node->move[1].value, width, budget - 1);
+    }
+    if (node->unit == UNPACK && !strcmp(node->result, "VALUE"))
+        for (int i = 0; i < node->count; ++i)
+            if (!strcmp(node->move[i].sink, "TYPE") &&
+                sched_constant(node->move[i].value, &number, budget - 1))
+                return number <= 4 && !(number & 1) && (8u << (number / 2)) <= width;
+    return 0;
+}
+
+static SchedValue
+sched_extend(SchedValue value, unsigned width, int sign)
+{
+    /* Signed extension also preserves values whose sign bit is known zero. */
+    if (sched_narrow(value, width - sign, 16))
+        return value;
+    uint64_t mask = (UINT64_C(1) << width) - 1;
+    if (!value.node) {
+        if (!value.imm)
+            return value;
+        char *end;
+        uint64_t number = strtoull(value.imm, &end, 0);
+        if (!*end) {
+            number &= mask;
+            uint64_t sign_bit = UINT64_C(1) << (width - 1);
+            if (sign && (number & sign_bit))
+                number |= ~mask;
+            return sched_number(number);
+        }
+    }
+    if (sign) {
+        unsigned type = width == 8 ? 1 : width == 16 ? 3 : 5;
+        return sched_node(UNPACK, "VALUE", 3, (SchedMove[]){
+            {"ADDR", {0}}, {"TYPE", sched_number(type)}, {"CHUNK", value}
+        });
+    }
+    return sched_pair(LOGIC_A, "AND", value, sched_number(mask));
+}
+
+static int plain_constant(Ref ref);
+
+static unsigned
+value_alignment(uint64_t value)
+{
+    return value & 1 ? 1 : value & 2 ? 2 : value & 4 ? 4 : 8;
+}
+
+static unsigned
+ref_alignment(Ref ref)
+{
+    if (rtype(ref) == RTmp && ref.val >= Tmp0)
+        return tmp_alignment[ref.val];
     if (rtype(ref) == RCon) {
         Con *c = &fn->con[ref.val];
-        if (c->type == CBits)
-            return !(c->bits.i & (bytes - 1));
-        return c->type == CAddr && !(c->bits.i & (bytes - 1)) &&
-               symbol(str(c->sym.id))->alignment >= bytes;
+        if (c->type == CBits && !c->flt)
+            return value_alignment(c->bits.i);
+        if (c->type == CAddr) {
+            Symbol *s = find_symbol(str(c->sym.id));
+            if (s) {
+                unsigned offset = value_alignment(c->bits.i);
+                return offset < s->alignment ? offset : s->alignment;
+            }
+        }
     }
-    if (rtype(ref) != RTmp || fn->tmp[ref.val].ndef != 1)
-        return 0;
-    Ins *def = fn->tmp[ref.val].def;
-    if (!def)
-        return 0;
+    return 1;
+}
+
+static unsigned
+operation_alignment(const Ins *def)
+{
     if (isalloc(def->op))
-        return (4u << (def->op - Oalloc4)) >= bytes;
-    if (def->op == Ocopy)
-        return aligned_address(def->arg[0], bytes, budget - 1);
-    if (def->op == Oadd && def->cls == Kl)
-        return aligned_address(def->arg[0], bytes, budget - 1) &&
-               aligned_address(def->arg[1], bytes, budget - 1);
-    return 0;
+        return def->op == Oalloc4 ? 4 : 8;
+    unsigned lhs = ref_alignment(def->arg[0]);
+    unsigned rhs = ref_alignment(def->arg[1]);
+    switch (def->op) {
+    case Ocopy: case Oneg:
+        return lhs;
+    case Oadd: case Osub: case Oor: case Oxor:
+        return lhs < rhs ? lhs : rhs;
+    case Oand:
+        return lhs > rhs ? lhs : rhs;
+    case Omul:
+        return lhs * rhs < 8 ? lhs * rhs : 8;
+    case Oshl:
+        if (plain_constant(def->arg[1])) {
+            unsigned mask = def->cls == Kw ? 31 : 63;
+            unsigned shift = fn->con[def->arg[1].val].bits.i & mask;
+            if (shift >= 3)
+                return 8;
+            lhs <<= shift;
+        }
+        return lhs < 8 ? lhs : 8;
+    default:
+        return isext(def->op) ? lhs : 1;
+    }
 }
 
 static unsigned
@@ -725,14 +843,8 @@ sched_eligible(Ins *i)
         return 0;
     if (INRANGE(i->op, Ocmpw, Ocmpl1))
         return 1;
-    if (isload(i->op) || isstore(i->op)) {
-        /* Plain QBE loadw is a word read, unlike the legacy eight-byte
-         * fallback used by this backend's generic load template. */
-        unsigned bytes = memory_width(i);
-        if (i->op == Oload && i->cls == Kw)
-            return 0;
-        return aligned_address(i->arg[isstore(i->op)], bytes, 16);
-    }
+    if (isload(i->op) || isstore(i->op))
+        return 1;
     return i->op == Onop || i->op == Odbgloc || i->op == Ocopy || i->op == Oneg ||
            i->op == Oadd || i->op == Osub || i->op == Omul || i->op == Oand ||
            i->op == Oor || i->op == Oxor || i->op == Oshl || i->op == Oshr ||
@@ -743,6 +855,37 @@ static SchedValue
 sched_memory(Ins *i, SchedValue lhs, SchedValue rhs)
 {
     unsigned bytes = memory_width(i);
+    if (isload(i->op) && ref_alignment(i->arg[0]) < bytes) {
+        /* Read the words containing the first and last requested bytes. */
+        SchedValue lo = sched_read(lhs);
+        SchedValue end = sched_pair(ARITH_A, "ADD", lhs, sched_number(bytes - 1));
+        SchedValue hi = sched_read(end);
+        /* SHIFT uses the low six count bits. At offset zero both reads
+         * return the same word, so OR still gives the right result. */
+        SchedValue count = sched_pair(SHIFT_A, "LSL", lhs, sched_number(3));
+        SchedValue reverse = sched_node(UOP_A, "NEG", 1, (SchedMove[]){{"IN", count}});
+        lo = sched_pair(SHIFT_A, "LSR", lo, count);
+        hi = sched_pair(SHIFT_A, "LSL", hi, reverse);
+        SchedValue chunk = sched_pair(LOGIC_A, "OR", lo, hi);
+        int sign = i->op != Oload && !((i->op - Oloadsb) & 1);
+        return bytes == 8 ? chunk : sched_extend(chunk, bytes * 8, sign);
+    }
+    if (isstore(i->op) && ref_alignment(i->arg[1]) < bytes) {
+        SchedValue end = sched_pair(ARITH_A, "ADD", rhs, sched_number(bytes - 1));
+        SchedValue lane = sched_pair(LOGIC_A, "AND", rhs, sched_number(7));
+        SchedValue count = sched_pair(SHIFT_A, "LSL", rhs, sched_number(3));
+        SchedValue reverse = sched_node(UOP_A, "NEG", 1, (SchedMove[]){{"IN", count}});
+        /* Each set bit in the memory mask disables one byte lane. The
+         * upper mask disables every lane when the store fits in one word. */
+        SchedValue enable = sched_pair(SHIFT_A, "LSL", sched_number((1u << bytes) - 1), lane);
+        SchedValue mask = sched_node(UOP_A, "NOT", 1, (SchedMove[]){{"IN", enable}});
+        SchedValue upper = sched_pair(SHIFT_A, "LSR", mask, sched_number(8));
+        SchedValue lo = sched_pair(SHIFT_A, "LSL", lhs, count);
+        SchedValue hi = sched_pair(SHIFT_A, "LSR", lhs, reverse);
+        sched_write(rhs, lo, mask);
+        sched_write(end, hi, upper);
+        return (SchedValue){0};
+    }
     if (bytes == 8) {
         if (isload(i->op))
             return sched_read(lhs);
@@ -752,7 +895,7 @@ sched_memory(Ins *i, SchedValue lhs, SchedValue rhs)
     unsigned type = bytes == 1 ? 0 : bytes == 2 ? 2 : 4;
     if (isload(i->op)) {
         SchedValue chunk = sched_read(lhs);
-        int sign = !((i->op - Oloadsb) & 1);
+        int sign = i->op != Oload && !((i->op - Oloadsb) & 1);
         return sched_node(UNPACK, "VALUE", 3, (SchedMove[]){
             {"ADDR", lhs}, {"TYPE", sched_number(type + sign)}, {"CHUNK", chunk}
         });
@@ -765,9 +908,84 @@ sched_memory(Ins *i, SchedValue lhs, SchedValue rhs)
     return (SchedValue){0};
 }
 
-static SchedValue
-sched_instruction(Ins *i)
+typedef struct {
+    enum SchedUnit unit;
+    const char *port;
+} ResultHome;
+
+static ResultHome *result_home;
+
+typedef struct {
+    const Ins *shift;
+    unsigned offset, type;
+} LaneExtract;
+
+static LaneExtract
+lane_extract(const Ins *i, const Ins *first)
 {
+    Ref value = i->arg[0];
+    unsigned width, sign = 0;
+    if (i->op == Oand) {
+        Ref mask = i->arg[1];
+        if (!plain_constant(mask)) {
+            mask = value;
+            value = i->arg[1];
+        }
+        if (!plain_constant(mask))
+            return (LaneExtract){0};
+        uint64_t bits = fn->con[mask.val].bits.i;
+        if (i->cls == Kw)
+            bits = (uint32_t)bits;
+        width = bits == UINT8_MAX ? 8 : bits == UINT16_MAX ? 16 : bits == UINT32_MAX ? 32 : 0;
+        if (!width)
+            return (LaneExtract){0};
+    } else if (isext(i->op)) {
+        unsigned kind = i->op - Oextsb;
+        width = 8u << (kind / 2);
+        sign = !(kind & 1);
+    } else {
+        return (LaneExtract){0};
+    }
+
+    /* A result carried across blocks must still come from its assigned FU. */
+    if (scheduled.fifo_flow && result_home[i->to.val].port)
+        return (LaneExtract){0};
+    if (rtype(value) != RTmp)
+        return (LaneExtract){0};
+    const Tmp *t = &fn->tmp[value.val];
+    const Ins *shift = t->def;
+    /* Drop only a shift whose sole consumer is in this scheduling region. */
+    if (t->bid != block->id || t->nuse != 1 || !shift || shift < first || shift >= i ||
+        (shift->op != Oshr && shift->op != Osar) || !plain_constant(shift->arg[1]))
+        return (LaneExtract){0};
+    unsigned bits = shift->cls == Kw ? 32 : 64;
+    unsigned count = fn->con[shift->arg[1].val].bits.i & (bits - 1);
+    if (!count || count % width || count + width > bits)
+        return (LaneExtract){0};
+    return (LaneExtract){shift, count / 8, (width == 8 ? 0 : width == 16 ? 2 : 4) + sign};
+}
+
+static int
+folded_shift(const Ins *i, const Ins *first, const Ins *end)
+{
+    if (i->op != Oshr && i->op != Osar)
+        return 0;
+    const Tmp *t = &fn->tmp[i->to.val];
+    if (t->nuse != 1 || t->use[0].type != UIns || t->use[0].bid != block->id)
+        return 0;
+    const Ins *consumer = t->use[0].u.ins;
+    return consumer < end && lane_extract(consumer, first).shift == i;
+}
+
+static SchedValue
+sched_instruction(Ins *i, const Ins *first)
+{
+    LaneExtract extract = lane_extract(i, first);
+    if (extract.shift)
+        return sched_node(UNPACK, "VALUE", 3, (SchedMove[]){
+            {"ADDR", sched_number(extract.offset)}, {"TYPE", sched_number(extract.type)},
+            {"CHUNK", sched_value(extract.shift->arg[0])}
+        });
     SchedValue lhs = sched_value(i->arg[0]);
     SchedValue rhs = req(i->arg[1], R) ? (SchedValue){0} : sched_value(i->arg[1]);
     if (isload(i->op) || isstore(i->op))
@@ -798,7 +1016,8 @@ sched_instruction(Ins *i)
     case Oneg: return sched_node(UOP_A, "NEG", 1, (SchedMove[]){{"IN", lhs}});
     case Oshl: case Oshr: case Osar:
         if (i->cls == Kw) {
-            if (i->op != Oshl)
+            if (i->op == Osar || (i->op == Oshr &&
+                (rtype(i->arg[0]) != RTmp || fn->tmp[i->arg[0].val].cls != Kw)))
                 lhs = sched_extend(lhs, 32, i->op == Osar);
             rhs = sched_extend(rhs, 5, 0);
         }
@@ -841,7 +1060,9 @@ sched_region(Ins *first, Ins *end, int words, int cycles)
     for (Ins *i = first; i < end && !schedule_overflow; ++i) {
         if (i->op == Onop || i->op == Odbgloc)
             continue;
-        SchedValue result = sched_instruction(i);
+        if (folded_shift(i, first, end))
+            continue;
+        SchedValue result = sched_instruction(i, first);
         if (req(i->to, R))
             continue;
         if (i->cls == Kw && !INRANGE(i->op, Ocmpw, Ocmpl1))
@@ -944,6 +1165,50 @@ plain_constant(Ref ref)
     return c->type == CBits && !c->flt;
 }
 
+static int
+reduce_multiply(Ins *ins)
+{
+    if (ins->op != Omul || ins->cls > Kl)
+        return 0;
+    unsigned constant = plain_constant(ins->arg[0]) ? 0 : 1;
+    Ref factor = ins->arg[constant];
+    Ref input = ins->arg[!constant];
+    if (!plain_constant(factor) || (rtype(input) != RTmp && !plain_constant(input)))
+        return 0;
+    uint64_t value = fn->con[factor.val].bits.i;
+    if (ins->cls == Kw)
+        value = (uint32_t)value;
+    if (value > 1 && (value & (value - 1)))
+        return 0;
+    if (value <= 1) {
+        ins->op = Ocopy;
+        ins->arg[0] = value ? input : getcon(0, fn);
+        ins->arg[1] = R;
+    } else {
+        unsigned shift = 0;
+        for (; value > 1; value >>= 1)
+            ++shift;
+        ins->op = Oshl;
+        ins->arg[0] = input;
+        ins->arg[1] = getcon(shift, fn);
+    }
+    return 1;
+}
+
+static int
+reduce_extension(Ins *ins)
+{
+    if (!isext(ins->op) || rtype(ins->arg[0]) != RTmp)
+        return 0;
+    const Tmp *arg = &fn->tmp[ins->arg[0].val];
+    int from = arg->width - Wsb;
+    int to = ins->op - Oextsb;
+    if (arg->ndef != 1 || arg->cls != ins->cls || from < 0 || from > to || ((from ^ to) & 1))
+        return 0;
+    ins->op = Ocopy;
+    return 1;
+}
+
 static void
 simplify_values(void)
 {
@@ -954,6 +1219,7 @@ simplify_values(void)
             for (Ins *i = b->ins; i < b->ins + b->nins; ++i) {
                 for (unsigned n = 0; n < 2; ++n)
                     i->arg[n] = copy_source(i->arg[n]);
+                changed |= reduce_multiply(i) | reduce_extension(i);
                 if (!pure_integer(i) || i->op == Ocopy ||
                     !plain_constant(i->arg[0]) ||
                     (!req(i->arg[1], R) && !plain_constant(i->arg[1])))
@@ -1124,9 +1390,235 @@ promote_locals(void)
     filluse(fn);
     ssa(fn);
     filluse(fn);
+    fillalias(fn);
+    loadopt(fn);
+    filluse(fn);
     simplify_values();
     simplcfg(fn);
     filluse(fn);
+}
+
+static void
+mark_function_address(const char *name)
+{
+    Symbol *s = find_symbol(name);
+    if (s && s->function)
+        s->address_taken = 1;
+}
+
+static void
+mark_address_ref(Ref ref)
+{
+    if (rtype(ref) == RCon && fn->con[ref.val].type == CAddr)
+        mark_function_address(str(fn->con[ref.val].sym.id));
+}
+
+static void
+find_address_taken(void)
+{
+    for (Blk *b = fn->start; b; b = b->link) {
+        mark_address_ref(b->jmp.arg);
+        for (Phi *p = b->phi; p; p = p->link)
+            for (unsigned n = 0; n < p->narg; ++n)
+                mark_address_ref(p->arg[n]);
+        for (Ins *i = b->ins; i < b->ins + b->nins; ++i) {
+            if (i->op != Ocall)
+                mark_address_ref(i->arg[0]);
+            mark_address_ref(i->arg[1]);
+        }
+    }
+}
+
+static int
+narrow_alignment(Ref ref, unsigned alignment)
+{
+    if (tmp_alignment[ref.val] <= alignment)
+        return 0;
+    tmp_alignment[ref.val] = alignment;
+    return 1;
+}
+
+static void
+compute_alignment(const Symbol *s)
+{
+    tmp_alignment = alloc(fn->ntmp);
+    for (int t = Tmp0; t < fn->ntmp; ++t)
+        tmp_alignment[t] = fn->tmp[t].ndef == 1 ? 8 : 1;
+    unsigned n = 0;
+    for (Ins *i = fn->start->ins; i < fn->start->ins + fn->start->nins && ispar(i->op); ++i, ++n)
+        tmp_alignment[i->to.val] = !s->address_taken && i->op == Opar ? s->param_align[n] : 1;
+
+    /* A loop-carried address keeps its alignment if both the incoming
+     * value and the backedge preserve it. Weaken facts to a fixed point. */
+    int changed;
+    do {
+        changed = 0;
+        for (Blk *b = fn->start; b; b = b->link) {
+            for (Phi *p = b->phi; p; p = p->link)
+                for (unsigned a = 0; a < p->narg; ++a)
+                    changed |= narrow_alignment(p->to, ref_alignment(p->arg[a]));
+            for (Ins *i = b->ins; i < b->ins + b->nins; ++i)
+                if (!req(i->to, R) && !ispar(i->op))
+                    changed |= narrow_alignment(i->to, operation_alignment(i));
+        }
+    } while (changed);
+}
+
+/* Start at the maximum useful alignment. Each call can only weaken a fact,
+ * including when an argument is forwarded through a recursive call. */
+static void
+infer_parameter_alignment(Symbol *caller)
+{
+    if (!caller->calls)
+        return;
+    promote_locals();
+    compute_alignment(caller);
+    for (Blk *b = fn->start; b; b = b->link) {
+        Ins *args = NULL;
+        for (Ins *i = b->ins; i < b->ins + b->nins; ++i) {
+            if (isarg(i->op)) {
+                if (!args)
+                    args = i;
+                continue;
+            }
+            if (i->op == Ocall && rtype(i->arg[0]) == RCon) {
+                Symbol *callee = call_target(i->arg[0]);
+                if (!callee->address_taken) {
+                    unsigned nargs = args ? (unsigned)(i - args) : 0;
+                    for (unsigned n = 0; n < callee->nparam; ++n) {
+                        unsigned alignment = n < nargs && args[n].op == Oarg ?
+                                             ref_alignment(args[n].arg[0]) : 1;
+                        if (alignment < callee->param_align[n]) {
+                            callee->param_align[n] = alignment;
+                            alignment_changed = 1;
+                        }
+                    }
+                }
+            }
+            args = NULL;
+        }
+    }
+}
+
+/* A small, straight-line leaf can be scheduled in the caller's SSA region. */
+static void
+collect_inline_body(Symbol *symbol)
+{
+    if (symbol->calls || symbol->indirect || fn->vararg || fn->retty >= 0)
+        return;
+    promote_locals();
+    Blk *b = fn->start;
+    if (b->link || b->phi || (b->jmp.type != Jretw && b->jmp.type != Jretl))
+        return;
+    InlineBody body = {.ntmp = fn->ntmp, .cls = b->jmp.type == Jretw ? Kw : Kl,
+                       .result = b->jmp.arg};
+    if (rtype(body.result) != RTmp && !plain_constant(body.result))
+        return;
+    for (Ins *i = b->ins; i < b->ins + b->nins; ++i) {
+        if (i->op == Onop || i->op == Odbgloc)
+            continue;
+        if (i->op == Opar && i->cls <= Kl && body.nparam < INLINE_ARGS) {
+            body.param[body.nparam++] = *i;
+            continue;
+        }
+        if (!pure_integer(i) || body.nins == INLINE_OPS)
+            return;
+        for (unsigned n = 0; n < 2; ++n)
+            if (!req(i->arg[n], R) && rtype(i->arg[n]) != RTmp && !plain_constant(i->arg[n]))
+                return;
+        body.ins[body.nins++] = *i;
+    }
+    symbol->body = emalloc(sizeof body + fn->ncon * sizeof(Con));
+    *symbol->body = body;
+    memcpy(symbol->body->con, fn->con, fn->ncon * sizeof(Con));
+}
+
+static Ref
+inline_operand(const InlineBody *body, const Ref *temps, Ref operand)
+{
+    if (req(operand, R))
+        return R;
+    if (rtype(operand) == RTmp)
+        return temps[operand.val];
+    return getcon(body->con[operand.val].bits.i, fn);
+}
+
+static int
+inline_call(Ins **out, unsigned *count, Ins *args, Ins *call)
+{
+    if (req(call->to, R) || rtype(call->arg[0]) != RCon)
+        return 0;
+    const InlineBody *body = call_target(call->arg[0])->body;
+    if (!body || call->cls != body->cls || call - args != body->nparam)
+        return 0;
+    for (unsigned n = 0; n < body->nparam; ++n)
+        if (args[n].op != Oarg || args[n].cls != body->param[n].cls)
+            return 0;
+
+    Ref *temps = alloc(body->ntmp * sizeof *temps);
+    for (unsigned n = 0; n < body->nparam; ++n) {
+        Ref arg = newtmp("inl", args[n].cls, fn);
+        temps[body->param[n].to.val] = arg;
+        addins(out, count, &(Ins){.op = Ocopy, .cls = args[n].cls, .to = arg,
+                                 .arg = {args[n].arg[0], R}});
+    }
+    for (unsigned n = 0; n < body->nins; ++n) {
+        Ins ins = body->ins[n];
+        Ref dst = newtmp("inl", ins.cls, fn);
+        for (unsigned a = 0; a < 2; ++a)
+            ins.arg[a] = inline_operand(body, temps, ins.arg[a]);
+        temps[ins.to.val] = dst;
+        ins.to = dst;
+        addins(out, count, &ins);
+    }
+    addins(out, count, &(Ins){.op = Ocopy, .cls = call->cls, .to = call->to,
+                             .arg = {inline_operand(body, temps, body->result), R}});
+    return 1;
+}
+
+static void
+inline_calls(void)
+{
+    int changed = 0;
+    for (Blk *b = fn->start; b; b = b->link) {
+        Ins *end = b->ins + b->nins;
+        Ins *first_call = b->ins;
+        while (first_call < end && first_call->op != Ocall)
+            ++first_call;
+        if (first_call == end)
+            continue;
+        Ins *ins = vnew(0, sizeof(Ins), PFn);
+        unsigned count = 0;
+        int inlined = 0;
+        for (Ins *i = b->ins; i < end;) {
+            Ins *call = i;
+            while (call < end && isarg(call->op))
+                ++call;
+            if (call < end && call->op == Ocall) {
+                if (inline_call(&ins, &count, i, call)) {
+                    inlined = 1;
+                    i = call + 1;
+                } else {
+                    while (i <= call)
+                        addins(&ins, &count, i++);
+                }
+            } else {
+                addins(&ins, &count, i);
+                ++i;
+            }
+        }
+        if (inlined) {
+            b->ins = ins;
+            b->nins = count;
+            changed = 1;
+        }
+    }
+    if (changed) {
+        filluse(fn);
+        simplify_values();
+        simplcfg(fn);
+        filluse(fn);
+    }
 }
 
 static void
@@ -1336,7 +1828,7 @@ static int
 flow_barrier(Ins *i)
 {
     return i->op == Odiv || i->op == Orem || i->op == Oudiv || i->op == Ourem ||
-           i->op == Oblit0 || ((isload(i->op) || isstore(i->op)) && !sched_eligible(i));
+           i->op == Oblit0;
 }
 
 static int
@@ -1412,12 +1904,6 @@ typedef struct {
     int result_in[STASH_A], result_out[STASH_A];
 } FlowBlock;
 
-typedef struct {
-    enum SchedUnit unit;
-    const char *port;
-} ResultHome;
-
-static ResultHome *result_home;
 static unsigned char *blocked_result;
 static int failed_result;
 
@@ -1907,20 +2393,14 @@ flow_blit(unsigned bytes)
 static int
 flow_inline(Ins *i, FlowSite *site)
 {
-    int load = isload(i->op), store = isstore(i->op), copy = i->op == Oblit0;
-    int abi[FIFO_ARGS * SCHED_STASH] = {1, !load};
+    int abi[FIFO_ARGS * SCHED_STASH] = {1, 1};
     SchedValue args[FIFO_ARGS * SCHED_STASH] = {{0}};
-    args[0] = sched_value(i->arg[store ? 1 : 0]);
-    if (!load)
-        args[1] = sched_value(i->arg[store ? 0 : 1]);
+    args[0] = sched_value(i->arg[0]);
+    args[1] = sched_value(i->arg[1]);
     flow_save(site);
     if (!flow_finish(abi, args))
         return 0;
-    if (load || store) {
-        unsigned k = i->op - Oloadsb;
-        unsigned bytes = store ? (unsigned)storesz(i) : k < 6 ? (unsigned)loadsz(i) : 8;
-        memory(bytes, load && k < 6 && !(k & 1), store);
-    } else if (copy) {
+    if (i->op == Oblit0) {
         flow_blit(rsval(i[1].arg[0]));
     } else {
         int sign = i->op == Odiv || i->op == Orem;
@@ -1993,7 +2473,7 @@ flow_block(FlowBlock *layout, FlowSite *sites, SchedTerm term)
             scheduled_known[dst.val] = 1;
         }
     }
-    const Ins *region_end = block->ins + params;
+    Ins *region_start = block->ins + params, *region_end = region_start;
     for (Ins *i = block->ins + params; i < block->ins + block->nins && !schedule_overflow; ++i) {
         if (i->op == Onop || i->op == Odbgloc)
             continue;
@@ -2016,17 +2496,20 @@ flow_block(FlowBlock *layout, FlowSite *sites, SchedTerm term)
                 ++i;
             continue;
         }
-        SchedValue result = isalloc(i->op) ? sched_address(objects[i->to.val]) : sched_instruction(i);
+        if (region_end <= i) {
+            region_start = i;
+            region_end = i + 1;
+            while (region_end < block->ins + block->nins && !isarg(region_end->op) &&
+                   region_end->op != Ocall && !flow_barrier(region_end))
+                ++region_end;
+        }
+        if (folded_shift(i, region_start, region_end))
+            continue;
+        SchedValue result = isalloc(i->op) ? sched_address(objects[i->to.val]) :
+                                           sched_instruction(i, region_start);
         if (req(i->to, R))
             continue;
         if (i->cls == Kw && !INRANGE(i->op, Ocmpw, Ocmpl1)) {
-            if (region_end <= i) {
-                Ins *end = i + 1;
-                while (end < block->ins + block->nins && !isarg(end->op) &&
-                       end->op != Ocall && !flow_barrier(end))
-                    ++end;
-                region_end = end;
-            }
             if (defer_word(i, region_end))
                 uncanonical_word[i->to.val] = 1;
             else
@@ -2487,6 +2970,7 @@ static void
 function(Fn *parsed)
 {
     fn = parsed;
+    tmp_alignment = NULL;
     unsigned argc = 0;
     if (collect) {
         Symbol *f = define(fn->name, &fn->lnk, 1);
@@ -2517,11 +3001,25 @@ function(Fn *parsed)
                 }
         if (params > max_args)
             max_args = params;
+        f->nparam = params;
+        if (optimize && params) {
+            f->param_align = emalloc(params);
+            memset(f->param_align, 8, params);
+        }
         goto done;
     }
     if (fn->vararg || fn->retty >= 0)
         error("unsupported function signature");
     Symbol *f = lookup(fn->name, fn->lnk.export ? 0 : module);
+    if (collect_inline) {
+        find_address_taken();
+        collect_inline_body(f);
+        goto done;
+    }
+    if (analyze_alignment) {
+        infer_parameter_alignment(f);
+        goto done;
+    }
     current_function = f;
     if (analyze_leaves && (f->calls || f->indirect))
         goto done;
@@ -2529,9 +3027,11 @@ function(Fn *parsed)
     int main_entry = f->module == 0 && strcmp(f->name, "main") == 0;
     if (optimize) {
         promote_locals();
+        inline_calls();
         if (!main_entry && countdown_function(f))
             goto emitted;
         rotate_loops();
+        compute_alignment(f);
         scheduled_value = alloc(fn->ntmp * sizeof *scheduled_value);
         scheduled_known = alloc(fn->ntmp * sizeof *scheduled_known);
         uncanonical_word = alloc(fn->ntmp * sizeof *uncanonical_word);
@@ -2688,7 +3188,9 @@ string(const char *p)
 static void
 data(Dat *d)
 {
-    if (analyze_leaves) {
+    if (collect_inline || analyze_alignment || analyze_leaves) {
+        if (collect_inline && d->type != DStart && d->type != DEnd && d->isref)
+            mark_function_address(d->u.ref.name);
         if (d->type == DEnd)
             freeall();
         return;
@@ -2785,11 +3287,20 @@ main(int argc, char **argv)
                 continuation_depth(s);
 
     if (optimize) {
+        collect = 0;
+        collect_inline = 1;
+        parse_files(argc - optind, argv + optind);
+        collect_inline = 0;
+        analyze_alignment = 1;
+        do {
+            alignment_changed = 0;
+            parse_files(argc - optind, argv + optind);
+        } while (alignment_changed);
+        analyze_alignment = 0;
         /* Leaf peak depths are needed even if their definitions follow callers. */
         out = fopen("/dev/null", "w");
         if (!out)
             error("cannot open analysis output");
-        collect = 0;
         analyze_leaves = 1;
         parse_files(argc - optind, argv + optind);
         analyze_leaves = 0;

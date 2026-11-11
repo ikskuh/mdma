@@ -1,0 +1,19 @@
+# expect mem64 __mdma_result = 1
+data $input = { l -81985527069003248 }
+
+export function w $main() {
+@entry
+    %x =l loadl $input
+    %shift_byte =w sar %x, 24
+    %byte =w and 255, %shift_byte
+    %shift_half =l shr %x, 32
+    %half =l extsh %shift_half
+    %shift_unaligned =l shr %x, 8
+    %unaligned =l and %shift_unaligned, 65535
+    %b =w ceqw %byte, 246
+    %h =w ceql %half, -17768
+    %u =w ceql %unaligned, 21554
+    %both =w and %b, %h
+    %ok =w and %both, %u
+    ret %ok
+}

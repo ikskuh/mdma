@@ -104,6 +104,29 @@ class QbeTest(unittest.TestCase):
                  for line in parse_asm(result.stdout)]
         self.assertEqual([r for r in reads if r], [['ARITH_A.LHS', 'LOGIC_A.LHS']])
 
+    def test_inline_preserves_word_argument_width(self):
+        path = HERE / 'inline_word.ssa'
+        result = compile_fixture(path, ())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('rel=__mdma_g1_776964656e', result.stdout)
+        test_behavior.BehaviorTest().check_fixture(path, assembly=result.stdout, extra_memory=65536)
+
+    def test_call_alignment_uses_one_read_when_proven(self):
+        path = HERE / 'call_alignment.ssa'
+        result = compile_fixture(path, ())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for name, reads in (('aligned_read', 1), ('mixed_read', 2), ('escaped_read', 2), ('aligned_loop', 1)):
+            with self.subTest(name=name):
+                label = '__mdma_g1_' + name.encode().hex()
+                body = result.stdout.split(label + ':\n', 1)[1]
+                body = re.split(r'^__mdma_g[01]_[0-9a-f]+:\n', body, maxsplit=1, flags=re.MULTILINE)[0]
+                self.assertEqual(body.count(' -> MEM.READ'), reads)
+
+    def test_independent_queue_rotations_share_a_pack(self):
+        result = compile_fixture(HERE / 'call_alignment.ssa', MODES[2])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('STASH_A.OUT -> STASH_A.IN, STASH_B.OUT -> STASH_B.IN [sync]', result.stdout)
+
     def test_relative_calls_return_after_short_and_extended_packs(self):
         path = HERE / 'fifo_sum.ssa'
         result = compile_fixture(path, ())

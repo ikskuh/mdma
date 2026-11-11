@@ -1,0 +1,16 @@
+# expect mem64 __mdma_result = 1
+data $value = { l 4294967313 }
+
+function l $widen(w %word) {
+@entry
+    %wide =l extuw %word
+    ret %wide
+}
+
+export function w $main() {
+@entry
+    %value =l loadl $value
+    %wide =l call $widen(w %value)
+    %ok =w ceql %wide, 17
+    ret %ok
+}

@@ -1,0 +1,19 @@
+# expect mem64 __mdma_result = 37
+data $cell = { w 7 }
+
+function w $check(l %p, l %q) {
+@entry
+    %before =w loadw %p
+    %again =w loadw %p
+    storew 23, %q
+    %after =w loadw %p
+    %old =w add %before, %again
+    %sum =w add %old, %after
+    ret %sum
+}
+
+export function w $main() {
+@entry
+    %result =w call $check(l $cell, l $cell)
+    ret %result
+}

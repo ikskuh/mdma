@@ -740,12 +740,13 @@ emit_bundle(Emission *emit, const Bundle *bundle)
     ++emit->count;
 }
 
+static const char *const heads[] = {
+    "STASH_A.OUT", "STASH_B.OUT", "STASH_C.OUT", "STASH_D.OUT", "STACK_A.TOP"
+};
+
 static void
 repair(Emission *emit, int source, int sink, const char *port, int sync)
 {
-    static const char *const heads[] = {
-        "STASH_A.OUT", "STASH_B.OUT", "STASH_C.OUT", "STASH_D.OUT", "STACK_A.TOP"
-    };
     Bundle b = {.count = 1, .sync = sync,
                 .move = {{.sink_unit = sink, .sink = port, .fixed = heads[source - STASH_A]}}};
     emit_bundle(emit, &b);
@@ -815,21 +816,195 @@ queue_clock(int *words, int *cycles, int ready)
 }
 
 static int
+head_distance(const Queue *q, int id)
+{
+    for (int at = 0; at < q->count; ++at)
+        if (q->id[at] == id)
+            return at;
+    return -1;
+}
+
+static void
+rotate_head(Queue *q, int ready)
+{
+    int old = q->id[0];
+    queue_pop(q);
+    q->id[q->count] = old;
+    q->ready[q->count++] = ready;
+}
+
+static int
 select_head(Emission *emit, int bank, Queue *q, int id, int *words, int *cycles)
 {
-    int at = 0;
-    while (at < q->count && q->id[at] != id)
-        ++at;
-    if (at == q->count)
+    int at = head_distance(q, id);
+    if (at < 0)
         return 0;
     while (at--) {
-        int old = q->id[0], ready = q->ready[0];
-        queue_pop(q);
-        q->id[q->count] = old;
-        q->ready[q->count++] = queue_clock(words, cycles, ready) + timing[bank].latency;
+        int start = queue_clock(words, cycles, q->ready[0]);
+        rotate_head(q, start + timing[bank].latency);
         repair(emit, bank, bank, "IN", 1);
     }
     return 1;
+}
+
+static int
+select_heads(Emission *emit, Queue *fifo, const int *read, int *words, int *cycles)
+{
+    int remaining[STACK_A - STASH_A] = {0};
+    for (int bank = STASH_A; bank < STACK_A; ++bank) {
+        int at = read[bank] ? head_distance(&fifo[bank], read[bank]) : 0;
+        if (at < 0)
+            return 0;
+        remaining[bank - STASH_A] = at;
+    }
+    for (;;) {
+        Bundle b = {.sync = 1};
+        int ready = *cycles;
+        for (int bank = STASH_A; bank < STACK_A; ++bank)
+            if (remaining[bank - STASH_A]) {
+                b.move[b.count++] = (struct Transfer){.sink_unit = bank, .sink = "IN",
+                                                       .fixed = heads[bank - STASH_A]};
+                if (ready < fifo[bank].ready[0])
+                    ready = fifo[bank].ready[0];
+                --remaining[bank - STASH_A];
+            }
+        if (!b.count)
+            return 1;
+        int at = queue_clock(words, cycles, ready);
+        for (int i = 0; i < b.count; ++i) {
+            int bank = b.move[i].sink_unit;
+            rotate_head(&fifo[bank], at + timing[bank].latency);
+        }
+        emit_bundle(emit, &b);
+    }
+}
+
+/* Normalize token IDs to their positions in the desired order. The last
+ * position represents the scratch word while it is on STACK_A. */
+typedef struct {
+    unsigned char order[SCHED_STASH];
+    unsigned char held;
+} Permutation;
+
+enum { PLAN_ROTATE = 1, PLAN_HOLD, PLAN_RELEASE, PLAN_DONE };
+static unsigned char *repair_plan[SCHED_STASH + 1];
+
+static unsigned
+permutation_key(const Permutation *p, unsigned count)
+{
+    unsigned rank = 0;
+    for (unsigned i = 0; i < count; ++i) {
+        unsigned smaller = 0;
+        for (unsigned j = i + 1; j < count; ++j)
+            smaller += p->order[j] < p->order[i];
+        rank = rank * (count - i) + smaller;
+    }
+    return 2 * rank + p->held;
+}
+
+static void
+shift_order(unsigned char *order, unsigned count, int reverse)
+{
+    if (reverse) {
+        unsigned char last = order[count - 1];
+        memmove(order + 1, order, count - 1);
+        order[0] = last;
+    } else {
+        unsigned char first = order[0];
+        memmove(order, order + 1, count - 1);
+        order[count - 1] = first;
+    }
+}
+
+static void
+plan_predecessor(Permutation *queue, unsigned *end, Permutation p, unsigned count, int action)
+{
+    unsigned key = permutation_key(&p, count);
+    if (!repair_plan[count][key]) {
+        repair_plan[count][key] = action;
+        queue[(*end)++] = p;
+    }
+}
+
+static void
+build_repair_plan(unsigned count)
+{
+    Permutation goal = {0};
+    unsigned states = 2;
+    for (unsigned i = 0; i < count; ++i) {
+        goal.order[i] = i;
+        states *= i + 1;
+    }
+    repair_plan[count] = emalloc(states);
+    Permutation *queue = emalloc(states * sizeof *queue);
+    unsigned end = 0;
+    plan_predecessor(queue, &end, goal, count, PLAN_DONE);
+    /* A backwards breadth-first search finds the minimum move count once
+     * for each supported queue length. */
+    for (unsigned i = 0; i < end; ++i) {
+        Permutation p = queue[i];
+        shift_order(p.order, count - p.held, 1);
+        plan_predecessor(queue, &end, p, count, PLAN_ROTATE);
+        p = queue[i];
+        if (p.held) {
+            p.held = 0;
+            shift_order(p.order, count, 1);
+            plan_predecessor(queue, &end, p, count, PLAN_HOLD);
+        } else {
+            p.held = 1;
+            plan_predecessor(queue, &end, p, count, PLAN_RELEASE);
+        }
+    }
+    free(queue);
+}
+
+static int
+reorder_with_scratch(Emission *emit, int bank, Queue *q, const int *want, int *words, int *cycles)
+{
+    unsigned count = q->count, seen = 0;
+    Permutation p = {0};
+    for (unsigned i = 0; i < count; ++i) {
+        unsigned n = 0;
+        while (n < count && want[n] != q->id[i])
+            ++n;
+        if (n == count || (seen & (1u << n)))
+            return 0;
+        seen |= 1u << n;
+        p.order[i] = n;
+    }
+    if (!repair_plan[count])
+        build_repair_plan(count);
+    int held_id = 0, held_ready = 0;
+    for (;;) {
+        unsigned key = permutation_key(&p, count);
+        switch (repair_plan[count][key]) {
+        case PLAN_DONE:
+            return !memcmp(q->id, want, count * sizeof *want);
+        case PLAN_ROTATE: {
+            int start = queue_clock(words, cycles, q->ready[0]);
+            rotate_head(q, start + timing[bank].latency);
+            shift_order(p.order, count - p.held, 0);
+            repair(emit, bank, bank, "IN", 1);
+            break;
+        }
+        case PLAN_HOLD:
+            held_id = q->id[0];
+            held_ready = queue_clock(words, cycles, q->ready[0]) + timing[STACK_A].latency;
+            queue_pop(q);
+            shift_order(p.order, count, 0);
+            p.held = 1;
+            repair(emit, bank, STACK_A, "PUSH", 0);
+            break;
+        case PLAN_RELEASE:
+            q->id[q->count] = held_id;
+            q->ready[q->count++] = queue_clock(words, cycles, held_ready) + timing[bank].latency;
+            p.held = 0;
+            repair(emit, STACK_A, bank, "IN", 0);
+            break;
+        default:
+            return 0;
+        }
+    }
 }
 
 static int
@@ -842,26 +1017,17 @@ restore_order(Emission *emit, int bank, Queue *q, const int *want, int have_save
         return 0;
     if (!memcmp(q->id, want, count * sizeof *want))
         return 1;
+    int rotation = head_distance(q, want[0]);
+    int matches = rotation >= 0;
+    for (int n = 0; matches && n < count; ++n)
+        matches = q->id[(rotation + n) % count] == want[n];
+    if (matches)
+        return select_head(emit, bank, q, want[0], words, cycles);
     if (have_saved)
         return 0;
     if (emit->out && stack_peak == 0)
         stack_peak = 1;
-    /* Extract each desired head in turn and append it without disturbing the
-     * other entries. One balanced push/pop on STACK_A holds the extracted word. */
-    for (int n = 0; n < count; ++n) {
-        int first = q->id[0];
-        if (!select_head(emit, bank, q, want[n], words, cycles))
-            return 0;
-        int saved = queue_clock(words, cycles, q->ready[0]) + timing[STACK_A].latency;
-        queue_pop(q);
-        repair(emit, bank, STACK_A, "PUSH", 0);
-        if (first != want[n] && !select_head(emit, bank, q, first, words, cycles))
-            return 0;
-        q->id[q->count] = want[n];
-        q->ready[q->count++] = queue_clock(words, cycles, saved) + timing[bank].latency;
-        repair(emit, STACK_A, bank, "IN", 0);
-    }
-    return !memcmp(q->id, want, count * sizeof *want);
+    return reorder_with_scratch(emit, bank, q, want, words, cycles);
 }
 
 static int
@@ -880,7 +1046,6 @@ verify(FILE *out, const Schedule *s, int *words, int *cycles)
     for (int i = 0; i < s->bundle_count; ++i) {
         const Bundle *b = &s->bundle[i];
         int read[UNIT_COUNT] = {0};
-        int next = *cycles;
         for (int j = 0; j < b->count; ++j) {
             int src = b->move[j].source;
             if (!src)
@@ -891,18 +1056,21 @@ verify(FILE *out, const Schedule *s, int *words, int *cycles)
                 return 0;
             if (read[bank] && read[bank] != src)
                 return 0;
-            if (bank >= STASH_A && bank < STACK_A && !read[bank] &&
-                !select_head(&emit, bank, q, src, words, cycles))
-                return 0;
-            int head = bank >= STACK_A ? q->count - 1 : 0;
-            if (q->id[head] != src)
-                return 0;
             read[bank] = src;
+        }
+        if (!select_heads(&emit, fifo, read, words, cycles))
+            return 0;
+        int next = *cycles;
+        for (int bank = 0; bank < UNIT_COUNT; ++bank) {
+            if (!read[bank])
+                continue;
+            Queue *q = &fifo[bank];
+            int head = bank >= STACK_A ? q->count - 1 : 0;
+            if (q->id[head] != read[bank])
+                return 0;
             if (next < q->ready[head])
                 next = q->ready[head];
         }
-        if (next < *cycles)
-            next = *cycles;
         /* Check capacity before popping. A full queue cannot be assumed to
          * accept a simultaneous replacement on every implementation. */
         for (int j = 0; j < b->nwrites; ++j) {

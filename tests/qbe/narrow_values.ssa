@@ -1,0 +1,30 @@
+# expect mem64 __mdma_result = 1
+data $input = { l -9223372032559808495 }
+
+function l $narrow(l %x) {
+@entry
+    %word =w copy %x
+    %a =l extuw %word
+    %low =w and %word, 255
+    %b =l extsw %low
+    %sum =l add %a, %b
+    ret %sum
+}
+
+export function w $main() {
+@entry
+    %value =l loadl $input
+    %a =l call $narrow(l %value)
+    %ok1 =w ceql %a, 34
+    %low =l and %value, 255
+    %wide =l or %low, 4294967296
+    %word =w copy %wide
+    %out =l extuw %word
+    %ok2 =w ceql %out, 17
+    %negative =w or %word, 2147483648
+    %signed =l extsw %negative
+    %ok3 =w ceql %signed, -2147483631
+    %both =w and %ok1, %ok2
+    %result =w and %both, %ok3
+    ret %result
+}

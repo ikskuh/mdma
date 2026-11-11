@@ -1,4 +1,10 @@
 # expect mem64 __mdma_result = 1
+function l $signed_half(l %p) {
+@start
+    %value =l loadsh %p
+    ret %value
+}
+
 export function w $main() {
 @start
     %p =l alloc16 32
@@ -15,10 +21,21 @@ export function w $main() {
     %ok3 =w ceql %v2, %v
     %neg =l add %p, 29
     storeh -2, %neg
-    %signed =l loadsh %neg
+    %signed =l call $signed_half(l %neg)
     %ok4 =w ceql %signed, -2
+    %cross =l add %p, 15
+    storeh -257, %cross
+    %split =l call $signed_half(l %cross)
+    %ok6 =w ceql %split, -257
+    %neighbor =w loadub %dest
+    %ok7 =w ceqw %neighbor, 8
     %a =w and %ok1, %ok2
     %b =w and %ok3, %ok4
-    %result =w and %a, %b
+    %low =w loadw %q
+    %ok5 =w ceqw %low, 84281096
+    %c =w and %a, %b
+    %d =w and %ok5, %ok6
+    %checks =w and %c, %d
+    %result =w and %checks, %ok7
     ret %result
 }

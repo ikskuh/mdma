@@ -51,8 +51,15 @@ Legacy profiles containing `stack_push_ordered yes` are accepted, and
 Latency estimates guide scheduling. The compiler checks ordering and
 capacity separately and uses hardware readiness to tolerate stalls.
 
-After scalar promotion and SSA construction, the optimizer folds integer
-expressions and simplifies the control-flow graph. It lays out edge copies
+After scalar promotion and SSA construction, the optimizer eliminates
+redundant RAM loads using QBE's alias analysis, folds integer expressions,
+and simplifies the control-flow graph. It inlines small,
+straight-line integer leaves so their operations can share the caller's
+schedule. Power-of-two products become shifts, and known alignment lets
+indexed loads and stores use the typed memory units directly. For a
+function whose address does not escape, the compiler combines alignment
+guarantees from all direct calls, including across modules. Alignment also
+propagates through SSA joins and loop backedges. The scheduler lays out edge copies
 with their blocks, packs compatible moves with jumps, and rotates eligible
 two-block loops into a guarded bottom-tested form. Rotation currently handles
 at most two loop-carried values and a side-effect-free test and body.
@@ -73,13 +80,28 @@ all incoming results must use the same FU and result port. Other live values
 use FIFO homes with checked queue state at each edge. The scheduler coalesces
 phi copies where possible. Multi-entry
 STASH layouts leave one free entry so they can rotate to the right value.
+The scheduler packs independent STASH rotations together and restores
+cyclic permutations with recirculation moves. For other permutations, it
+chooses the fewest repair moves available with one scratch stack entry.
 RAM holds addressable objects and spills when a FIFO layout fails. A
 function whose layout remains unschedulable after bounded retries uses
 frame-based lowering with the same FIFO calling convention.
 
 The backend defers truncation through word arithmetic that depends only on
 the low 32 bits. It normalizes values at consumers that need the canonical word
-and compares LOGIC masks with UNPACK using the target profile.
+and compares LOGIC masks with UNPACK using the target profile. It omits a
+normalization when the producing operation already guarantees that the high
+bits are zero. A constant right shift used only by a mask or an extension can
+be folded into UNPACK when the field fits an aligned byte, halfword, or word
+lane. A synthetic address selects the lane and the type selects its width
+and signedness.
+
+An aligned access needs one memory request. When alignment cannot be proven,
+the scheduler addresses the words that contain the first and last bytes.
+It combines the words with shifts for loads and uses byte masks for stores.
+Both requests can address the same word. In that case the second store
+request masks all byte lanes. This keeps live values in the scheduler across
+the access.
 
 ### FIFO calling convention
 
@@ -106,8 +128,11 @@ A fixture can include other modules by placing `*.lib.ssa` files beside it.
 
 Run all eleven self-checking examples in [examples/qbe](../examples/qbe),
 or pass the names you want to run. The command uses cproc from `PATH` or
-`CPROC`, assembles each program, and runs it with the simulator profile.
-It checks the program's return value and prints the image size and ticks.
+`CPROC` and compiles each program for `simulator.conf`. It checks the
+return value with both `simulator.conf` and `one-clock.conf` using the same
+binary. The report counts clocks in all outer kernel calls, clocks in
+`main` including its self-checks, and total clocks from boot through halt.
+Recursive calls are included in their outer call's time.
 
 ```sh
 just qbe-examples

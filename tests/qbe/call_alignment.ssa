@@ -1,0 +1,68 @@
+# expect mem64 __mdma_result = 1
+data $values = { l 578437695752307201 }
+data $callback = { l $escaped_read }
+
+function w $aligned_read(l %p) {
+@entry
+    %v =w loadw %p
+    ret %v
+}
+
+function w $mixed_read(l %p) {
+@entry
+    %v =w loadw %p
+    ret %v
+}
+
+function w $forward_read(l %p) {
+@entry
+    %v =w call $mixed_read(l %p)
+    ret %v
+}
+
+function w $escaped_read(l %p) {
+@entry
+    %v =w loadw %p
+    ret %v
+}
+
+function w $aligned_loop(l %p) {
+@entry
+    jmp @loop
+@loop
+    %address =l phi @entry %p, @loop %next
+    %i =w phi @entry 0, @loop %j
+    %sum =w phi @entry 0, @loop %updated
+    %value =w loadw %address
+    %updated =w add %sum, %value
+    %next =l add %address, 4
+    %j =w add %i, 1
+    %more =w cultw %j, 2
+    jnz %more, @loop, @exit
+@exit
+    ret %updated
+}
+
+export function w $main() {
+@entry
+    %misaligned =l add $values, 1
+    %aligned =w call $aligned_read(l $values)
+    %mixed0 =w call $mixed_read(l $values)
+    %mixed1 =w call $forward_read(l %misaligned)
+    %escaped0 =w call $escaped_read(l $values)
+    %target =l loadl $callback
+    %escaped1 =w call %target(l %misaligned)
+    %loop =w call $aligned_loop(l $values)
+    %a =w ceqw %aligned, 67305985
+    %b =w ceqw %mixed0, %aligned
+    %c =w ceqw %mixed1, 84148994
+    %d =w ceqw %escaped0, %aligned
+    %e =w ceqw %escaped1, %mixed1
+    %loop_ok =w ceqw %loop, 201984006
+    %f =w and %a, %b
+    %g =w and %c, %d
+    %h =w and %f, %g
+    %ok =w and %h, %e
+    %result =w and %ok, %loop_ok
+    ret %result
+}
