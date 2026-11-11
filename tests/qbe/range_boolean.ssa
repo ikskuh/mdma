@@ -1,0 +1,67 @@
+# expect mem64 __mdma_result = 1
+data $sample = { w 304 }
+
+function w $digit(w %input) {
+@entry
+    %a =w extub %input
+    %b =w extub %input
+    %ge =w csgew %a, 48
+    %le =w cslew %b, 57
+    %test =w and %ge, %le
+    jnz %test, @true, @false
+@true
+    jmp @join
+@false
+    jmp @join
+@join
+    %bool =w phi @true 1, @false 0
+    %byte =w extub %bool
+    ret %byte
+}
+
+function w $signed_window(l %input) {
+@entry
+    %lo =w cslew -2, %input
+    %hi =w cslew %input, 2
+    %both =w and %hi, %lo
+    ret %both
+}
+
+function w $is_zero(w %input) {
+@entry
+    jnz %input, @true, @false
+@true
+    jmp @join
+@false
+    jmp @join
+@join
+    %bool =w phi @true 0, @false 1
+    ret %bool
+}
+
+export function w $main() {
+@entry
+    %sample =w loadw $sample
+    %a =w call $digit(w %sample)
+    %b =w call $digit(w 57)
+    %c =w call $digit(w 47)
+    %d =w call $digit(w 58)
+    %e =w call $signed_window(l 4294967294)
+    %f =w call $signed_window(l 4294967293)
+    %g =w call $signed_window(l 4294967298)
+    %h =w call $signed_window(l 3)
+    %i =w call $is_zero(w 0)
+    %j =w call $is_zero(w 2147483648)
+    %ab =w and %a, %b
+    %eg =w and %e, %g
+    %abe =w and %ab, %eg
+    %yes =w and %abe, %i
+    %cd =w or %c, %d
+    %fh =w or %f, %h
+    %cdf =w or %cd, %fh
+    %no =w or %cdf, %j
+    %bad =w xor %yes, 1
+    %check =w or %bad, %no
+    %ok =w ceqw %check, 0
+    ret %ok
+}

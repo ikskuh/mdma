@@ -1,0 +1,17 @@
+# expect mem64 __mdma_result = 1
+data $wide = { l 4294967297 }
+
+export function w $main() {
+@entry
+    %x =l loadl $wide
+    %w =w add 0, %x
+    %masked =w and %w, -1
+    %shifted =w shl %masked, 32
+    %word =l extuw %shifted
+    %same =l xor %x, 0
+    %long =l shr %same, 64
+    %ok1 =w ceql %word, 1
+    %ok2 =w ceql %long, 4294967297
+    %ok =w and %ok1, %ok2
+    ret %ok
+}

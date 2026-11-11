@@ -1209,6 +1209,38 @@ reduce_extension(Ins *ins)
     return 1;
 }
 
+static int
+reduce_identity(Ins *i)
+{
+    if (i->cls > Kl)
+        return 0;
+    Ref value = i->arg[0], constant = i->arg[1];
+    switch (i->op) {
+    case Oadd: case Oand: case Oor: case Oxor:
+        if (plain_constant(value)) {
+            value = i->arg[1];
+            constant = i->arg[0];
+        }
+        break;
+    case Osub: case Oshl: case Oshr: case Osar:
+        break;
+    default:
+        return 0;
+    }
+    if (!plain_constant(constant))
+        return 0;
+    uint64_t bits = fn->con[constant.val].bits.i;
+    uint64_t mask = i->cls == Kw ? UINT32_MAX : UINT64_MAX;
+    if (i->op == Oshl || i->op == Oshr || i->op == Osar)
+        mask = i->cls == Kw ? 31 : 63;
+    if ((bits & mask) != (i->op == Oand ? mask : 0))
+        return 0;
+    i->op = Ocopy;
+    i->arg[0] = value;
+    i->arg[1] = R;
+    return 1;
+}
+
 static void
 simplify_values(void)
 {
@@ -1219,7 +1251,7 @@ simplify_values(void)
             for (Ins *i = b->ins; i < b->ins + b->nins; ++i) {
                 for (unsigned n = 0; n < 2; ++n)
                     i->arg[n] = copy_source(i->arg[n]);
-                changed |= reduce_multiply(i) | reduce_extension(i);
+                changed |= reduce_identity(i) || reduce_multiply(i) || reduce_extension(i);
                 if (!pure_integer(i) || i->op == Ocopy ||
                     !plain_constant(i->arg[0]) ||
                     (!req(i->arg[1], R) && !plain_constant(i->arg[1])))
@@ -1269,13 +1301,13 @@ typedef struct {
 } BranchFact;
 
 static BranchFact
-branch_fact(const Blk *b, int taken)
+comparison_fact(Ref condition, unsigned block_id, int taken)
 {
-    if (b->jmp.type != Jjnz || rtype(b->jmp.arg) != RTmp || b->jmp.arg.val < Tmp0)
+    if (rtype(condition) != RTmp || condition.val < Tmp0)
         return (BranchFact){0};
-    const Tmp *cond = &fn->tmp[b->jmp.arg.val];
+    const Tmp *cond = &fn->tmp[condition.val];
     const Ins *i = cond->def;
-    if (!i || cond->ndef != 1 || cond->bid != b->id ||
+    if (!i || cond->ndef != 1 || cond->bid != block_id ||
         (!INRANGE(i->op, Ocmpw, Ocmpw1) && !INRANGE(i->op, Ocmpl, Ocmpl1)))
         return (BranchFact){0};
     unsigned bits = i->op < Ocmpl ? 32 : 64;
@@ -1292,6 +1324,12 @@ branch_fact(const Blk *b, int taken)
         return (BranchFact){0};
     uint64_t c = fn->con[constant.val].bits.i;
     return (BranchFact){value, bits == 32 ? (uint32_t)c : c, bits, cmp};
+}
+
+static BranchFact
+branch_fact(const Blk *b, int taken)
+{
+    return b->jmp.type == Jjnz ? comparison_fact(b->jmp.arg, b->id, taken) : (BranchFact){0};
 }
 
 static int
@@ -1491,6 +1529,136 @@ fold_known_branches(void)
     } while (changed);
 }
 
+static int
+same_range_value(Ref a, Ref b)
+{
+    if (req(a, b))
+        return 1;
+    const Ins *lhs = fn->tmp[a.val].def, *rhs = fn->tmp[b.val].def;
+    return lhs && rhs && isext(lhs->op) && lhs->op == rhs->op &&
+           lhs->cls == rhs->cls && req(lhs->arg[0], rhs->arg[0]);
+}
+
+static int
+fold_range_and(Blk *b)
+{
+    Ins *code = NULL;
+    unsigned count = 0;
+    for (unsigned n = 0; n < b->nins; ++n) {
+        Ins *i = &b->ins[n];
+        int combined = 0;
+        if (i->op == Oand && i->cls == Kw) {
+            BranchFact lo = comparison_fact(i->arg[0], b->id, 1);
+            BranchFact hi = comparison_fact(i->arg[1], b->id, 1);
+            if (lo.cmp == Cisle || lo.cmp == Ciule) {
+                BranchFact swap = lo;
+                lo = hi;
+                hi = swap;
+            }
+            int sign = lo.cmp == Cisge;
+            if (lo.bits && lo.bits == hi.bits && (sign || lo.cmp == Ciuge) &&
+                hi.cmp == (sign ? Cisle : Ciule) && same_range_value(lo.value, hi.value)) {
+                uint64_t bias = sign ? UINT64_C(1) << (lo.bits - 1) : 0;
+                if ((lo.constant ^ bias) <= (hi.constant ^ bias)) {
+                    if (!code) {
+                        code = vnew(0, sizeof *code, PFn);
+                        for (unsigned p = 0; p < n; ++p)
+                            addins(&code, &count, &b->ins[p]);
+                    }
+                    /* Modular subtraction measures distance from the lower
+                     * bound even when the signed interval crosses zero. */
+                    int cls = lo.bits == 32 ? Kw : Kl;
+                    Ref delta = newtmp("range", cls, fn);
+                    uint64_t span = hi.constant - lo.constant;
+                    if (cls == Kw)
+                        span = (uint32_t)span;
+                    addins(&code, &count, &(Ins){.op = Osub, .cls = cls, .to = delta,
+                                                .arg = {lo.value, getcon(lo.constant, fn)}});
+                    addins(&code, &count, &(Ins){.op = cls == Kw ? Oculew : Oculel, .cls = Kw,
+                                                .to = i->to, .arg = {delta, getcon(span, fn)}});
+                    combined = 1;
+                }
+            }
+        }
+        if (code && !combined)
+            addins(&code, &count, i);
+    }
+    if (!code)
+        return 0;
+    b->ins = code;
+    b->nins = count;
+    return 1;
+}
+
+static int
+empty_arm(Blk *b)
+{
+    if (b->npred != 1 || b->phi || b->jmp.type != Jjmp)
+        return 0;
+    for (unsigned n = 0; n < b->nins; ++n)
+        if (b->ins[n].op != Onop && b->ins[n].op != Odbgloc)
+            return 0;
+    return 1;
+}
+
+static int
+fold_boolean_diamond(Blk *b)
+{
+    if (b->jmp.type != Jjnz || b->s1 == b->s2 || !empty_arm(b->s1) ||
+        !empty_arm(b->s2) || b->s1->s1 != b->s2->s1)
+        return 0;
+    Blk *join = b->s1->s1;
+    Phi *p = join->phi;
+    if (join->npred != 2 || !p || p->link || p->cls != Kw || p->narg != 2)
+        return 0;
+    Ref yes = phiarg(p, b->s1), no = phiarg(p, b->s2);
+    if (!plain_constant(yes) || !plain_constant(no))
+        return 0;
+    uint32_t t = fn->con[yes.val].bits.i, f = fn->con[no.val].bits.i;
+    if (t > 1 || f > 1 || t == f)
+        return 0;
+    Ref condition = b->jmp.arg;
+    const Ins *def = rtype(condition) == RTmp ? fn->tmp[condition.val].def : NULL;
+    int boolean = def && fn->tmp[condition.val].ndef == 1 &&
+                  INRANGE(def->op, Ocmpw, Ocmpl1);
+    Ins *code = vnew(0, sizeof *code, PFn);
+    unsigned count = 0;
+    int op = t ? Ocnew : Oceqw;
+    if (t && boolean)
+        op = Ocopy;
+    addins(&code, &count, &(Ins){.op = op, .cls = Kw, .to = p->to,
+                                .arg = {condition, op == Ocopy ? R : getcon(0, fn)}});
+    for (unsigned n = 0; n < join->nins; ++n)
+        addins(&code, &count, &join->ins[n]);
+    join->phi = NULL;
+    join->ins = code;
+    join->nins = count;
+    b->jmp.type = Jjmp;
+    b->jmp.arg = R;
+    b->s1 = join;
+    b->s2 = NULL;
+    return 1;
+}
+
+static void
+simplify_booleans(void)
+{
+    int changed = 0;
+    for (Blk *b = fn->start; b; b = b->link)
+        changed |= fold_range_and(b);
+    if (changed)
+        filluse(fn);
+    for (Blk *b = fn->start; b; b = b->link)
+        changed |= fold_boolean_diamond(b);
+    if (changed) {
+        fillcfg(fn);
+        filluse(fn);
+        simplify_values();
+        simplcfg(fn);
+        filluse(fn);
+    }
+}
+
 static Ref
 substitute(Ref value, const Ref *replacement, int count)
 {
@@ -1626,6 +1794,7 @@ promote_locals(void)
     simplify_values();
     simplcfg(fn);
     filluse(fn);
+    simplify_booleans();
 }
 
 static void
@@ -2690,11 +2859,31 @@ defer_word(Ins *producer, const Ins *region_end)
     return 1;
 }
 
+/* The predicate FIFO tests the whole value for nonzero. The compared value
+ * must stay in the final scheduling region, where its use can move to the jump. */
+static Ins *
+flow_nonzero_test(BranchFact *fact)
+{
+    *fact = branch_fact(block, 1);
+    if (!fact->bits || fact->cmp != Cine || fact->constant)
+        return NULL;
+    Tmp *condition = &fn->tmp[block->jmp.arg.val];
+    if (condition->nuse != 1)
+        return NULL;
+    Ins *test = condition->def;
+    for (Ins *i = test + 1; i < block->ins + block->nins; ++i)
+        if (isarg(i->op) || i->op == Ocall || flow_barrier(i))
+            return NULL;
+    return test;
+}
+
 static int
 flow_block(FlowBlock *layout, FlowSite *sites, SchedTerm term)
 {
     flow_begin(layout->in);
     flow_seed_results(layout);
+    BranchFact truth;
+    Ins *nonzero = flow_nonzero_test(&truth);
     unsigned params = 0;
     if (block == fn->start) {
         while (params < block->nins && ispar(block->ins[params].op)) {
@@ -2710,7 +2899,7 @@ flow_block(FlowBlock *layout, FlowSite *sites, SchedTerm term)
     }
     Ins *region_start = block->ins + params, *region_end = region_start;
     for (Ins *i = block->ins + params; i < block->ins + block->nins && !schedule_overflow; ++i) {
-        if (i->op == Onop || i->op == Odbgloc)
+        if (i == nonzero || i->op == Onop || i->op == Odbgloc)
             continue;
         if (isarg(i->op) || i->op == Ocall) {
             Ins *args = i;
@@ -2766,7 +2955,11 @@ flow_block(FlowBlock *layout, FlowSite *sites, SchedTerm term)
     int returning = isret(jump) || isretbh(jump);
     SchedValue result[FIFO_ARGS * SCHED_STASH] = {{0}};
     if (jump == Jjnz) {
-        SchedValue condition = flow_word(block->jmp.arg);
+        SchedValue condition;
+        if (nonzero)
+            condition = truth.bits == 32 ? flow_word(truth.value) : sched_value(truth.value);
+        else
+            condition = flow_word(block->jmp.arg);
         sched_node(CONTROL, NULL, 1, (SchedMove[]){{"COND", condition}});
     }
     if (returning && jump != Jret0) {

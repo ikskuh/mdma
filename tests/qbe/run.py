@@ -143,6 +143,16 @@ class QbeTest(unittest.TestCase):
                 body = re.split(r'^__mdma_g[01]_[0-9a-f]+:\n', body, maxsplit=1, flags=re.MULTILINE)[0]
                 self.assertEqual(body.count(' -> CMP.LHS'), comparisons)
 
+    def test_range_classifier_is_inlined(self):
+        result = compile_fixture(HERE / 'range_boolean.ssa', MODES[2])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        label = '__mdma_g1_' + 'digit'.encode().hex()
+        body = result.stdout.split(label + ':\n', 1)[1]
+        body = re.split(r'^__mdma_g[01]_[0-9a-f]+:\n', body, maxsplit=1, flags=re.MULTILINE)[0]
+        self.assertEqual(body.count(' -> CMP.LHS'), 1)
+        self.assertNotIn('[pred', body)
+        self.assertNotIn('rel=' + label + ']', result.stdout)
+
     def test_independent_queue_rotations_share_a_pack(self):
         result = compile_fixture(HERE / 'call_alignment.ssa', MODES[2])
         self.assertEqual(result.returncode, 0, result.stderr)

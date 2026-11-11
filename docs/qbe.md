@@ -110,6 +110,12 @@ alignment once and preserves the FIFO arguments for either body.
 Before scheduling, the compiler folds branches proved by preceding integer
 comparisons or by the possible constants reaching a phi. It keeps word and
 long comparisons separate and recomputes the CFG and phi inputs after folding.
+Matching inclusive bounds can become an unsigned comparison of the distance
+from the lower bound. A branch that only chooses the boolean value `0` or `1`
+can become a straight-line expression, making small classifiers eligible for
+inlining. A branch whose comparison only tests for nonzero can send the value
+directly to `CPU.COND`, using the width of the original comparison. Neutral
+integer operations become copies of the same width before scheduling.
 
 ### FIFO calling convention
 

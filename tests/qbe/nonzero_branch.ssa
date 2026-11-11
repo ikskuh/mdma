@@ -1,0 +1,33 @@
+# expect mem64 __mdma_result = 1
+data $high = { l 4294967296 }
+
+function w $long_truth(l %x) {
+@entry
+    %test =w cnel %x, 0
+    jnz %test, @yes, @no
+@yes
+    ret 17
+@no
+    ret 91
+}
+
+function w $word_truth(l %x) {
+@entry
+    %test =w cnew 0, %x
+    jnz %test, @yes, @no
+@yes
+    ret 17
+@no
+    ret 91
+}
+
+export function w $main() {
+@entry
+    %x =l loadl $high
+    %a =w call $long_truth(l %x)
+    %b =w call $word_truth(l %x)
+    %ok1 =w ceqw %a, 17
+    %ok2 =w ceqw %b, 91
+    %ok =w and %ok1, %ok2
+    ret %ok
+}
