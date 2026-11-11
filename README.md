@@ -144,6 +144,7 @@ for timing, memory, and CLI options.
 
 The ECP5 Verilog softcore runs the same behavior fixtures.
 [FPGA build, interfaces, and timing](docs/fpga.md)
+· [ECP5 architecture decisions](docs/ecp5-architecture-decision.md)
 
 The standalone QBE backend emits MDMA assembly and can validate the CoreMark
 kernels in the simulator. [QBE backend and CoreMark validation](docs/qbe.md)

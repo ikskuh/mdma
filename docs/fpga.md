@@ -1,5 +1,8 @@
 # MDMA softcore
 
+The [ECP5 architecture decision record](ecp5-architecture-decision.md)
+summarizes the current design, measured tradeoffs, and timing status.
+
 The ECP5 issues up to five FIFO moves on one CPU edge. Its internal
 instruction stream prefetches raw words independently of execution. Two
 interleaved distributed RAM banks expose the first two unread words and
@@ -475,9 +478,10 @@ read followed by a write and returns the original read data.
 
 `MDMA_BRAM_IMAGE` is an assembled little-endian binary loaded at address
 zero through the FPGA bitstream. The build pads the image with zeros to
-256 KiB and rejects empty or oversized binaries. The current CoreMark RTL
-image uses 127,264 bytes plus 65,536 bytes reserved for the stack, leaving
-69,344 bytes. The simulation runners use the same image conversion.
+256 KiB and rejects empty or oversized binaries. In the historical BRAM
+sweep, CoreMark used a 127,264-byte image plus a 65,536-byte stack reserve.
+The CoreMark comparison at `42a5a3a` used a 37,088-byte image. The
+simulation runners use the same image conversion.
 `MDMA_BRAM_PORTS=1` (default) or `2` selects the port mode for FPGA builds
 and RTL simulations.
 
