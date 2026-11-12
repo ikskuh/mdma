@@ -256,7 +256,7 @@ def routed_wires(work):
 
 
 def build_isolated(unit, mode, output, timeout, result, config=None, *, min_mhz=None,
-                   capture_lanes=None, count_wires=False, indexed_readback=False):
+                   capture_lanes=None, count_wires=False, indexed_readback=False, route_options=()):
     work = output / unit.name / mode
     work.mkdir(parents=True, exist_ok=True)
     for filename in ('netlist.json', 'route.json', 'routed.json', 'design.config', 'design.bit'):
@@ -270,6 +270,7 @@ def build_isolated(unit, mode, output, timeout, result, config=None, *, min_mhz=
         ('route', ['nextpnr-ecp5', '--um5g-85k', '--package', 'CABGA381', '--speed', '8',
                    '--seed', str(result['seed']), '--freq', str(MIN_MHZ),
                    '--timing-allow-fail', '--lpf-allow-unconstrained',
+                   *route_options,
                    '--json', 'netlist.json', '--report', 'route.json', '--textcfg', 'design.config',
                    *(['--write', 'routed.json'] if count_wires else [])]),
         ('pack', ['ecppack', 'design.config', 'design.bit']),

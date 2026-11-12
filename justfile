@@ -61,6 +61,9 @@ rtl-test:
         vvp "$output_dir/source-selector"
     done
     "{{python}}" tests/rtl/selector_chains.py
+    iverilog -g2012 -Wall -s mdma_fifo_write_mux_tb -o "$output_dir/fifo-write-mux" \
+        src/gateware/mdma_fifo_write_mux.v tests/rtl/mdma_fifo_write_mux_tb.v
+    vvp "$output_dir/fifo-write-mux"
 
 alu-measure *args:
     "{{python}}" src/gateware/alu/measure.py {{args}}
@@ -79,6 +82,9 @@ source-selector-measure *args:
 
 selector-chain-measure *args:
     "{{python}}" src/gateware/selector_chain_measure.py {{args}}
+
+fifo-write-mux-measure *args:
+    "{{python}}" src/gateware/fifo_write_mux_measure.py {{args}}
 
 qbe-build:
     mkdir -p build
