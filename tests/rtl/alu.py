@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'src/gateware/alu'))
 sys.path.insert(0, str(ROOT / 'src/simulator'))
 from measure import DIVIDERS, Divider, divider_defaults, isa_units, isolated_top
+from integration_measure import BufferedUnit
 from mdma import SOURCE_BY_NAME
 from simulator import Simulator
 from simulator_core import MASK, SimulationError
@@ -77,7 +78,7 @@ def run(work, top, unit, sources, defines=()):
     return executable
 
 
-def test_fu(work, unit, reference, mode, divider=None):
+def write_dut(work, unit, reference, mode, divider=None):
     vectors = list(reference_vectors(unit, reference))
     (work / 'vectors.hex').write_text(''.join(f'{value:x}\n' for value in vectors))
     input_bits = sum(width for _, width in unit.inputs)
@@ -91,14 +92,27 @@ module mdma_alu_dut (
     {unit.instantiate(mode, 'clk', 'drive', 'observed', divider)}
 endmodule
 """)
+    return [f'-DSINKS={len(unit.sinks)}', f'-DSOURCES={len(unit.sources)}',
+            f'-DREQUESTS={len(vectors)}']
+
+
+def test_fu(work, unit, reference, mode, divider=None):
+    defines = write_dut(work, unit, reference, mode, divider)
     if mode == 'pipelined':
         latency = (divider or divider_defaults(unit.family)[0]).latency
     else:
         latency = int(mode == 'registered')
-    defines = [f'-DSINKS={len(unit.sinks)}', f'-DSOURCES={len(unit.sources)}',
-               f'-DREQUESTS={len(vectors)}', f'-DLATENCY={latency}']
+    defines.append(f'-DLATENCY={latency}')
     executable = run(work, 'mdma_alu_tb', unit, ['dut.v', ROOT / 'tests/rtl/mdma_alu_tb.v'], defines)
     subprocess.run(['vvp', executable, '+timing'], check=True, cwd=work)
+
+
+def test_buffered_fu(work, unit, reference, mode, divider=None):
+    fixture = BufferedUnit(unit.name, unit.family, unit.sinks, unit.sources)
+    defines = write_dut(work, fixture, reference, mode, divider)
+    executable = run(work, 'mdma_alu_fifo_tb', fixture,
+                     ['dut.v', ROOT / 'tests/rtl/mdma_alu_fifo_tb.v'], defines)
+    subprocess.run(['vvp', executable, '+stream'], check=True, cwd=work)
 
 
 def test_scan(work, unit, registered):
@@ -174,13 +188,15 @@ def main():
                 modes.append('pipelined')
             for mode in modes:
                 test_fu(work, unit, reference, mode)
+                test_buffered_fu(work, unit, reference, mode)
                 if name == 'ARITH_A':
                     test_scan(work, unit, mode == 'registered')
             if unit.family in DIVIDERS:
                 # Exercise the carry-select datapath and explicit sign input cut.
                 alternative = Divider(tuple(range(4, 65, 4)), unit.family == 'DIVS', 16)
                 test_fu(work, unit, reference, 'pipelined', alternative)
-            print(f'{name}: {", ".join(modes)} passed', flush=True)
+                test_buffered_fu(work, unit, reference, 'pipelined', alternative)
+            print(f'{name}: direct and buffered {", ".join(modes)} passed', flush=True)
 
 
 if __name__ == '__main__':

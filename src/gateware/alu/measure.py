@@ -197,7 +197,8 @@ def clock_path(report, clock):
 def in_fu_boundary(path):
     cells = {step[endpoint]['cell'] for step in path['path'] for endpoint in ('from', 'to')}
     # The packer inserts feed-through cells for FU carry chains.
-    prefixes = ('launch_', 'capture_', 'fu.', 'fu_output_', '$nextpnr_CCU2C_')
+    prefixes = ('launch_', 'capture_', 'fu.', 'fu_output_', 'fu_inputs_', 'fu_results_',
+                'fu_queues.', '$nextpnr_CCU2C_')
     return all(cell.startswith(prefixes) for cell in cells)
 
 

@@ -88,6 +88,22 @@ The runner writes Markdown and JSON reports, tool logs, and bitstreams under
 times are wall-clock measurements. The FU Fmax values describe isolated
 builds on the ECP5 -8 device.
 
+### Four-entry FIFO integration
+
+`just rtl-test` also connects each ALU to a four-entry LUT RAM FIFO on
+every operand and one four-entry result FIFO. Each result entry contains
+the sibling words and their valid bits. Taking any valid sibling retires
+the entire entry, including a fault entry. Operands queue independently,
+then enter the ALU as a complete group.
+
+`just alu-integration-measure` builds the direct ALU and the buffered
+fixture with the same pin harness and placement settings. Each comparison
+reports routed Fmax, the critical path, Yosys LUT4 usage, unique final
+routed wire segments, and resource and synthesis-time deltas. Timing is
+characterized for the isolated path. Reports and bitstreams go under
+`build/rtl/alu-integration`. Use `--include-divider-baselines` to also
+measure the original registered and passthrough divider modes.
+
 ### Divider depth search
 
 The selected cuts and placement seeds live in `mdma_div_config.vh`. The

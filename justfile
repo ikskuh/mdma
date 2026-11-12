@@ -62,6 +62,9 @@ rtl-test:
 alu-measure *args:
     "{{python}}" src/gateware/alu/measure.py {{args}}
 
+alu-integration-measure *args:
+    "{{python}}" src/gateware/alu/integration_measure.py {{args}}
+
 fifo-measure *args:
     "{{python}}" src/gateware/fifo_measure.py {{args}}
 
