@@ -46,12 +46,22 @@ rtl-test:
         src/gateware/mdma_fifo.v src/gateware/alu/mdma_arith.v \
         src/gateware/alu/mdma_alu_result.v tests/rtl/mdma_fifo_tb.v
     vvp "$output_dir/fifo-fu"
+    for shape in 64x2 64x4 64x6 1x1 17x3 65x2; do
+        iverilog -g2012 -Wall -s mdma_sink_selector_tb -o "$output_dir/selector" \
+            -Pmdma_sink_selector_tb.WIDTH="${shape%x*}" \
+            -Pmdma_sink_selector_tb.SELECT_BITS="${shape#*x}" \
+            src/gateware/mdma_sink_selector.v tests/rtl/mdma_sink_selector_tb.v
+        vvp "$output_dir/selector"
+    done
 
 alu-measure *args:
     "{{python}}" src/gateware/alu/measure.py {{args}}
 
 fifo-measure *args:
     "{{python}}" src/gateware/fifo_measure.py {{args}}
+
+selector-measure *args:
+    "{{python}}" src/gateware/selector_measure.py {{args}}
 
 qbe-build:
     mkdir -p build

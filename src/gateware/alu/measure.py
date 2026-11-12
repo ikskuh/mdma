@@ -98,7 +98,7 @@ class Unit:
 
 
 def instantiate_ports(unit, module, params, clock, input_bus, output_bus):
-    ports = [f'.clk({clock})']
+    ports = [f'.clk({clock})'] if clock is not None else []
     for bus, fields in ((input_bus, unit.inputs), (output_bus, unit.outputs)):
         bit = 0
         for name, width in fields:
@@ -122,31 +122,55 @@ def isa_units():
     return units
 
 
-def isolated_top(unit, mode, divider=None):
+def isolated_top(unit, mode, divider=None, *, capture_lanes=None):
     input_bits = sum(width for _, width in unit.inputs)
     output_bits = sum(width for _, width in unit.outputs)
+    scan_bits = input_bits
+    launch_input = 'scan_input'
+    capture_type = 'reg'
+    capture_statement = '        capture <= fu_output;'
+    capture_process = ''
+    if capture_lanes is not None:
+        targets, width = capture_lanes
+        scan_bits += targets
+        launch_input = f'scan_input[0 +: {input_bits}]'
+        capture_type = 'wire'
+        capture_statement = ''
+        capture_process = f'''
+    // Use native enables and keep the measured cone on DI. Inferred flops
+    // can absorb the selector's data-or-zero mux into their reset logic.
+    for (genvar lane = 0; lane < {targets}; lane = lane + 1) begin : capture_receiver
+        for (genvar bit_index = 0; bit_index <= {width}; bit_index = bit_index + 1) begin : capture_lane
+            localparam INDEX = bit_index == {width} ? {targets*width}+lane : lane*{width}+bit_index;
+            TRELLIS_FF #(.CEMUX("CE")) capture_bit (
+                .CLK(fu_clk), .CE(scan_input[{input_bits}+lane]), .LSR(1'b0),
+                .DI(fu_output[INDEX]), .Q(capture[INDEX])
+            );
+        end
+    end
+'''
     return f'''
 module mdma_alu_measure (
     input wire fu_clk, scan_clk, scan_in, scan_load,
     output wire scan_out
 );
-    reg [{input_bits-1}:0] scan_input;
+    reg [{scan_bits-1}:0] scan_input;
     reg [{output_bits-1}:0] scan_output;
     (* keep *) reg [{input_bits-1}:0] launch;
-    (* keep *) reg [{output_bits-1}:0] capture;
+    (* keep *) {capture_type} [{output_bits-1}:0] capture;
     wire [{output_bits-1}:0] fu_output;
 
     always @(posedge scan_clk) begin
-        scan_input <= {{scan_input[{input_bits-2}:0], scan_in}};
+        scan_input <= {{scan_input[{scan_bits-2}:0], scan_in}};
         scan_output <= scan_load ? capture : {{scan_output[{output_bits-2}:0], 1'b0}};
     end
     assign scan_out = scan_output[{output_bits-1}];
 
     always @(posedge fu_clk) begin
-        launch <= scan_input;
-        capture <= fu_output;
+        launch <= {launch_input};
+{capture_statement}
     end
-
+{capture_process}
     {unit.instantiate(mode, 'fu_clk', 'launch', 'fu_output', divider)}
 endmodule
 '''
@@ -187,17 +211,21 @@ def build(unit, mode, output, timeout, divider=None, seed=1):
     return build_isolated(unit, mode, output, timeout, result, divider, min_mhz=MIN_MHZ)
 
 
-def synth_cells(work):
+def synth_module(work):
     netlist = json.loads((work / 'netlist.json').read_text())
-    return netlist['modules']['mdma_alu_measure']['cells']
+    return netlist['modules']['mdma_alu_measure']
 
 
-def build_isolated(unit, mode, output, timeout, result, config=None, *, min_mhz=None):
+def synth_cells(work):
+    return synth_module(work)['cells']
+
+
+def build_isolated(unit, mode, output, timeout, result, config=None, *, min_mhz=None, capture_lanes=None):
     work = output / unit.name / mode
     work.mkdir(parents=True, exist_ok=True)
     for filename in ('netlist.json', 'route.json', 'design.config', 'design.bit'):
         (work / filename).unlink(missing_ok=True)
-    (work / 'top.v').write_text(isolated_top(unit, mode, config))
+    (work / 'top.v').write_text(isolated_top(unit, mode, config, capture_lanes=capture_lanes))
     stages = [
         ('synth', ['yosys', '-Q', '-T', '-p',
                    f'read_verilog -sv -I"{HERE}" ' + ' '.join(f'"{path}"' for path in unit.rtl)

@@ -17,12 +17,15 @@
 - Test, synthesize, place, and route every individual component in
   isolation. Expose its inputs and outputs as top-level pins in the
   isolated build so synthesis keeps the full unit live.
-- Record synthesis and placement metrics at every integration level,
-  from isolated components through subsystems to the complete design.
-- For each changed unit, report resource usage by resource type, routed
-  Fmax, and synthesis time. Use matching build settings for the baseline
-  and the new version. Report the old and new absolute values, then the
-  signed absolute and percentage changes. Example format is
+- Record synthesis, placement, and routing metrics at every integration
+  level, from isolated components through subsystems to the complete design.
+- For each changed unit, report routed Fmax, synthesis time, and resource
+  usage by type. Explicitly include LUT usage and the number of unique
+  physical wire segments used in the final route. State the source of each
+  count and include device utilization percentages when totals are available.
+  Use matching build settings and counting methods for the baseline and the
+  new version. Report the old and new absolute values, then the signed
+  absolute and percentage changes. Example format is
   `old 20, new 40, delta +20 (+100%)`. Mark the percentage change as
   undefined when the old value is zero.
 - Acceptance requires successful placement and routing of the solution
