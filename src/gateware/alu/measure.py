@@ -220,10 +220,28 @@ def synth_cells(work):
     return synth_module(work)['cells']
 
 
-def build_isolated(unit, mode, output, timeout, result, config=None, *, min_mhz=None, capture_lanes=None):
+def routed_wires(work):
+    """Count unique physical wires from nextpnr wire/pip/strength triples."""
+    netlist = json.loads((work / 'routed.json').read_text())
+    wires = set()
+    for module in netlist['modules'].values():
+        for net in module['netnames'].values():
+            route = net.get('attributes', {}).get('ROUTING', '').strip()
+            if route:
+                fields = route.split(';')
+                if len(fields) % 3 != 0 or not all(fields[::3]):
+                    raise ValueError('invalid nextpnr ROUTING triples')
+                wires.update(fields[::3])
+    if not wires:
+        raise ValueError('nextpnr exported no routed wires')
+    return len(wires)
+
+
+def build_isolated(unit, mode, output, timeout, result, config=None, *, min_mhz=None,
+                   capture_lanes=None, count_wires=False):
     work = output / unit.name / mode
     work.mkdir(parents=True, exist_ok=True)
-    for filename in ('netlist.json', 'route.json', 'design.config', 'design.bit'):
+    for filename in ('netlist.json', 'route.json', 'routed.json', 'design.config', 'design.bit'):
         (work / filename).unlink(missing_ok=True)
     (work / 'top.v').write_text(isolated_top(unit, mode, config, capture_lanes=capture_lanes))
     stages = [
@@ -233,7 +251,8 @@ def build_isolated(unit, mode, output, timeout, result, config=None, *, min_mhz=
         ('route', ['nextpnr-ecp5', '--um5g-85k', '--package', 'CABGA381', '--speed', '8',
                    '--seed', str(result['seed']), '--freq', str(MIN_MHZ),
                    '--timing-allow-fail', '--lpf-allow-unconstrained',
-                   '--json', 'netlist.json', '--report', 'route.json', '--textcfg', 'design.config']),
+                   '--json', 'netlist.json', '--report', 'route.json', '--textcfg', 'design.config',
+                   *(['--write', 'routed.json'] if count_wires else [])]),
         ('pack', ['ecppack', 'design.config', 'design.bit']),
     ]
     for stage, command in stages:
@@ -256,6 +275,12 @@ def build_isolated(unit, mode, output, timeout, result, config=None, *, min_mhz=
         if stage == 'route':
             report = json.loads((work / 'route.json').read_text())
             result['resources'] = {key: item['used'] for key, item in report['utilization'].items()}
+            if count_wires:
+                result['resource_capacity'] = {key: item['available'] for key, item in report['utilization'].items()}
+                try:
+                    result['routed_wires'] = routed_wires(work)
+                except (OSError, ValueError) as error:
+                    result['mapping_failure'] = f'could not count final routed wires ({error})'
             for clock, timing in report['fmax'].items():
                 if 'scan_clk' in clock:
                     result['scan_fmax_mhz'] = timing['achieved']
@@ -343,13 +368,13 @@ def report_row(unit, modes, builds, keys):
     return '| ' + ' | '.join(cells + metric_cells(items, keys)) + ' |'
 
 
-def metric_cells(items, keys):
+def metric_cells(items, keys, extra_metrics=()):
 
     def format_values(values):
         return comparison(*values) if len(values) == 2 else str(values[0]) if values[0] is not None else '—'
 
     cells = []
-    for key in ('fmax_mhz', 'scan_fmax_mhz', 'synth_seconds'):
+    for key in ('fmax_mhz', 'scan_fmax_mhz', 'synth_seconds', *extra_metrics):
         cells.append(format_values([round(item[key], 3) if key in item else None for item in items]))
     for key in keys:
         cells.append(format_values([item['resources'].get(key, 0) if 'resources' in item else None

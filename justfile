@@ -52,6 +52,11 @@ rtl-test:
             -Pmdma_sink_selector_tb.SELECT_BITS="${shape#*x}" \
             src/gateware/mdma_sink_selector.v tests/rtl/mdma_sink_selector_tb.v
         vvp "$output_dir/selector"
+        iverilog -g2012 -Wall -s mdma_source_selector_tb -o "$output_dir/source-selector" \
+            -Pmdma_source_selector_tb.WIDTH="${shape%x*}" \
+            -Pmdma_source_selector_tb.SELECT_BITS="${shape#*x}" \
+            src/gateware/mdma_source_selector.v tests/rtl/mdma_source_selector_tb.v
+        vvp "$output_dir/source-selector"
     done
 
 alu-measure *args:
@@ -62,6 +67,9 @@ fifo-measure *args:
 
 selector-measure *args:
     "{{python}}" src/gateware/selector_measure.py {{args}}
+
+source-selector-measure *args:
+    "{{python}}" src/gateware/source_selector_measure.py {{args}}
 
 qbe-build:
     mkdir -p build

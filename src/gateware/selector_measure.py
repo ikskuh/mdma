@@ -68,20 +68,24 @@ def measure(selector, mode, output, timeout, seed):
 
 
 def audit_capture(selector, module):
+    return audit_capture_lanes(module, selector.width + selector.select_bits,
+                               selector.targets, selector.width)
+
+
+def audit_capture_lanes(module, launch_width, targets, width):
     nets = module['netnames']
     capture = nets['capture']['bits']
-    launch_width = selector.width + selector.select_bits
     enables = nets['scan_input']['bits'][launch_width:]
     clock = module['ports']['fu_clk']['bits']
     flops = {cell['connections']['Q'][0]: cell for cell in module['cells'].values()
              if cell['type'] == 'TRELLIS_FF'}
-    data_count = selector.targets * selector.width
-    if len(set(capture)) != data_count + selector.targets or len(set(enables)) != selector.targets:
+    data_count = targets * width
+    if len(set(capture)) != data_count + targets or len(set(enables)) != targets:
         raise ValueError('synthesis merged independent receiver captures or enables')
 
     inputs = []
     for index, bit in enumerate(capture):
-        target = index // selector.width if index < data_count else index - data_count
+        target = index // width if index < data_count else index - data_count
         cell = flops.get(bit)
         if cell is None or cell['parameters'].get('CEMUX') != 'CE':
             raise ValueError(f'target {target} lost a dedicated capture flop with native enable')
@@ -93,7 +97,7 @@ def audit_capture(selector, module):
     return inputs
 
 
-def mapped_logic(module, outputs):
+def mapped_logic(module, outputs, *, require_all_inputs=False):
     """Fingerprint the mapped selector cone, excluding scan and capture logic."""
     launch = {bit: index for index, bit in enumerate(module['netnames']['launch']['bits'])}
     drivers = {}
@@ -104,10 +108,12 @@ def mapped_logic(module, outputs):
                     drivers[bit] = (name, cell, port)
 
     used = set()
+    used_inputs = set()
 
     @cache
     def fingerprint(bit):
         if bit in launch:
+            used_inputs.add(bit)
             return f'input {launch[bit]}'
         if isinstance(bit, str):
             return f'constant {bit}'
@@ -123,6 +129,8 @@ def mapped_logic(module, outputs):
         return sha256(json.dumps(logic, sort_keys=True).encode()).hexdigest()
 
     signature = [fingerprint(bit) for bit in outputs]
+    if require_all_inputs and len(used_inputs) != len(launch):
+        raise ValueError(f'only {len(used_inputs)} of {len(launch)} launched bits reach the selector outputs')
     counts = {}
     for name in used:
         kind = module['cells'][name]['type']
@@ -131,19 +139,34 @@ def mapped_logic(module, outputs):
     return digest, counts
 
 
-def render_report(results):
+def render_report(results, *, kind='sink', baseline='data-mux', physical_counts=False):
     keys = sorted({key for row in results for key, used in row.get('resources', {}).items() if used})
-    rows = ['# Isolated ECP5 sink selector measurements', '',
+    metrics = ('synth_lut4', 'routed_wires') if physical_counts else ()
+    extra = ' | Synth LUT4 | Routed wires' if physical_counts else ''
+    rows = [f'# Isolated ECP5 {kind} selector measurements', '',
             'Timing is characterized without a frequency floor. Resource totals include the harness.',
-            'Comparisons give direct data mux baseline → candidate (raw delta, percentage delta).', '',
-            '| Selector | Mode | FU MHz | Scan MHz | Synthesis seconds | ' + ' | '.join(keys) + ' | Build |',
-            '| --- | --- | ---: | ---: | ---: | ' + ' | '.join(['---:'] * len(keys)) + ' | --- |']
-    baselines = {row['unit']: row for row in results if row['mode'] == 'data-mux'}
+            f'Comparisons give {baseline} baseline → candidate (raw delta, percentage delta).']
+    if physical_counts:
+        rows.append('LUT4 counts come from Yosys. Wire counts are unique wire names in nextpnr final '
+                    'ROUTING attributes. Routed resource counts and capacities come from nextpnr.')
+    rows.extend(['', '| Selector | Mode | FU MHz | Scan MHz | Synthesis seconds' + extra
+                 + ' | ' + ' | '.join(keys) + ' | Build |',
+                 '| --- | --- | ---: | ---: | ---: | '
+                 + ' | '.join(['---:'] * (len(metrics) + len(keys))) + ' | --- |'])
+    baselines = {row['unit']: row for row in results if row['mode'] == baseline}
     for result in results:
         unit, mode = result['unit'], result['mode']
-        items = [result] if mode == 'data-mux' else [baselines[unit], result]
-        label = mode if mode == 'data-mux' else f'data-mux → {mode}'
-        rows.append('| ' + ' | '.join([unit, label] + metric_cells(items, keys)) + ' |')
+        items = [result] if mode == baseline else [baselines[unit], result]
+        label = mode if mode == baseline else f'{baseline} → {mode}'
+        rows.append('| ' + ' | '.join([unit, label] + metric_cells(items, keys, metrics)) + ' |')
+    if physical_counts:
+        rows.extend(['', '## Device utilization', '', '| Selector | Mode | Resources |', '| --- | --- | --- |'])
+        for result in results:
+            capacities = result.get('resource_capacity', {})
+            usage = ', '.join(f'{key} {count:,}/{capacities[key]:,} ({100*count/capacities[key]:.2f}%)'
+                              for key, count in sorted(result.get('resources', {}).items())
+                              if count and capacities.get(key))
+            rows.append(f"| {result['unit']} | {result['mode']} | {usage} |")
     rows.extend(['', '## Mapped selector logic', '',
                  '| Selector | Mode | Cells in selector cone | Capture flops |',
                  '| --- | --- | --- | ---: |'])
