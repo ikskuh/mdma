@@ -2,7 +2,8 @@
 module mdma_fifo #(
     parameter integer IMPLEMENTATION = 0,
     parameter integer DEPTH = 4,
-    parameter integer WIDTH = 64
+    parameter integer WIDTH = 64,
+    parameter integer BYPASS = 1
 ) (
     input wire clk,
     input wire reset,
@@ -25,7 +26,8 @@ module mdma_fifo #(
     wire [INDEX_BITS-1:0] next_write = write_index == LAST ? 0 : write_index + 1'b1;
 
     assign o_out_valid = !reset && used != 0;
-    assign i_in_take = !reset && i_in_valid && (used != CAPACITY || pop);
+    // Full replacement can bypass the capacity check when a pop frees a slot.
+    assign i_in_take = !reset && i_in_valid && (used != CAPACITY || (BYPASS && pop));
 
     always @(posedge clk) begin
         if (reset) begin

@@ -99,10 +99,17 @@ then enter the ALU as a complete group.
 `just alu-integration-measure` builds the direct ALU and the buffered
 fixture with the same pin harness and placement settings. Each comparison
 reports routed Fmax, the critical path, Yosys LUT4 usage, unique final
-routed wire segments, and resource and synthesis-time deltas. Timing is
-characterized for the isolated path. Reports and bitstreams go under
+routed wire segments, and resource and synthesis-time deltas. Production
+modes must meet 65 MHz routed Fmax. Reports and bitstreams go under
 `build/rtl/alu-integration`. Use `--include-divider-baselines` to also
-measure the original registered and passthrough divider modes.
+measure the original registered and passthrough divider modes as timing
+references.
+
+Pass `--compare-bypass` to compare full-FIFO replacement on and off
+for each ALU mode. All operand and result FIFOs in a fixture use the same
+bypass setting. The matrix gives routed MHz, synthesized LUT4s, and
+unique routed wires. The default output directory for this comparison
+is `build/rtl/alu-bypass`.
 
 ### Divider depth search
 

@@ -107,8 +107,8 @@ def test_fu(work, unit, reference, mode, divider=None):
     subprocess.run(['vvp', executable, '+timing'], check=True, cwd=work)
 
 
-def test_buffered_fu(work, unit, reference, mode, divider=None):
-    fixture = BufferedUnit(unit.name, unit.family, unit.sinks, unit.sources)
+def test_buffered_fu(work, unit, reference, mode, divider=None, *, bypass=True):
+    fixture = BufferedUnit(unit.name, unit.family, unit.sinks, unit.sources, bypass)
     defines = write_dut(work, fixture, reference, mode, divider)
     executable = run(work, 'mdma_alu_fifo_tb', fixture,
                      ['dut.v', ROOT / 'tests/rtl/mdma_alu_fifo_tb.v'], defines)
@@ -188,14 +188,16 @@ def main():
                 modes.append('pipelined')
             for mode in modes:
                 test_fu(work, unit, reference, mode)
-                test_buffered_fu(work, unit, reference, mode)
+                for bypass in (True, False):
+                    test_buffered_fu(work, unit, reference, mode, bypass=bypass)
                 if name == 'ARITH_A':
                     test_scan(work, unit, mode == 'registered')
             if unit.family in DIVIDERS:
                 # Exercise the carry-select datapath and explicit sign input cut.
                 alternative = Divider(tuple(range(4, 65, 4)), unit.family == 'DIVS', 16)
                 test_fu(work, unit, reference, 'pipelined', alternative)
-                test_buffered_fu(work, unit, reference, 'pipelined', alternative)
+                for bypass in (True, False):
+                    test_buffered_fu(work, unit, reference, 'pipelined', alternative, bypass=bypass)
             print(f'{name}: direct and buffered {", ".join(modes)} passed', flush=True)
 
 

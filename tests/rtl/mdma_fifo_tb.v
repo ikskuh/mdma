@@ -1,7 +1,8 @@
 module mdma_fifo_tb #(
     parameter IMPLEMENTATION = 0,
     parameter DEPTH = 4,
-    parameter WIDTH = 64
+    parameter WIDTH = 64,
+    parameter BYPASS = 1
 );
     reg clk = 0;
     reg reset = 0;
@@ -10,7 +11,7 @@ module mdma_fifo_tb #(
     wire input_take, output_valid;
     wire [WIDTH-1:0] output_data;
 
-    mdma_fifo #(.IMPLEMENTATION(IMPLEMENTATION), .DEPTH(DEPTH), .WIDTH(WIDTH)) dut (
+    mdma_fifo #(.IMPLEMENTATION(IMPLEMENTATION), .DEPTH(DEPTH), .WIDTH(WIDTH), .BYPASS(BYPASS)) dut (
         .clk(clk), .reset(reset),
         .i_in_data(input_data), .i_in_valid(input_valid), .i_in_take(input_take),
         .o_out_data(output_data), .o_out_valid(output_valid), .o_out_take(output_take)
@@ -52,7 +53,7 @@ module mdma_fifo_tb #(
             #1;
             check_head;
             accepted_pop = !clear && take && count != 0;
-            accepted_push = !clear && valid && (count < DEPTH || accepted_pop);
+            accepted_push = !clear && valid && (count < DEPTH || (BYPASS && accepted_pop));
             if (input_take !== accepted_push)
                 $fatal(1, "wrong input take at occupancy %0d", count);
 
@@ -91,9 +92,13 @@ module mdma_fifo_tb #(
             cycle(1, pattern(index + 5), 0, 0);
         cycle(1, pattern(10), 0, 0); // Full and stalled.
         cycle(1, pattern(10), 1, 0);
+        if (!BYPASS)
+            cycle(1, pattern(10), 1, 0); // Retry after the full FIFO pops.
         for (integer index = 0; index < DEPTH * 5; index = index + 1)
             cycle(1, pattern(index + 20), 1, 0);
-        cycle(1, pattern(11), 1, 1); // Reset a full FIFO with a request on each port.
+        if (!BYPASS)
+            cycle(1, pattern(11), 0, 0); // Refill the slot left by the first pop.
+        cycle(1, pattern(12), 1, 1); // Reset a full FIFO with a request on each port.
         cycle(0, '0, 1, 0);
         cycle(1, pattern(12), 0, 0);
         cycle(0, '0, 0, 0);
@@ -112,7 +117,7 @@ module mdma_fifo_tb #(
         cycle(pending, pending_data, 1, 0);
         repeat (DEPTH + 1)
             cycle(0, '0, 1, 0);
-        $display("FIFO implementation %0d, %0dx%0d passed", IMPLEMENTATION, WIDTH, DEPTH);
+        $display("FIFO implementation %0d, %0dx%0d, bypass %0d passed", IMPLEMENTATION, WIDTH, DEPTH, BYPASS);
         $finish;
     end
 endmodule

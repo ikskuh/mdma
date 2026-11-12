@@ -35,11 +35,13 @@ rtl-test:
     "{{python}}" tests/rtl/alu.py
     for implementation in 0 1 2; do
         for shape in 64x4 64x5 64x8 64x16 64x32 64x64 128x8 1x8; do
-            iverilog -g2012 -Wall -s mdma_fifo_tb -o "$output_dir/fifo" \
-                -Pmdma_fifo_tb.IMPLEMENTATION="$implementation" \
-                -Pmdma_fifo_tb.WIDTH="${shape%x*}" -Pmdma_fifo_tb.DEPTH="${shape#*x}" \
-                src/gateware/mdma_fifo.v tests/rtl/mdma_fifo_tb.v
-            vvp "$output_dir/fifo"
+            for bypass in 0 1; do
+                iverilog -g2012 -Wall -s mdma_fifo_tb -o "$output_dir/fifo" \
+                    -Pmdma_fifo_tb.IMPLEMENTATION="$implementation" -Pmdma_fifo_tb.BYPASS="$bypass" \
+                    -Pmdma_fifo_tb.WIDTH="${shape%x*}" -Pmdma_fifo_tb.DEPTH="${shape#*x}" \
+                    src/gateware/mdma_fifo.v tests/rtl/mdma_fifo_tb.v
+                vvp "$output_dir/fifo"
+            done
         done
     done
     iverilog -g2012 -Wall -s mdma_fifo_fu_tb -o "$output_dir/fifo-fu" \

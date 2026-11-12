@@ -15,9 +15,11 @@ whole group of simultaneous FU results.
 
 A push or pop transfers on the rising clock edge when that port's valid
 and take signals are both high. An empty queue presents the first pushed
-word after the accepting edge. Its head stays stable until taken. A full
-queue can accept a push on the edge that pops the old head. The output
-data is unspecified while its valid signal is low.
+word after the accepting edge. Its head stays stable until taken. With
+`BYPASS=1` (default), a full queue can accept a push on the edge that pops
+the old head. With `BYPASS=0`, a full queue accepts the next push only
+after a pop has opened space. The output data is unspecified while its
+valid signal is low.
 
 Reset suppresses transfers and clears the pointers and occupancy on the
 rising edge. The block RAM variant reads the next head on a pop. If the

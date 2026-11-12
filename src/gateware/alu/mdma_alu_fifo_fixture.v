@@ -3,7 +3,8 @@
 module mdma_alu_fifo_fixture #(
     parameter integer SINKS = 1,
     parameter integer SOURCES = 1,
-    parameter integer STORAGE = 1
+    parameter integer STORAGE = 1,
+    parameter integer FIFO_BYPASS = 1
 ) (
     input wire clk,
     input wire [65*SINKS+SOURCES:0] drive,
@@ -17,7 +18,7 @@ module mdma_alu_fifo_fixture #(
     for (genvar lane = 0; lane < SINKS; lane = lane + 1) begin : operands
         localparam integer DATA = 1 + 65*lane;
         localparam integer VALID = DATA + 64;
-        mdma_fifo #(.IMPLEMENTATION(STORAGE), .DEPTH(4), .WIDTH(64)) input_fifo (
+        mdma_fifo #(.IMPLEMENTATION(STORAGE), .DEPTH(4), .WIDTH(64), .BYPASS(FIFO_BYPASS)) input_fifo (
             .clk(clk), .reset(reset),
             .i_in_data(drive[DATA +: 64]), .i_in_valid(drive[VALID]), .i_in_take(observed[lane]),
             .o_out_data(alu_inputs[DATA +: 64]), .o_out_valid(alu_inputs[VALID]),
@@ -38,7 +39,7 @@ module mdma_alu_fifo_fixture #(
         assign retire[lane] = drive[TAKE] && observed[DATA+64];
     end
 
-    mdma_fifo #(.IMPLEMENTATION(STORAGE), .DEPTH(4), .WIDTH(65*SOURCES)) output_fifo (
+    mdma_fifo #(.IMPLEMENTATION(STORAGE), .DEPTH(4), .WIDTH(65*SOURCES), .BYPASS(FIFO_BYPASS)) output_fifo (
         .clk(clk), .reset(reset),
         .i_in_data(alu_outputs[SINKS +: 65*SOURCES]), .i_in_valid(|result_valid), .i_in_take(group_push),
         .o_out_data(head), .o_out_valid(group_valid), .o_out_take(|retire)
