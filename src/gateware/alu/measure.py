@@ -122,9 +122,15 @@ def isa_units():
     return units
 
 
-def isolated_top(unit, mode, divider=None, *, capture_lanes=None):
+def isolated_top(unit, mode, divider=None, *, capture_lanes=None, indexed_readback=False):
     input_bits = sum(width for _, width in unit.inputs)
     output_bits = sum(width for _, width in unit.outputs)
+    scan_output_size = output_bits
+    scan_read = f"        scan_output <= scan_load ? capture : {{scan_output[{output_bits-2}:0], 1'b0}};"
+    if indexed_readback:
+        scan_output_size = 1
+        address_bits = (output_bits - 1).bit_length()
+        scan_read = f'        if (scan_load) scan_output <= capture[scan_input[0 +: {address_bits}]];'
     scan_bits = input_bits
     launch_input = 'scan_input'
     capture_type = 'reg'
@@ -132,6 +138,7 @@ def isolated_top(unit, mode, divider=None, *, capture_lanes=None):
     capture_process = ''
     if capture_lanes is not None:
         targets, width = capture_lanes
+        grouped_bits = targets * (width + 1)
         scan_bits += targets
         launch_input = f'scan_input[0 +: {input_bits}]'
         capture_type = 'wire'
@@ -149,22 +156,32 @@ def isolated_top(unit, mode, divider=None, *, capture_lanes=None):
         end
     end
 '''
+        if output_bits > grouped_bits:
+            capture_process += f'''
+    for (genvar bit_index = {grouped_bits}; bit_index < {output_bits}; bit_index = bit_index + 1)
+        begin : capture_boundary
+        TRELLIS_FF #(.CEMUX("CE")) capture_bit (
+            .CLK(fu_clk), .CE(1'b1), .LSR(1'b0),
+            .DI(fu_output[bit_index]), .Q(capture[bit_index])
+        );
+    end
+'''
     return f'''
 module mdma_alu_measure (
     input wire fu_clk, scan_clk, scan_in, scan_load,
     output wire scan_out
 );
     reg [{scan_bits-1}:0] scan_input;
-    reg [{output_bits-1}:0] scan_output;
+    reg [{scan_output_size-1}:0] scan_output;
     (* keep *) reg [{input_bits-1}:0] launch;
     (* keep *) {capture_type} [{output_bits-1}:0] capture;
     wire [{output_bits-1}:0] fu_output;
 
     always @(posedge scan_clk) begin
         scan_input <= {{scan_input[{scan_bits-2}:0], scan_in}};
-        scan_output <= scan_load ? capture : {{scan_output[{output_bits-2}:0], 1'b0}};
+{scan_read}
     end
-    assign scan_out = scan_output[{output_bits-1}];
+    assign scan_out = scan_output[{scan_output_size-1}];
 
     always @(posedge fu_clk) begin
         launch <= {launch_input};
@@ -239,12 +256,13 @@ def routed_wires(work):
 
 
 def build_isolated(unit, mode, output, timeout, result, config=None, *, min_mhz=None,
-                   capture_lanes=None, count_wires=False):
+                   capture_lanes=None, count_wires=False, indexed_readback=False):
     work = output / unit.name / mode
     work.mkdir(parents=True, exist_ok=True)
     for filename in ('netlist.json', 'route.json', 'routed.json', 'design.config', 'design.bit'):
         (work / filename).unlink(missing_ok=True)
-    (work / 'top.v').write_text(isolated_top(unit, mode, config, capture_lanes=capture_lanes))
+    (work / 'top.v').write_text(isolated_top(unit, mode, config, capture_lanes=capture_lanes,
+                                            indexed_readback=indexed_readback))
     stages = [
         ('synth', ['yosys', '-Q', '-T', '-p',
                    f'read_verilog -sv -I"{HERE}" ' + ' '.join(f'"{path}"' for path in unit.rtl)

@@ -60,6 +60,7 @@ rtl-test:
             src/gateware/mdma_source_selector.v tests/rtl/mdma_source_selector_tb.v
         vvp "$output_dir/source-selector"
     done
+    "{{python}}" tests/rtl/selector_chains.py
 
 alu-measure *args:
     "{{python}}" src/gateware/alu/measure.py {{args}}
@@ -75,6 +76,9 @@ selector-measure *args:
 
 source-selector-measure *args:
     "{{python}}" src/gateware/source_selector_measure.py {{args}}
+
+selector-chain-measure *args:
+    "{{python}}" src/gateware/selector_chain_measure.py {{args}}
 
 qbe-build:
     mkdir -p build

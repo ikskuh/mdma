@@ -111,6 +111,9 @@ bypass setting. The matrix gives routed MHz, synthesized LUT4s, and
 unique routed wires. The default output directory for this comparison
 is `build/rtl/alu-bypass`.
 
+The [selector-chain fixtures](selector-chain-rtl.md) extend this measurement
+to full-width sink and source selectors around UOP and the FIFOs.
+
 ### Divider depth search
 
 The selected cuts and placement seeds live in `mdma_div_config.vh`. The

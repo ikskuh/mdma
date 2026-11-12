@@ -45,14 +45,14 @@ class SourceSelector:
         return instantiate_ports(self, 'mdma_source_selector', params, None, input_bus, output_bus)
 
 
-def audit_launch(module, width):
+def audit_launch(module, width, enable_count=1):
     nets = module['netnames']
     launch = nets['launch']['bits']
     scan = nets['scan_input']['bits']
     clock = module['ports']['fu_clk']['bits']
     flops = {cell['connections']['Q'][0]: cell['connections'] for cell in module['cells'].values()
              if cell['type'] == 'TRELLIS_FF'}
-    if len(launch) != width or len(set(launch)) != width or len(set(scan)) != width + 1:
+    if len(launch) != width or len(set(launch)) != width or len(set(scan)) != width + enable_count:
         raise ValueError('synthesis merged independent source launch or scan lanes')
     for index, bit in enumerate(launch):
         ports = flops.get(bit, {})

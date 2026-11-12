@@ -74,25 +74,27 @@ def audit_capture(selector, module):
 
 def audit_capture_lanes(module, launch_width, targets, width):
     nets = module['netnames']
+    data_count = targets * width
     capture = nets['capture']['bits']
     enables = nets['scan_input']['bits'][launch_width:]
     clock = module['ports']['fu_clk']['bits']
     flops = {cell['connections']['Q'][0]: cell for cell in module['cells'].values()
              if cell['type'] == 'TRELLIS_FF'}
-    data_count = targets * width
-    if len(set(capture)) != data_count + targets or len(set(enables)) != targets:
+    if (len(capture) < data_count + targets or len(set(capture)) != len(capture)
+            or len(set(enables)) != targets):
         raise ValueError('synthesis merged independent receiver captures or enables')
 
     inputs = []
     for index, bit in enumerate(capture):
         target = index // width if index < data_count else index - data_count
+        enable = enables[target] if target < targets else '1'
         cell = flops.get(bit)
         if cell is None or cell['parameters'].get('CEMUX') != 'CE':
-            raise ValueError(f'target {target} lost a dedicated capture flop with native enable')
+            raise ValueError(f'capture bit {index} lost a dedicated flop with native enable')
         ports = cell['connections']
-        if (ports.get('CE') != [enables[target]] or ports.get('CLK') != clock
+        if (ports.get('CE') != [enable] or ports.get('CLK') != clock
                 or ports.get('LSR') != ['0']):
-            raise ValueError(f'target {target} capture has unexpected clock, enable, or reset logic')
+            raise ValueError(f'capture bit {index} has unexpected clock, enable, or reset logic')
         inputs.append(ports['DI'][0])
     return inputs
 
